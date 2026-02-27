@@ -11,6 +11,8 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://postgresql.org)
 
+![S2G Run Landing Page](https://i.imgur.com/NAU0zmn.png)
+
 ---
 
 [Quickstart](#-quickstart) • [Features](#-features) • [Screenshots](#-screenshots) • [Setup Guide](#-detailed-setup-guide) • [OpenClaw AI](#-openclaw--ai-agent-integration) • [Custom Nodes](#-custom-nodes) • [Architecture](#-architecture) • [Contributing](#-contributing)
@@ -93,7 +95,7 @@ Pre-loaded node library covering common automation tasks:
 
 ---
 
-## � Screenshots
+## Screenshots
 
 ### AI Orchestration
 ![AI Orchestration](https://i.imgur.com/oEb6QnX.png)
@@ -118,7 +120,7 @@ Pre-loaded node library covering common automation tasks:
 
 ---
 
-## �📖 Detailed Setup Guide
+## 📖 Detailed Setup Guide
 
 ### Prerequisites
 
