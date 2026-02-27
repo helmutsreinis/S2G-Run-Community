@@ -13,7 +13,7 @@
 
 ---
 
-[Quickstart](#-quickstart) • [Features](#-features) • [Setup Guide](#-detailed-setup-guide) • [OpenClaw AI](#-openclaw--ai-agent-integration) • [Custom Nodes](#-custom-nodes) • [Architecture](#-architecture) • [Contributing](#-contributing)
+[Quickstart](#-quickstart) • [Features](#-features) • [Screenshots](#-screenshots) • [Setup Guide](#-detailed-setup-guide) • [OpenClaw AI](#-openclaw--ai-agent-integration) • [Custom Nodes](#-custom-nodes) • [Architecture](#-architecture) • [Contributing](#-contributing)
 
 </div>
 
@@ -93,7 +93,32 @@ Pre-loaded node library covering common automation tasks:
 
 ---
 
-## 📖 Detailed Setup Guide
+## � Screenshots
+
+### AI Orchestration
+![AI Orchestration](https://i.imgur.com/oEb6QnX.png)
+
+### Remote Node (Windows/Linux) Devices in Workflows
+![Remote Node Devices in Workflows](https://i.imgur.com/w69YqnS.png)
+
+### OneDrive Folder Monitoring with Excel Sheet Export To JSON
+![OneDrive Folder Monitoring with Excel Sheet Export To JSON](https://i.imgur.com/nHjUxd7.png)
+
+### Copilot Using S2G Nodes as Tools
+![Copilot Using S2G Nodes as Tools](https://i.imgur.com/qzfEQRy.png)
+
+### Creating Vector Documents and Reading with 2 Separate Listeners from Same Workflow
+![Creating Vector Documents and Reading with 2 Separate Listeners](https://i.imgur.com/Ixl7X0j.png)
+
+### SharePoint Docs Converted to JSON and Markdown Using OCR
+![SharePoint Docs Converted to JSON and Markdown Using OCR](https://i.imgur.com/ZnMttqm.png)
+
+### Consuming Data from Listener and Writing to Azure Storage
+![Consuming Data from Listener and Writing to Azure Storage](https://i.imgur.com/tIQ2QYW.png)
+
+---
+
+## �📖 Detailed Setup Guide
 
 ### Prerequisites
 
