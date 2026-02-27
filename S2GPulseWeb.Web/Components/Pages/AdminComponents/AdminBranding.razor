@@ -1,0 +1,504 @@
+@using S2GPulseWeb.Web.Logic
+@inject PlatformSettingsService PlatformSettings
+
+<h2>🎨 Platform Branding</h2>
+<p class="section-subtitle">Customize the site name, favicon, and landing page text for white-label deployment.</p>
+
+<div class="branding-form">
+    <div class="form-section">
+        <label class="form-label">Site Name</label>
+        <p class="form-hint">Used in browser tab titles across all pages (e.g. "Settings - @editSiteName")</p>
+        <input type="text" class="form-input" @bind="editSiteName" @bind:event="oninput"
+               placeholder="e.g. S2G, MyBrand, Pulse" maxlength="50" />
+    </div>
+
+    <div class="form-section">
+        <label class="form-label">Favicon (SVG only)</label>
+        <p class="form-hint">Paste raw SVG markup below. Maximum 50KB.</p>
+        <textarea class="form-textarea" @bind="editFaviconSvg" @bind:event="oninput"
+                  rows="8" placeholder="<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 32 32&quot;>...</svg>"></textarea>
+        
+        @if (!string.IsNullOrWhiteSpace(editFaviconSvg))
+        {
+            <div class="favicon-preview-section">
+                <span class="preview-label">Preview:</span>
+                <div class="favicon-preview-row">
+                    <div class="favicon-preview size-16" title="16×16">
+                        @((MarkupString)editFaviconSvg)
+                    </div>
+                    <div class="favicon-preview size-32" title="32×32">
+                        @((MarkupString)editFaviconSvg)
+                    </div>
+                    <div class="favicon-preview size-48" title="48×48">
+                        @((MarkupString)editFaviconSvg)
+                    </div>
+                </div>
+            </div>
+
+            @if (editFaviconSvg.Length > 50 * 1024)
+            {
+                <p class="validation-error">⚠️ SVG exceeds 50KB limit (@((editFaviconSvg.Length / 1024.0).ToString("N1"))KB)</p>
+            }
+            @if (!editFaviconSvg.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase))
+            {
+                <p class="validation-error">⚠️ Content does not look like valid SVG (should start with &lt;svg)</p>
+            }
+        }
+    </div>
+
+    <div class="form-section">
+        <label class="form-label">Landing Page Text</label>
+        <p class="form-hint">Customize the hero section shown to visitors. Leave blank to use defaults.</p>
+        
+        <div class="landing-fields">
+            <div class="landing-field">
+                <label class="field-sub-label">Headline</label>
+                <input type="text" class="form-input" @bind="editLandingHeadline" @bind:event="oninput"
+                       placeholder="- Just Run It" maxlength="100" />
+            </div>
+            <div class="landing-field">
+                <label class="field-sub-label">Subtitle</label>
+                <input type="text" class="form-input" @bind="editLandingSubtitle" @bind:event="oninput"
+                       placeholder="Visual Workflow Automation Platform" maxlength="200" />
+            </div>
+            <div class="landing-field">
+                <label class="field-sub-label">Description</label>
+                <textarea class="form-textarea landing-desc" @bind="editLandingDescription" @bind:event="oninput"
+                          rows="3" maxlength="500"
+                          placeholder="Build, deploy, and manage intelligent automation workflows with a powerful drag-and-drop designer. Connect AI, APIs, and data sources without writing code."></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-section">
+        <label class="form-label">Capabilities Cards</label>
+        <p class="form-hint">Cards shown on the Capabilities tab. Edit the icon (emoji/symbol), header, and description for each card. You can add or remove cards.</p>
+
+        @for (int i = 0; i < editCapabilityCards.Count; i++)
+        {
+            var idx = i;
+            <div class="cap-card-row">
+                <span class="cap-index">@(idx + 1)</span>
+                <div class="cap-fields">
+                    <div class="cap-field cap-field-icon">
+                        <label class="field-sub-label">Icon</label>
+                        <input type="text" class="form-input cap-icon-input" maxlength="4"
+                               value="@editCapabilityCards[idx].Icon"
+                               @oninput="@(e => editCapabilityCards[idx].Icon = e.Value?.ToString() ?? "")" />
+                    </div>
+                    <div class="cap-field cap-field-header">
+                        <label class="field-sub-label">Header</label>
+                        <input type="text" class="form-input" maxlength="60"
+                               value="@editCapabilityCards[idx].Header"
+                               @oninput="@(e => editCapabilityCards[idx].Header = e.Value?.ToString() ?? "")" />
+                    </div>
+                    <div class="cap-field cap-field-desc">
+                        <label class="field-sub-label">Description</label>
+                        <input type="text" class="form-input" maxlength="200"
+                               value="@editCapabilityCards[idx].Description"
+                               @oninput="@(e => editCapabilityCards[idx].Description = e.Value?.ToString() ?? "")" />
+                    </div>
+                </div>
+                <button class="btn-remove-card" title="Remove card"
+                        @onclick="@(() => editCapabilityCards.RemoveAt(idx))">✕</button>
+            </div>
+        }
+
+        <button class="btn-add-card" @onclick="AddCapabilityCard">+ Add Card</button>
+    </div>
+
+    <div class="branding-actions">
+        <button class="btn-save" @onclick="SaveBranding" disabled="@(isSaving || !IsValid)">
+            @(isSaving ? "Saving..." : "💾 Save Changes")
+        </button>
+        <button class="btn-reset" @onclick="ResetToDefaults" disabled="@isSaving">
+            🔄 Reset to Defaults
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="status-message @(isError ? "error" : "success")">
+            @statusMessage
+        </div>
+    }
+</div>
+
+@code {
+    private string editSiteName = "S2G";
+    private string? editFaviconSvg;
+    private string? editLandingHeadline;
+    private string? editLandingSubtitle;
+    private string? editLandingDescription;
+    private List<CapabilityCard> editCapabilityCards = DefaultCapabilityCards.Get();
+    private bool isSaving = false;
+    private string? statusMessage;
+    private bool isError = false;
+
+    private bool IsValid =>
+        !string.IsNullOrWhiteSpace(editSiteName) &&
+        (string.IsNullOrWhiteSpace(editFaviconSvg) || 
+         (editFaviconSvg.Length <= 50 * 1024 && 
+          editFaviconSvg.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var branding = await PlatformSettings.GetBrandingAsync();
+        editSiteName = branding.SiteName;
+        editFaviconSvg = branding.FaviconSvg;
+        editLandingHeadline = branding.LandingHeadline;
+        editLandingSubtitle = branding.LandingSubtitle;
+        editLandingDescription = branding.LandingDescription;
+        editCapabilityCards = branding.CapabilityCards.Select(c => new CapabilityCard { Icon = c.Icon, Header = c.Header, Description = c.Description }).ToList();
+    }
+
+    private async Task SaveBranding()
+    {
+        if (!IsValid) return;
+
+        isSaving = true;
+        statusMessage = null;
+        try
+        {
+            await PlatformSettings.SaveBrandingAsync(new PlatformBranding
+            {
+                SiteName = editSiteName.Trim(),
+                FaviconSvg = string.IsNullOrWhiteSpace(editFaviconSvg) ? null : editFaviconSvg.Trim(),
+                LandingHeadline = string.IsNullOrWhiteSpace(editLandingHeadline) ? null : editLandingHeadline.Trim(),
+                LandingSubtitle = string.IsNullOrWhiteSpace(editLandingSubtitle) ? null : editLandingSubtitle.Trim(),
+                LandingDescription = string.IsNullOrWhiteSpace(editLandingDescription) ? null : editLandingDescription.Trim(),
+                CapabilityCards = editCapabilityCards
+            });
+            statusMessage = "✅ Branding saved. Refresh the page to see the updated favicon and title.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"❌ Failed to save: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ResetToDefaults()
+    {
+        isSaving = true;
+        statusMessage = null;
+        try
+        {
+            await PlatformSettings.ResetToDefaultsAsync();
+            editSiteName = "S2G";
+            editFaviconSvg = null;
+            editLandingHeadline = null;
+            editLandingSubtitle = null;
+            editLandingDescription = null;
+            editCapabilityCards = DefaultCapabilityCards.Get();
+            statusMessage = "✅ Branding reset to defaults. Refresh the page to see changes.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"❌ Failed to reset: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void AddCapabilityCard()
+    {
+        editCapabilityCards.Add(new CapabilityCard { Icon = "⬡", Header = "New Capability", Description = "" });
+    }
+}
+
+<style>
+    .section-subtitle {
+        color: #888;
+        margin-top: -0.5rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+    }
+
+    .branding-form {
+        max-width: 700px;
+    }
+
+    .form-section {
+        margin-bottom: 2rem;
+    }
+
+    .form-label {
+        display: block;
+        color: #ddd;
+        font-weight: 600;
+        font-size: 0.95rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .form-hint {
+        color: #666;
+        font-size: 0.8rem;
+        margin: 0 0 0.5rem;
+    }
+
+    .form-input {
+        width: 100%;
+        max-width: 400px;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 1rem;
+        transition: border-color 0.2s;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+
+    .form-textarea {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #9cdcfe;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.85rem;
+        resize: vertical;
+        min-height: 120px;
+        transition: border-color 0.2s;
+    }
+
+    .form-textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+
+    .favicon-preview-section {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+    }
+
+    .preview-label {
+        color: #888;
+        font-size: 0.8rem;
+        display: block;
+        margin-bottom: 0.75rem;
+    }
+
+    .favicon-preview-row {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .favicon-preview {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px dashed rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .favicon-preview :deep(svg) {
+        width: 100%;
+        height: 100%;
+    }
+
+    .size-16 {
+        width: 16px;
+        height: 16px;
+        padding: 0;
+    }
+
+    .size-32 {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+    }
+
+    .size-48 {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+    }
+
+    .validation-error {
+        color: #e74c3c;
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+    }
+
+    .branding-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+    }
+
+    .btn-save {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        color: #fff;
+        padding: 0.6rem 1.5rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 600;
+        transition: opacity 0.2s;
+    }
+
+    .btn-save:hover:not(:disabled) {
+        opacity: 0.9;
+    }
+
+    .btn-save:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-reset {
+        background: rgba(100, 100, 100, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #aaa;
+        padding: 0.6rem 1.5rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+    }
+
+    .btn-reset:hover:not(:disabled) {
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+        border-color: rgba(231, 76, 60, 0.4);
+    }
+
+    .btn-reset:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .status-message {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+    }
+
+    .status-message.success {
+        background: rgba(46, 204, 113, 0.15);
+        border: 1px solid rgba(46, 204, 113, 0.3);
+        color: #2ecc71;
+    }
+
+    .status-message.error {
+        background: rgba(231, 76, 60, 0.15);
+        border: 1px solid rgba(231, 76, 60, 0.3);
+        color: #e74c3c;
+    }
+
+    .landing-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-top: 0.5rem;
+    }
+
+    .landing-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .field-sub-label {
+        color: #999;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .landing-desc {
+        min-height: 80px;
+    }
+
+    /* ── Capability Cards Editor ────────────── */
+    .cap-card-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.6rem;
+        margin-bottom: 0.75rem;
+        padding: 0.6rem 0.75rem;
+        background: rgba(255,255,255,0.025);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 8px;
+    }
+
+    .cap-index {
+        color: #555;
+        font-size: 0.75rem;
+        min-width: 18px;
+        padding-bottom: 0.35rem;
+        flex-shrink: 0;
+    }
+
+    .cap-fields {
+        display: flex;
+        gap: 0.5rem;
+        flex: 1;
+        flex-wrap: wrap;
+    }
+
+    .cap-field { display: flex; flex-direction: column; gap: 0.2rem; }
+    .cap-field-icon  { width: 68px; }
+    .cap-field-header { flex: 1; min-width: 120px; }
+    .cap-field-desc  { flex: 2; min-width: 180px; }
+
+    .cap-icon-input {
+        max-width: 68px;
+        text-align: center;
+        font-size: 1.1rem;
+        padding: 0.4rem 0.4rem;
+    }
+
+    .btn-remove-card {
+        background: transparent;
+        border: 1px solid rgba(231,76,60,0.3);
+        color: #e74c3c;
+        border-radius: 6px;
+        padding: 0.3rem 0.55rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+        align-self: flex-end;
+        margin-bottom: 0.05rem;
+        transition: background 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-remove-card:hover { background: rgba(231,76,60,0.15); }
+
+    .btn-add-card {
+        background: rgba(102,126,234,0.12);
+        border: 1px dashed rgba(102,126,234,0.4);
+        color: #a0aeff;
+        border-radius: 8px;
+        padding: 0.42rem 1rem;
+        font-size: 0.82rem;
+        cursor: pointer;
+        margin-top: 0.25rem;
+        transition: background 0.2s;
+    }
+    .btn-add-card:hover { background: rgba(102,126,234,0.22); }
+</style>

@@ -1,0 +1,181 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:47:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_ArrayOperations",
+        "displayName": "Array Operations",
+        "description": "Performs common array operations: filter, map, sort, dedupe, flatten, reverse, slice, and count.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"4\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"3\" y=\"10\" width=\"18\" height=\"4\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"3\" y=\"16\" width=\"18\" height=\"4\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var arrayInput = input.get('array');\nvar operation = input.get('operation') || 'count';\nvar propertyPath = input.get('propertyPath') || '';\nvar filterValue = input.get('filterValue') || '';\nvar filterOperator = input.get('filterOperator') || 'equals';\nvar sortOrder = input.get('sortOrder') || 'asc';\nvar sliceStart = parseInt(input.get('sliceStart') || '0');\nvar sliceEnd = input.get('sliceEnd') ? parseInt(input.get('sliceEnd')) : null;\n\nif (!arrayInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Array input is required');\n    output.set('Result', '[]');\n    tags.trigger('error');\n} else {\n    try {\n        var arr = json.parse(arrayInput);\n        if (!Array.isArray(arr)) {\n            throw new Error('Input must be a JSON array');\n        }\n        \n        function getVal(obj, path) {\n            if (!path) return obj;\n            var parts = path.split('.');\n            var val = obj;\n            for (var i = 0; i < parts.length; i++) {\n                if (val === null || val === undefined) return undefined;\n                val = val[parts[i]];\n            }\n            return val;\n        }\n        \n        var result = arr;\n        var originalCount = arr.length;\n        \n        switch (operation) {\n            case 'filter':\n                result = arr.filter(function(item) {\n                    var val = getVal(item, propertyPath);\n                    var cmp = filterValue;\n                    if (!isNaN(parseFloat(cmp)) && cmp !== '') cmp = parseFloat(cmp);\n                    if (cmp === 'true') cmp = true;\n                    if (cmp === 'false') cmp = false;\n                    if (cmp === 'null') cmp = null;\n                    \n                    switch (filterOperator) {\n                        case 'equals': return val == cmp;\n                        case 'notEquals': return val != cmp;\n                        case 'contains': return String(val).indexOf(String(cmp)) >= 0;\n                        case 'startsWith': return String(val).indexOf(String(cmp)) === 0;\n                        case 'endsWith': return String(val).slice(-String(cmp).length) === String(cmp);\n                        case 'greaterThan': return val > cmp;\n                        case 'lessThan': return val < cmp;\n                        case 'exists': return val !== undefined && val !== null;\n                        case 'notExists': return val === undefined || val === null;\n                        default: return val == cmp;\n                    }\n                });\n                break;\n                \n            case 'map':\n                if (propertyPath) {\n                    result = arr.map(function(item) {\n                        return getVal(item, propertyPath);\n                    });\n                }\n                break;\n                \n            case 'sort':\n                result = arr.slice().sort(function(a, b) {\n                    var valA = propertyPath ? getVal(a, propertyPath) : a;\n                    var valB = propertyPath ? getVal(b, propertyPath) : b;\n                    if (valA === valB) return 0;\n                    if (valA === null || valA === undefined) return 1;\n                    if (valB === null || valB === undefined) return -1;\n                    var cmp = valA < valB ? -1 : 1;\n                    return sortOrder === 'desc' ? -cmp : cmp;\n                });\n                break;\n                \n            case 'dedupe':\n                var seen = {};\n                result = arr.filter(function(item) {\n                    var val = propertyPath ? getVal(item, propertyPath) : item;\n                    var key = typeof val === 'object' ? json.stringify(val) : String(val);\n                    if (seen[key]) return false;\n                    seen[key] = true;\n                    return true;\n                });\n                break;\n                \n            case 'flatten':\n                result = [];\n                function flattenArr(a) {\n                    for (var i = 0; i < a.length; i++) {\n                        if (Array.isArray(a[i])) {\n                            flattenArr(a[i]);\n                        } else {\n                            result.push(a[i]);\n                        }\n                    }\n                }\n                flattenArr(arr);\n                break;\n                \n            case 'reverse':\n                result = arr.slice().reverse();\n                break;\n                \n            case 'slice':\n                var end = sliceEnd !== null ? sliceEnd : arr.length;\n                result = arr.slice(sliceStart, end);\n                break;\n                \n            case 'first':\n                result = arr.length > 0 ? [arr[0]] : [];\n                break;\n                \n            case 'last':\n                result = arr.length > 0 ? [arr[arr.length - 1]] : [];\n                break;\n                \n            case 'count':\n            default:\n                break;\n        }\n        \n        output.set('Result', json.stringify(result));\n        output.set('ResultArray', result);\n        output.set('Count', result.length);\n        output.set('OriginalCount', originalCount);\n        output.set('First', result.length > 0 ? json.stringify(result[0]) : '');\n        output.set('Last', result.length > 0 ? json.stringify(result[result.length - 1]) : '');\n        output.set('IsEmpty', result.length === 0);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info(operation + ': ' + originalCount + ' -> ' + result.length + ' items');\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Array operation failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('Result', '[]');\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "array",
+                "displayLabel": "Array (JSON)",
+                "placeholderText": "[{\"name\": \"John\", \"age\": 30}, ...]",
+                "helpText": "JSON array to operate on.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "operation",
+                "displayLabel": "Operation",
+                "helpText": "The array operation to perform.",
+                "fieldType": "Dropdown",
+                "defaultValue": "filter",
+                "isRequired": true,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "filter,map,sort,dedupe,flatten,reverse,slice,first,last,count"
+            },
+            {
+                "fieldName": "propertyPath",
+                "displayLabel": "Property Path",
+                "placeholderText": "user.name",
+                "helpText": "Dot-notation path to property (for filter/map/sort/dedupe).",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "filterOperator",
+                "displayLabel": "Filter Operator",
+                "helpText": "Comparison operator for filter operation.",
+                "fieldType": "Dropdown",
+                "defaultValue": "equals",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4,
+                "dropdownOptions": "equals,notEquals,contains,startsWith,endsWith,greaterThan,lessThan,exists,notExists"
+            },
+            {
+                "fieldName": "filterValue",
+                "displayLabel": "Filter Value",
+                "placeholderText": "value to match",
+                "helpText": "Value to compare against for filter operation.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 5
+            },
+            {
+                "fieldName": "sortOrder",
+                "displayLabel": "Sort Order",
+                "helpText": "Sort direction for sort operation.",
+                "fieldType": "Dropdown",
+                "defaultValue": "asc",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 6,
+                "dropdownOptions": "asc,desc"
+            },
+            {
+                "fieldName": "sliceStart",
+                "displayLabel": "Slice Start",
+                "placeholderText": "0",
+                "helpText": "Start index for slice operation.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 7
+            },
+            {
+                "fieldName": "sliceEnd",
+                "displayLabel": "Slice End",
+                "placeholderText": "10",
+                "helpText": "End index for slice operation (exclusive).",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 8
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "Result array as JSON string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResultArray",
+                "description": "Result as array object",
+                "dataType": "any",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Count",
+                "description": "Result array length",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "OriginalCount",
+                "description": "Original array length",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "First",
+                "description": "First element as JSON",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Last",
+                "description": "Last element as JSON",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "IsEmpty",
+                "description": "True if result is empty",
+                "dataType": "boolean",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if failed",
+                "dataType": "boolean",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details",
+                "dataType": "string",
+                "displayOrder": 9
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Operation succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Operation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

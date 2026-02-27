@@ -1,0 +1,765 @@
+@page "/organizations"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject OrganizationService OrganizationService
+@inject OrganizationUsageTrackingService OrgUsageService
+@inject MembershipPlanService MembershipPlanService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Organizations - @PlatformSettings.SiteName</PageTitle>
+
+<div class="organizations-page">
+    <div class="page-header">
+        <div class="header-content">
+            <h1>🏢 Organizations</h1>
+            <p>Create and manage organizations to collaborate with your team on workflows.</p>
+        </div>
+        @if (canCreateOrganization)
+        {
+            <button class="btn btn-primary" @onclick="OpenCreateModal">
+                ➕ Create Organization
+            </button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <p>Loading organizations...</p>
+        </div>
+    }
+    else if (organizations == null || !organizations.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon">🏢</div>
+            <h2>No Organizations Yet</h2>
+            <p>Organizations let you collaborate with team members on shared workflows, secrets, and storage.</p>
+            @if (canCreateOrganization)
+            {
+                <button class="btn btn-primary btn-lg" @onclick="OpenCreateModal">
+                    Create Your First Organization
+                </button>
+            }
+            else
+            {
+                <p class="upgrade-notice">
+                    <strong>Upgrade your plan</strong> to unlock organizations feature.
+                </p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="organizations-grid">
+            @* Personal context card - always shown first *@
+            <div class="org-card personal-card @(activeOrganizationId == null ? "active" : "")">
+                <div class="org-header">
+                    <div class="org-name">
+                        <span class="org-icon">👤</span>
+                        Personal
+                    </div>
+                    <div class="org-role">
+                        <span class="role-badge personal">My Space</span>
+                    </div>
+                </div>
+                
+                <p class="org-description">Your personal workflows, secrets, and storage.</p>
+                
+                <div class="org-actions">
+                    @if (activeOrganizationId == null)
+                    {
+                        <button class="btn btn-secondary btn-sm" disabled>
+                            ✓ Active
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="SwitchToPersonal">
+                            Switch To Personal
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @foreach (var org in organizations)
+            {
+                <div class="org-card @(org.Id == activeOrganizationId ? "active" : "") @(org.IsDisabled ? "disabled" : "")">
+                    <div class="org-header">
+                        <div class="org-name">
+                            <span class="org-icon">🏢</span>
+                            @org.Name
+                        </div>
+                        <div class="org-role">
+                            <span class="role-badge @GetRoleBadgeClass(org.Role)">@org.Role</span>
+                            @if (org.IsDisabled)
+                            {
+                                <span class="role-badge disabled-badge">Disabled</span>
+                            }
+                        </div>
+                    </div>
+                    
+                    @if (!string.IsNullOrEmpty(org.Description))
+                    {
+                        <p class="org-description">@org.Description</p>
+                    }
+                    
+                    <div class="org-usage">
+                        @{
+                            var usage = orgUsageSummaries.GetValueOrDefault(org.Id);
+                        }
+                        <div class="usage-row">
+                            <span class="usage-label">Members</span>
+                            <span class="usage-value">@org.MemberCount@(usage != null && usage.MaxMembers > 0 ? $" / {usage.MaxMembers}" : "")</span>
+                        </div>
+                        @if (usage != null && usage.MaxMembers > 0)
+                        {
+                            <div class="usage-bar">
+                                <div class="usage-fill member-fill" style="width: @(Math.Min(100, usage.MemberUsagePercent))%"></div>
+                            </div>
+                        }
+                        <div class="usage-row">
+                            <span class="usage-label">Workflows</span>
+                            <span class="usage-value">@org.WorkflowCount@(usage != null && usage.MaxWorkflows > 0 ? $" / {usage.MaxWorkflows}" : "")</span>
+                        </div>
+                        @if (usage != null && usage.MaxWorkflows > 0)
+                        {
+                            <div class="usage-bar">
+                                <div class="usage-fill workflow-fill" style="width: @(Math.Min(100, usage.WorkflowUsagePercent))%"></div>
+                            </div>
+                        }
+                        @if (usage != null)
+                        {
+                            <div class="usage-row">
+                                <span class="usage-label">Executions</span>
+                                <span class="usage-value">@usage.ExecutionsThisMonth@(usage.MaxExecutionsPerMonth > 0 ? $" / {FormatNumber(usage.MaxExecutionsPerMonth)}" : "")</span>
+                            </div>
+                            @if (usage.MaxExecutionsPerMonth > 0)
+                            {
+                                <div class="usage-bar">
+                                    <div class="usage-fill execution-fill" style="width: @(Math.Min(100, usage.ExecutionUsagePercent))%"></div>
+                                </div>
+                            }
+                            <div class="usage-row">
+                                <span class="usage-label">Storage</span>
+                                <span class="usage-value">@FormatBytes(usage.TotalStorageBytes)@(usage.MaxStorageBytes > 0 ? $" / {FormatBytes(usage.MaxStorageBytes)}" : "")</span>
+                            </div>
+                            @if (usage.MaxStorageBytes > 0)
+                            {
+                                <div class="usage-bar">
+                                    <div class="usage-fill storage-fill" style="width: @(Math.Min(100, usage.StorageUsagePercent))%"></div>
+                                </div>
+                            }
+                        }
+                    </div>
+                    
+                    <div class="org-actions">
+                        @if (org.IsDisabled)
+                        {
+                            <div class="disabled-hint">
+                                <span>⚠️ Upgrade plan to enable</span>
+                                @if (org.DisabledAt.HasValue)
+                                {
+                                    var daysLeft = Math.Max(0, 30 - (int)(DateTime.UtcNow - org.DisabledAt.Value).TotalDays);
+                                    @if (daysLeft > 0)
+                                    {
+                                        <span class="grace-countdown @(daysLeft <= 7 ? "critical" : "")">Will be removed in @daysLeft day(s)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="grace-countdown critical">Grace period expired</span>
+                                    }
+                                }
+                            </div>
+                        }
+                        else if (org.Id == activeOrganizationId)
+                        {
+                            <button class="btn btn-secondary btn-sm" disabled>
+                                ✓ Active
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary btn-sm" @onclick="() => SwitchToOrganization(org.Id)">
+                                Switch To
+                            </button>
+                        }
+                        <button class="btn btn-outline btn-sm" @onclick="() => ViewOrganization(org.Id)">
+                            Manage
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="status-message @statusClass">
+            @statusMessage
+        </div>
+    }
+</div>
+
+@if (showCreateModal)
+{
+    <div class="modal-overlay" @onclick="CloseCreateModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h2>Create Organization</h2>
+            
+            <div class="form-group">
+                <label>Organization Name *</label>
+                <input type="text" class="form-control" @bind="newOrgName" placeholder="My Team" maxlength="100" />
+            </div>
+            
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <textarea class="form-control" @bind="newOrgDescription" placeholder="What is this organization for?" rows="3" maxlength="500"></textarea>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCreateModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="CreateOrganization" disabled="@isCreating">
+                    @(isCreating ? "Creating..." : "Create Organization")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .organizations-page {
+        padding: 2rem;
+        max-width: 1200px;
+        margin: 0 auto;
+        color: #e0e0e0;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 2rem;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+    }
+
+    .header-content h1 {
+        color: #00f2fe;
+        margin: 0 0 0.5rem 0;
+    }
+
+    .header-content p {
+        color: #888;
+        margin: 0;
+    }
+
+    .loading-container {
+        text-align: center;
+        padding: 3rem;
+        color: #888;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #333;
+        border-top-color: #00f2fe;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1rem;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 16px;
+        border: 1px dashed #444;
+    }
+
+    .empty-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+    }
+
+    .empty-state h2 {
+        color: #fff;
+        margin-bottom: 0.5rem;
+    }
+
+    .empty-state p {
+        color: #888;
+        max-width: 400px;
+        margin: 0 auto 1.5rem;
+    }
+
+    .upgrade-notice {
+        color: #f6ad55 !important;
+    }
+
+    .btn-lg {
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+    }
+
+    .organizations-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .org-card {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1.25rem;
+        transition: all 0.2s;
+    }
+
+    .org-card:hover {
+        border-color: rgba(0, 242, 254, 0.3);
+    }
+
+    .org-card.active {
+        border-color: #00f2fe;
+        background: rgba(0, 242, 254, 0.05);
+    }
+
+    .org-card.disabled {
+        opacity: 0.6;
+        border-color: rgba(246, 173, 85, 0.3);
+        background: rgba(246, 173, 85, 0.03);
+    }
+
+    .disabled-badge {
+        background: #ed8936 !important;
+        color: #1a1a2e !important;
+    }
+
+    .disabled-hint {
+        font-size: 0.8rem;
+        color: #f6ad55;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .grace-countdown {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #f6ad55;
+    }
+
+    .grace-countdown.critical {
+        color: #e74c3c;
+    }
+
+    .org-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .org-name {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #fff;
+    }
+
+    .org-icon {
+        font-size: 1.25rem;
+    }
+
+    .role-badge {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .role-badge.founder {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+    }
+
+    .role-badge.owner {
+        background: #f6ad55;
+        color: #1a1a2e;
+    }
+
+    .role-badge.contributor {
+        background: #4299e1;
+        color: #fff;
+    }
+
+    .role-badge.personal {
+        background: linear-gradient(135deg, #38a169, #2f855a);
+        color: #fff;
+    }
+
+    .personal-card {
+        border: 1px dashed #4a5568;
+    }
+
+    .personal-card.active {
+        border: 2px solid #38a169;
+    }
+
+    .org-description {
+        color: #888;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+        line-height: 1.4;
+    }
+
+    .org-usage {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+    }
+
+    .usage-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.1rem 0;
+    }
+
+    .usage-label {
+        font-size: 0.85rem;
+        color: #aaa;
+    }
+
+    .usage-value {
+        font-size: 0.85rem;
+        color: #fff;
+        font-weight: 500;
+    }
+
+    .usage-bar {
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 0.5rem;
+    }
+
+    .usage-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.3s ease;
+    }
+
+    .member-fill {
+        background: linear-gradient(90deg, #667eea, #764ba2);
+    }
+
+    .workflow-fill {
+        background: linear-gradient(90deg, #f6ad55, #ed8936);
+    }
+
+    .execution-fill {
+        background: linear-gradient(90deg, #4299e1, #3182ce);
+    }
+
+    .storage-fill {
+        background: linear-gradient(90deg, #48bb78, #38a169);
+    }
+
+    .org-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn-sm {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.85rem;
+    }
+
+    .btn-outline {
+        background: transparent;
+        border: 1px solid #555;
+        color: #ccc;
+    }
+
+    .btn-outline:hover {
+        border-color: #888;
+        color: #fff;
+    }
+
+    .status-message {
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 1.5rem;
+    }
+
+    .status-success {
+        background: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+        border: 1px solid #28a745;
+    }
+
+    .status-error {
+        background: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        border: 1px solid #dc3545;
+    }
+
+    /* Modal */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+    }
+
+    .modal-content {
+        background: #1a1a2e;
+        border: 1px solid #333;
+        border-radius: 12px;
+        padding: 1.5rem;
+        max-width: 450px;
+        width: 90%;
+    }
+
+    .modal-content h2 {
+        color: #fff;
+        margin: 0 0 1.5rem 0;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #ccc;
+        font-weight: 500;
+    }
+
+    .form-control {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.6rem 0.75rem;
+        color: #fff;
+        font-size: 0.95rem;
+    }
+
+    .form-control:focus {
+        border-color: #00f2fe;
+        outline: none;
+    }
+
+    textarea.form-control {
+        resize: vertical;
+        min-height: 80px;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid #333;
+    }
+</style>
+
+@code {
+    private string? userId;
+    private List<OrganizationListItem>? organizations;
+    private Dictionary<Guid, OrganizationUsageSummary> orgUsageSummaries = new();
+    private Guid? activeOrganizationId;
+    private bool isLoading = true;
+    private bool canCreateOrganization = false;
+    
+    // Create modal
+    private bool showCreateModal = false;
+    private bool isCreating = false;
+    private string newOrgName = "";
+    private string newOrgDescription = "";
+    
+    // Status
+    private string statusMessage = "";
+    private string statusClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = UserManager.GetUserId(user);
+            if (userId != null)
+            {
+                await LoadOrganizationsAsync();
+            }
+        }
+    }
+
+    private async Task LoadOrganizationsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            organizations = await OrganizationService.GetUserOrganizationsAsync(userId!);
+            activeOrganizationId = await OrganizationService.GetActiveOrganizationIdAsync(userId!);
+            var (allowed, _) = await OrganizationService.CanCreateOrganizationAsync(userId!);
+            canCreateOrganization = allowed;
+            
+            // Load usage summaries for each org
+            orgUsageSummaries.Clear();
+            if (organizations != null)
+            {
+                foreach (var org in organizations)
+                {
+                    try
+                    {
+                        var summary = await OrgUsageService.GetUsageSummaryAsync(org.Id);
+                        orgUsageSummaries[org.Id] = summary;
+                    }
+                    catch { /* Ignore individual failures */ }
+                }
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        newOrgName = "";
+        newOrgDescription = "";
+        showCreateModal = true;
+    }
+
+    private void CloseCreateModal()
+    {
+        showCreateModal = false;
+    }
+
+    private async Task CreateOrganization()
+    {
+        if (string.IsNullOrWhiteSpace(newOrgName)) return;
+        
+        isCreating = true;
+        try
+        {
+            var result = await OrganizationService.CreateOrganizationAsync(
+                userId!, newOrgName.Trim(), newOrgDescription?.Trim(), null);
+            
+            if (result.Success)
+            {
+                ShowStatus("Organization created successfully!", true);
+                CloseCreateModal();
+                await LoadOrganizationsAsync();
+            }
+            else
+            {
+                ShowStatus(result.Error ?? "Failed to create organization", false);
+            }
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task SwitchToOrganization(Guid orgId)
+    {
+        var success = await OrganizationService.SetActiveOrganizationAsync(userId!, orgId);
+        if (success)
+        {
+            activeOrganizationId = orgId;
+            ShowStatus("Switched organization context", true);
+            StateHasChanged();
+        }
+    }
+
+    private async Task SwitchToPersonal()
+    {
+        var success = await OrganizationService.SetActiveOrganizationAsync(userId!, null);
+        if (success)
+        {
+            activeOrganizationId = null;
+            ShowStatus("Switched to personal context", true);
+            StateHasChanged();
+        }
+    }
+
+    private void ViewOrganization(Guid orgId)
+    {
+        Navigation.NavigateTo($"/organizations/{orgId}");
+    }
+
+    private string GetRoleBadgeClass(OrganizationRole role)
+    {
+        return role switch
+        {
+            OrganizationRole.Founder => "founder",
+            OrganizationRole.Owner => "owner",
+            OrganizationRole.Contributor => "contributor",
+            _ => ""
+        };
+    }
+
+    private void ShowStatus(string message, bool success)
+    {
+        statusMessage = message;
+        statusClass = success ? "status-success" : "status-error";
+        StateHasChanged();
+        
+        Task.Delay(3000).ContinueWith(_ => 
+        {
+            statusMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:F1}GB";
+        if (bytes >= 1_048_576) return $"{bytes / 1_048_576.0:F1}MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:F1}KB";
+        return $"{bytes}B";
+    }
+
+    private static string FormatNumber(int number)
+    {
+        if (number >= 1_000_000) return $"{number / 1_000_000.0:F0}M";
+        if (number >= 1_000) return $"{number / 1_000.0:F0}K";
+        return number.ToString();
+    }
+}

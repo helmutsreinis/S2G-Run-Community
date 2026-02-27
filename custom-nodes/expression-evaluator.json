@@ -1,0 +1,132 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T22:46:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_ExpressionEvaluator",
+        "displayName": "Expression Evaluator",
+        "description": "Evaluates mathematical expressions from strings with full support for arithmetic operators, parentheses, mathematical functions, and variables. Safely parses and computes expressions like '2 + 3 * 4', 'sqrt(16) + pow(2, 3)', or 'price * quantity * (1 - discount)'. Supports basic arithmetic (+, -, *, /, %), exponentiation (^), and common math functions (sin, cos, tan, sqrt, pow, abs, floor, ceil, round, log, exp, min, max). Variables can be passed in as JSON and referenced by name in the expression. Ideal for dynamic pricing calculations, formula-based transformations, financial computations, and user-defined calculations in workflows.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M7 8L17 8\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M7 12L12 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M7 16L15 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var expr = input.get('expression') || '';\nvar varsJson = input.get('variables') || '{}';\nvar precision = parseInt(input.get('precision') || '-1');\n\nif (!expr) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Expression is required');\n    tags.trigger('error');\n} else {\n    try {\n        var vars = json.parse(varsJson);\n        \n        var tokens = [];\n        var i = 0;\n        var s = expr.replace(/\\s+/g, '');\n        \n        while (i < s.length) {\n            var c = s.charAt(i);\n            if ('0123456789.'.indexOf(c) >= 0) {\n                var num = '';\n                while (i < s.length && '0123456789.'.indexOf(s.charAt(i)) >= 0) {\n                    num += s.charAt(i); i++;\n                }\n                tokens.push({type: 'num', val: parseFloat(num)});\n            } else if ('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'.indexOf(c) >= 0) {\n                var name = '';\n                while (i < s.length && 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789'.indexOf(s.charAt(i)) >= 0) {\n                    name += s.charAt(i); i++;\n                }\n                tokens.push({type: 'id', val: name});\n            } else if ('+-*/^%()'.indexOf(c) >= 0) {\n                tokens.push({type: 'op', val: c}); i++;\n            } else if (c === ',') {\n                tokens.push({type: 'comma'}); i++;\n            } else {\n                i++;\n            }\n        }\n        \n        var pos = 0;\n        function peek() { return pos < tokens.length ? tokens[pos] : null; }\n        function consume() { return tokens[pos++]; }\n        \n        function parseExpr() {\n            var left = parseTerm();\n            while (peek() && peek().type === 'op' && (peek().val === '+' || peek().val === '-')) {\n                var op = consume().val;\n                var right = parseTerm();\n                left = op === '+' ? left + right : left - right;\n            }\n            return left;\n        }\n        \n        function parseTerm() {\n            var left = parsePower();\n            while (peek() && peek().type === 'op' && (peek().val === '*' || peek().val === '/' || peek().val === '%')) {\n                var op = consume().val;\n                var right = parsePower();\n                if (op === '*') left = left * right;\n                else if (op === '/') left = left / right;\n                else left = left % right;\n            }\n            return left;\n        }\n        \n        function parsePower() {\n            var left = parseUnary();\n            if (peek() && peek().type === 'op' && peek().val === '^') {\n                consume();\n                var right = parsePower();\n                left = Math.pow(left, right);\n            }\n            return left;\n        }\n        \n        function parseUnary() {\n            if (peek() && peek().type === 'op' && peek().val === '-') {\n                consume();\n                return -parsePrimary();\n            }\n            if (peek() && peek().type === 'op' && peek().val === '+') {\n                consume();\n            }\n            return parsePrimary();\n        }\n        \n        function parsePrimary() {\n            var t = peek();\n            if (!t) throw new Error('Unexpected end');\n            if (t.type === 'num') { consume(); return t.val; }\n            if (t.type === 'op' && t.val === '(') {\n                consume();\n                var v = parseExpr();\n                if (peek() && peek().type === 'op' && peek().val === ')') consume();\n                return v;\n            }\n            if (t.type === 'id') {\n                var name = consume().val;\n                if (peek() && peek().type === 'op' && peek().val === '(') {\n                    consume();\n                    var args = [];\n                    while (peek() && !(peek().type === 'op' && peek().val === ')')) {\n                        args.push(parseExpr());\n                        if (peek() && peek().type === 'comma') consume();\n                    }\n                    if (peek()) consume();\n                    var fn = name.toLowerCase();\n                    if (fn === 'sqrt') return Math.sqrt(args[0]);\n                    if (fn === 'abs') return Math.abs(args[0]);\n                    if (fn === 'floor') return Math.floor(args[0]);\n                    if (fn === 'ceil') return Math.ceil(args[0]);\n                    if (fn === 'round') return Math.round(args[0]);\n                    if (fn === 'sin') return Math.sin(args[0]);\n                    if (fn === 'cos') return Math.cos(args[0]);\n                    if (fn === 'tan') return Math.tan(args[0]);\n                    if (fn === 'log') return Math.log(args[0]);\n                    if (fn === 'log10') return Math.log10(args[0]);\n                    if (fn === 'exp') return Math.exp(args[0]);\n                    if (fn === 'pow') return Math.pow(args[0], args[1]);\n                    if (fn === 'min') return Math.min.apply(null, args);\n                    if (fn === 'max') return Math.max.apply(null, args);\n                    throw new Error('Unknown function: ' + name);\n                }\n                if (name.toLowerCase() === 'pi') return Math.PI;\n                if (name.toLowerCase() === 'e') return Math.E;\n                if (vars[name] !== undefined) return parseFloat(vars[name]);\n                throw new Error('Unknown variable: ' + name);\n            }\n            throw new Error('Unexpected token');\n        }\n        \n        var result = parseExpr();\n        \n        if (precision >= 0) {\n            result = parseFloat(result.toFixed(precision));\n        }\n        \n        output.set('Result', result);\n        output.set('ResultString', result.toString());\n        output.set('IsInteger', result % 1 === 0);\n        output.set('IsPositive', result > 0);\n        output.set('IsNegative', result < 0);\n        output.set('IsZero', result === 0);\n        output.set('AbsoluteValue', Math.abs(result));\n        output.set('Expression', expr);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Evaluated: ' + expr + ' = ' + result);\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Evaluation failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "expression",
+                "displayLabel": "Expression",
+                "placeholderText": "2 + 3 * 4 or sqrt(16) + pow(2, 3)",
+                "helpText": "The mathematical expression to evaluate. Supports: (1) Basic arithmetic: + - * / % (modulo), (2) Exponentiation: ^ or pow(base, exp), (3) Parentheses for grouping: (2 + 3) * 4, (4) Functions: sqrt(x), abs(x), floor(x), ceil(x), round(x), sin(x), cos(x), tan(x), log(x), log10(x), exp(x), pow(x,y), min(a,b,...), max(a,b,...), (5) Constants: PI, E, (6) Variables by name (defined in Variables field). Examples: 'price * quantity', 'sqrt(a^2 + b^2)', 'max(100, min(x, 200))', '(1 + rate/100) ^ years'.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "variables",
+                "displayLabel": "Variables (JSON)",
+                "placeholderText": "{\"price\": 100, \"quantity\": 5, \"discount\": 0.1}",
+                "helpText": "A JSON object containing variable names and their numeric values. These variables can be referenced by name in the expression. For example, with variables {\"a\": 3, \"b\": 4}, the expression 'sqrt(a^2 + b^2)' evaluates to 5 (Pythagorean theorem). Variable names must start with a letter or underscore and contain only alphanumeric characters. Values should be numbers or numeric strings.",
+                "fieldType": "TextArea",
+                "defaultValue": "{}",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "precision",
+                "displayLabel": "Decimal Precision",
+                "placeholderText": "2",
+                "helpText": "The number of decimal places to round the result to. Set to -1 (default) for no rounding and full precision. Set to 0 for integer results, 2 for currency-style formatting (e.g., 19.99), or higher for scientific calculations. The rounding uses standard mathematical rounding (0.5 rounds up).",
+                "fieldType": "Text",
+                "defaultValue": "-1",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The numeric result of evaluating the expression. This is the primary output - a JavaScript number with full precision (or rounded if precision is specified). Use this for further calculations or comparisons.",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResultString",
+                "description": "The result as a string, useful for display purposes or when concatenating with other text. Preserves the exact representation of the number.",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "IsInteger",
+                "description": "True if the result is a whole number with no fractional part (e.g., 5.0 returns true, 5.5 returns false). Useful for validation or conditional routing.",
+                "dataType": "boolean",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "IsPositive",
+                "description": "True if the result is greater than zero. Useful for profit/loss calculations, threshold checks, or conditional logic based on sign.",
+                "dataType": "boolean",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "IsNegative",
+                "description": "True if the result is less than zero. Useful for detecting deficits, overdraws, or negative margins.",
+                "dataType": "boolean",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "IsZero",
+                "description": "True if the result is exactly zero. Useful for detecting balance conditions, break-even points, or empty calculations.",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "AbsoluteValue",
+                "description": "The absolute (non-negative) value of the result. Converts -5 to 5. Useful when you need the magnitude regardless of sign.",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "Expression",
+                "description": "The original expression that was evaluated, echoed back for logging or debugging purposes.",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if the evaluation failed due to syntax errors, unknown variables/functions, division by zero, or other mathematical errors.",
+                "dataType": "boolean",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message explaining why the evaluation failed, such as 'Unknown variable: x', 'Division by zero', or 'Unexpected token'.",
+                "dataType": "string",
+                "displayOrder": 10
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Expression was successfully evaluated",
+                "color": "#22c55e",
+                "conditionDescription": "Evaluation succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Expression evaluation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Evaluation failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

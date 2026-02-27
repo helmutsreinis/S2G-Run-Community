@@ -1,0 +1,255 @@
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Data
+@using System.Text.Json
+@inject StorageTableService StorageService
+
+<div class="storage-table-viewer">
+    <div class="viewer-header">
+        <div class="viewer-controls">
+            <div class="filter-group">
+                <input type="text" class="form-control form-control-sm" @bind="filterColumn" 
+                       placeholder="Column name" style="width: 150px;" />
+                <select class="form-select form-select-sm" @bind="filterOperator" style="width: 100px;">
+                    <option value="==">==</option>
+                    <option value="!=">!=</option>
+                    <option value="Contains">Contains</option>
+                    <option value="StartsWith">StartsWith</option>
+                    <option value="&gt;">&gt;</option>
+                    <option value="&lt;">&lt;</option>
+                </select>
+                <input type="text" class="form-control form-control-sm" @bind="filterValue" 
+                       placeholder="Value" style="width: 150px;" />
+                <button class="btn btn-sm btn-primary" @onclick="ApplyFilter">🔍 Filter</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearFilter">✖ Clear</button>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" @onclick="Refresh">🔄 Refresh</button>
+        </div>
+        <div class="record-count">
+            <span class="badge bg-secondary">@records.Count records</span>
+        </div>
+    </div>
+
+    @if (!records.Any())
+    {
+        <div class="empty-state">
+            <p>No records found.</p>
+            <small>Use a Storage Client node to insert data into this table.</small>
+        </div>
+    }
+    else
+    {
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">Actions</th>
+                        <th style="width: 280px;">ID</th>
+                        <th style="width: 180px;">Timestamp</th>
+                        @foreach (var col in columns)
+                        {
+                            <th>@col.ColumnName <small class="text-muted">(@col.ColumnType)</small></th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var record in records)
+                    {
+                        var data = GetRecordData(record);
+                        <tr>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteRecord(record.Id))" title="Delete">
+                                    🗑️
+                                </button>
+                            </td>
+                            <td class="id-cell">
+                                <code>@record.Id</code>
+                            </td>
+                            <td>@record.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            @foreach (var col in columns)
+                            {
+                                <td>@GetColumnValue(data, col.ColumnName)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<style>
+    .storage-table-viewer {
+        background: var(--background-dark, #0a1a1a);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .viewer-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color, #1a4040);
+        background: var(--background-medium, #0f2424);
+    }
+
+    .viewer-controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .filter-group {
+        display: flex;
+        gap: 0.25rem;
+        align-items: center;
+    }
+
+    .record-count .badge {
+        font-size: 0.85rem;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--text-secondary, #a0c0c0);
+    }
+
+    .empty-state p {
+        margin-bottom: 0.5rem;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color, #1a4040);
+    }
+
+    .data-table th {
+        background: var(--background-medium, #0f2424);
+        color: var(--accent-color, #00a8a8);
+        font-weight: 500;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .data-table td {
+        color: var(--text-primary, #e0f0f0);
+    }
+
+    .data-table tbody tr:hover {
+        background: rgba(0, 168, 168, 0.05);
+    }
+
+    .id-cell {
+        font-size: 0.75rem;
+    }
+
+    .id-cell code {
+        color: var(--text-secondary, #a0c0c0);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+</style>
+
+@code {
+    [Parameter] public Guid StorageTableNodeId { get; set; }
+
+    private List<StorageTableColumn> columns = new();
+    private List<StorageTableRecord> records = new();
+    
+    private string? filterColumn;
+    private string filterOperator = "==";
+    private string? filterValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        columns = await StorageService.GetColumnsAsync(StorageTableNodeId);
+        records = await StorageService.GetAllRecordsAsync(StorageTableNodeId);
+    }
+
+    private async Task Refresh()
+    {
+        await LoadData();
+        StateHasChanged();
+    }
+
+    private async Task ApplyFilter()
+    {
+        records = await StorageService.QueryRecordsAsync(
+            StorageTableNodeId,
+            filterColumn,
+            filterOperator,
+            filterValue,
+            1000);
+        StateHasChanged();
+    }
+
+    private async Task ClearFilter()
+    {
+        filterColumn = null;
+        filterValue = null;
+        await LoadData();
+        StateHasChanged();
+    }
+
+    private async Task DeleteRecord(Guid recordId)
+    {
+        await StorageService.DeleteRecordAsync(recordId, StorageTableNodeId);
+        records.RemoveAll(r => r.Id == recordId);
+        StateHasChanged();
+    }
+
+    private Dictionary<string, JsonElement>? GetRecordData(StorageTableRecord record)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(record.DataJson);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private string GetColumnValue(Dictionary<string, JsonElement>? data, string columnName)
+    {
+        if (data == null || !data.TryGetValue(columnName, out var element))
+            return "-";
+
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString() ?? "",
+            JsonValueKind.Number => element.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            JsonValueKind.Null => "null",
+            _ => element.GetRawText()
+        };
+    }
+}

@@ -1,0 +1,603 @@
+@using System.Text.Json
+@using Microsoft.EntityFrameworkCore
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+@using S2GPulseWeb.Web.Data
+@inject CopilotConnectorService CopilotService
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<div class="node-editor-fields">
+    <!-- Connection Selector - Primary Action -->
+    <div class="form-group">
+        <label>GitHub Copilot Connection</label>
+        <div class="connection-selector">
+            @if (copilotConnections == null)
+            {
+                <div class="loading-connections">Loading connections...</div>
+            }
+            else if (!copilotConnections.Any())
+            {
+                <div class="alert alert-warning" style="font-size: 0.85rem;">
+                    <strong>No Copilot connections found.</strong><br/>
+                    Go to <a href="/connections" target="_blank">Settings → Connections</a> to connect your GitHub Copilot account.
+                </div>
+            }
+            else
+            {
+                <select value="@(config.ConnectionId?.ToString() ?? "")"
+                        @onchange="@(e => OnConnectionChanged(e.Value?.ToString()))"
+                        class="form-control">
+                    <option value="">-- Select Connection --</option>
+                    @foreach (var conn in copilotConnections)
+                    {
+                        <option value="@conn.Id">@conn.ConnectionName (@conn.Email)</option>
+                    }
+                </select>
+                @if (config.ConnectionId.HasValue && config.ConnectionId.Value != Guid.Empty)
+                {
+                    <small class="form-text text-muted">✓ Connected. Uses your Copilot Premium Requests.</small>
+                }
+            }
+        </div>
+    </div>
+
+    <!-- Model Selector -->
+    <div class="form-group">
+        <label>Model</label>
+        <select value="@config.Model" @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString() ?? "gpt-4o"))" class="form-control">
+            <optgroup label="OpenAI Models">
+                <option value="gpt-4.1">GPT-4.1 (default)</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-5-mini">GPT-5 mini</option>
+            </optgroup>
+            <optgroup label="Anthropic Models">
+                <option value="claude-sonnet-4">Claude Sonnet 4 (1x)</option>
+                <option value="claude-sonnet-4.5">Claude Sonnet 4.5 (1x)</option>
+                <option value="claude-opus-4.5">Claude Opus 4.5 (3x)</option>
+                <option value="claude-haiku-4.5">Claude Haiku 4.5 (0.33x)</option>
+            </optgroup>
+            <optgroup label="Google Models">
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro (1x)</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (0.33x)</option>
+            </optgroup>
+        </select>
+        <div class="model-pricing small mt-1" style="color: var(--teal-light);">
+            Uses Copilot Premium Requests (@config.PremiumRequestsUsed used this session)
+        </div>
+    </div>
+
+    <!-- Agent Mode Settings -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center" style="background: rgba(35, 134, 54, 0.15); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <span style="margin-right: 8px;">🤖</span>
+            <strong>Agent Mode Settings</strong>
+        </div>
+        
+        <div class="form-group mb-2">
+            <label>Max Tool Calls</label>
+            <input type="number" value="@config.MaxToolCalls" 
+                   @onchange="@(e => UpdateConfig(c => c.MaxToolCalls = int.TryParse(e.Value?.ToString(), out var v) ? Math.Max(1, Math.Min(50, v)) : 10))" 
+                   class="form-control" min="1" max="50" />
+            <small class="form-text text-muted">Maximum number of tool invocations per execution (default: 10)</small>
+        </div>
+    </div>
+
+    <!-- Tools Section -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center justify-content-between" style="background: rgba(255, 193, 7, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div class="d-flex align-items-center">
+                <span style="margin-right: 8px;">🔧</span>
+                <strong>Tools (@config.Tools.Count)</strong>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" @onclick="AddTool" style="font-size: 0.75rem;">+ Add Tool</button>
+        </div>
+
+        @if (config.Tools.Count == 0)
+        {
+            <div class="alert alert-info" style="font-size: 0.85rem;">
+                <strong>No tools configured.</strong><br/>
+                Draw <code>tool:*</code> labeled connections FROM this node to tool nodes, or add tools manually.
+            </div>
+        }
+        else
+        {
+            @foreach (var tool in config.Tools)
+            {
+                var currentTool = tool;
+                var isDiscovered = discoveredToolIds.Contains(currentTool.EntryNodeId);
+                var enabledInputCount = currentTool.Parameters.Count(p => p.Value.IsEnabled);
+                var enabledOutputCount = currentTool.Outputs.Count(o => o.IsEnabled);
+                
+                <div class="tool-card mb-2 border rounded" style="background: var(--background-dark);">
+                    <!-- Tool Header - Collapsible -->
+                    <div class="tool-header d-flex align-items-center p-2" 
+                         @onclick="@(async () => { currentTool.IsExpanded = !currentTool.IsExpanded; await NotifyChanged(); })"
+                         style="cursor: pointer; border-bottom: @(currentTool.IsExpanded ? "1px solid var(--border-color)" : "none");">
+                        <span class="expand-icon mr-2" style="font-size: 0.7rem; color: #238636;">
+                            @(currentTool.IsExpanded ? "▼" : "▶")
+                        </span>
+                        @if (isDiscovered)
+                        {
+                            <span class="badge badge-success mr-2" style="font-size: 0.6rem;">Auto</span>
+                        }
+                        <input type="text" value="@currentTool.Name" 
+                               @onclick:stopPropagation="true"
+                               @onchange="@(async e => { currentTool.Name = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                               class="form-control form-control-sm" style="flex: 1; margin-right: 8px;" placeholder="Tool name" />
+                        <span class="badge badge-info mr-2" style="font-size: 0.6rem;">@enabledInputCount in</span>
+                        <span class="badge badge-secondary" style="font-size: 0.6rem;">@enabledOutputCount out</span>
+                        @if (!isDiscovered)
+                        {
+                            <button class="btn btn-sm btn-outline-danger ml-2" 
+                                    @onclick="@(() => RemoveTool(currentTool))" @onclick:stopPropagation="true" 
+                                    title="Remove tool">×</button>
+                        }
+                    </div>
+                    
+                    <!-- Expanded Content -->
+                    @if (currentTool.IsExpanded)
+                    {
+                        <div class="tool-body p-2">
+                            <!-- Description -->
+                            <div class="mb-2">
+                                <input type="text" value="@currentTool.Description" 
+                                       @onchange="@(async e => { currentTool.Description = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                       class="form-control form-control-sm" placeholder="Description for the AI" />
+                            </div>
+                            
+                            @if (currentTool.EntryNodeId != Guid.Empty)
+                            {
+                                var nodeName = GetNodeName(currentTool.EntryNodeId);
+                                <small class="text-muted d-block mb-2">→ @nodeName</small>
+                            }
+                            
+                            <!-- Input Fields Section -->
+                            @if (currentTool.Parameters.Any())
+                            {
+                                <div class="fields-section mb-2">
+                                    <div class="section-label d-flex align-items-center mb-1">
+                                        <span style="font-size: 0.75rem; color: #238636;">📥 Input Fields</span>
+                                    </div>
+                                    <div class="fields-list">
+                                        @foreach (var param in currentTool.Parameters)
+                                        {
+                                            var paramKey = param.Key;
+                                            var paramValue = param.Value;
+                                            <div class="field-row d-flex align-items-center mb-1 p-1 rounded" 
+                                                 style="background: rgba(0,0,0,0.2); font-size: 0.8rem;">
+                                                <input type="checkbox" checked="@paramValue.IsEnabled" 
+                                                       @onchange="@(async e => { paramValue.IsEnabled = (bool)(e.Value ?? false); await NotifyChanged(); })"
+                                                       class="mr-2" style="width: 14px; height: 14px;" />
+                                                <span class="field-name mr-2" style="min-width: 80px; color: @(paramValue.IsEnabled ? "#238636" : "#666");">
+                                                    @paramKey
+                                                </span>
+                                                <span class="field-config mr-2" style="font-size: 0.7rem; color: #888;">
+                                                    → @paramValue.NodeConfigField
+                                                </span>
+                                                <span class="badge mr-2" style="font-size: 0.6rem; background: rgba(100,100,100,0.3);">
+                                                    @paramValue.Type
+                                                </span>
+                                                <input type="text" value="@paramValue.Description" 
+                                                       @onchange="@(async e => { paramValue.Description = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                                       class="form-control form-control-sm" style="flex: 1; font-size: 0.75rem;" 
+                                                       placeholder="Description for AI..." />
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            
+                            <!-- Output Values Section -->
+                            @if (currentTool.Outputs.Any())
+                            {
+                                <div class="outputs-section">
+                                    <div class="section-label d-flex align-items-center mb-1">
+                                        <span style="font-size: 0.75rem; color: #238636;">📤 Output Values</span>
+                                    </div>
+                                    <div class="outputs-list d-flex flex-wrap gap-1">
+                                        @foreach (var output in currentTool.Outputs)
+                                        {
+                                            var currentOutput = output;
+                                            <div class="output-chip d-flex align-items-center p-1 rounded" 
+                                                 style="background: @(currentOutput.IsEnabled ? "rgba(35, 134, 54, 0.2)" : "rgba(100,100,100,0.2)"); font-size: 0.7rem; cursor: pointer;"
+                                                 @onclick="@(async () => { currentOutput.IsEnabled = !currentOutput.IsEnabled; await NotifyChanged(); })"
+                                                 title="@currentOutput.Description">
+                                                <input type="checkbox" checked="@currentOutput.IsEnabled" 
+                                                       class="mr-1" style="width: 12px; height: 12px;" 
+                                                       @onclick:stopPropagation="true"
+                                                       @onchange="@(async e => { currentOutput.IsEnabled = (bool)(e.Value ?? false); await NotifyChanged(); })" />
+                                                <span style="color: @(currentOutput.IsEnabled ? "#238636" : "#666");">
+                                                    @currentOutput.Placeholder
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+        <small class="form-text text-muted">Draw connections with "tool:sql", "tool:storage", etc. labels to auto-discover tools.</small>
+    </div>
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or instructions for tool use..."></textarea>
+        <small class="form-text text-muted">Instruct the AI on how and when to use tools.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="4" placeholder="Enter the task for the Copilot agent..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s)</small>
+    </div>
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: #238636;
+        color: white;
+    }
+
+    .tool-card {
+        border-color: var(--border-color) !important;
+    }
+    
+    .connection-selector .loading-connections {
+        color: #888;
+        font-style: italic;
+        padding: 8px 0;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public Guid NodeId { get; set; }
+    
+    // Canvas data for discovering connections
+    [Parameter] public List<CanvasNodeInfo>? CanvasNodes { get; set; }
+    [Parameter] public List<CanvasConnectionInfo>? CanvasConnections { get; set; }
+
+    // User context
+    [CascadingParameter(Name = "UserId")] public string? UserId { get; set; }
+    
+    // Organization context (null = personal workflow)
+    [Parameter] public Guid? OrganizationId { get; set; }
+
+    private CopilotAgentConfig config = new();
+    private HashSet<Guid> discoveredToolIds = new();
+    private bool isDiscovering = false;
+    private List<OAuthConnection>? copilotConnections;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConnectionsAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (isDiscovering)
+            return;
+            
+        try
+        {
+            config = JsonSerializer.Deserialize<CopilotAgentConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+        
+        // Discover tools from connections
+        _ = InvokeAsync(async () => 
+        {
+            if (isDiscovering) return;
+            isDiscovering = true;
+            try
+            {
+                await DiscoverToolsFromConnectionsAsync();
+                StateHasChanged();
+            }
+            finally
+            {
+                isDiscovering = false;
+            }
+        });
+    }
+
+    private async Task LoadConnectionsAsync()
+    {
+        if (string.IsNullOrEmpty(UserId))
+        {
+            // Fallback: get from DB context - filter by org context
+            await using var db = await DbFactory.CreateDbContextAsync();
+            copilotConnections = await db.OAuthConnections
+                .Where(c => c.Provider == "GitHubCopilot" && c.OrganizationId == OrganizationId)
+                .OrderByDescending(c => c.CreatedAt)
+                .ToListAsync();
+        }
+        else
+        {
+            // Use service which now handles org context filtering
+            copilotConnections = await CopilotService.GetCopilotConnectionsAsync(UserId, OrganizationId);
+        }
+    }
+
+    private async Task OnConnectionChanged(string? connectionIdStr)
+    {
+        if (Guid.TryParse(connectionIdStr, out var connectionId))
+        {
+            config.ConnectionId = connectionId;
+        }
+        else
+        {
+            config.ConnectionId = null;
+        }
+        await NotifyChanged();
+    }
+
+    private async Task DiscoverToolsFromConnectionsAsync()
+    {
+        if (CanvasConnections == null || CanvasNodes == null || NodeId == Guid.Empty)
+            return;
+            
+        var needsConfigUpdate = false;
+        discoveredToolIds.Clear();
+        
+        var toolConnections = CanvasConnections
+            .Where(c => c.Label?.StartsWith("tool:", StringComparison.OrdinalIgnoreCase) == true &&
+                       (c.SourceId == NodeId || c.TargetId == NodeId))
+            .ToList();
+            
+        foreach (var conn in toolConnections)
+        {
+            var toolNodeId = conn.SourceId == NodeId ? conn.TargetId : conn.SourceId;
+            var toolNode = CanvasNodes.FirstOrDefault(n => n.Id == toolNodeId);
+            var toolTag = conn.Label ?? "tool:unknown";
+            var toolName = toolTag.Replace(":", "_");
+            
+            discoveredToolIds.Add(toolNodeId);
+            
+            var existingTool = config.Tools.FirstOrDefault(t => t.EntryNodeId == toolNodeId);
+            if (existingTool == null)
+            {
+                var nodeTypeStr = toolNode?.NodeType ?? "";
+                var nodeNameStr = toolNode?.Name ?? "Unknown";
+                
+                var (defaultParams, requiredParams, defaultOutputs) = GetDefaultParametersForNodeType(nodeTypeStr, nodeNameStr);
+                
+                config.Tools.Add(new CopilotAgentToolDefinition
+                {
+                    Name = toolName,
+                    Description = $"Execute {nodeTypeStr} operation: {nodeNameStr}",
+                    EntryNodeId = toolNodeId,
+                    Parameters = defaultParams,
+                    Required = requiredParams,
+                    Outputs = defaultOutputs
+                });
+                
+                var toolInstructionLine = $"Use tool - {toolName} ({nodeNameStr}) - to: [describe what to do with this tool]";
+                if (string.IsNullOrWhiteSpace(config.Prompt))
+                {
+                    config.Prompt = toolInstructionLine;
+                }
+                else if (!config.Prompt.Contains(toolName))
+                {
+                    config.Prompt = config.Prompt.TrimEnd() + "\n" + toolInstructionLine;
+                }
+                
+                needsConfigUpdate = true;
+            }
+        }
+        
+        var toolsToRemove = config.Tools.Where(t => t.EntryNodeId != Guid.Empty && !discoveredToolIds.Contains(t.EntryNodeId)).ToList();
+        foreach (var tool in toolsToRemove)
+        {
+            if (!string.IsNullOrEmpty(config.Prompt))
+            {
+                var lines = config.Prompt.Split('\n')
+                    .Where(line => !line.Contains($"Use tool - {tool.Name}"))
+                    .ToArray();
+                config.Prompt = string.Join("\n", lines).Trim();
+            }
+            
+            config.Tools.Remove(tool);
+            needsConfigUpdate = true;
+        }
+        
+        if (needsConfigUpdate)
+        {
+            await NotifyChanged();
+        }
+    }
+
+    private string GetNodeName(Guid nodeId)
+    {
+        var node = CanvasNodes?.FirstOrDefault(n => n.Id == nodeId);
+        return node != null ? $"{node.Name} ({node.NodeType})" : nodeId.ToString()[..8] + "...";
+    }
+
+    private async Task UpdateConfig(Action<CopilotAgentConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task AddTool()
+    {
+        config.Tools.Add(new CopilotAgentToolDefinition
+        {
+            Name = $"tool_{config.Tools.Count + 1}",
+            Description = "Describe what this tool does"
+        });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveTool(CopilotAgentToolDefinition tool)
+    {
+        config.Tools.Remove(tool);
+        await NotifyChanged();
+    }
+
+    private (Dictionary<string, CopilotAgentToolParameter> Parameters, List<string> Required, List<CopilotAgentToolOutput> Outputs) 
+        GetDefaultParametersForNodeType(string nodeType, string nodeName)
+    {
+        var parameters = new Dictionary<string, CopilotAgentToolParameter>();
+        var required = new List<string>();
+        var outputs = new List<CopilotAgentToolOutput>();
+
+        switch (nodeType)
+        {
+            case "S2GStorage":
+                parameters["operation"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Operation: write, read, delete, list, or create_folder",
+                    NodeConfigField = "Operation",
+                    IsEnabled = true
+                };
+                parameters["path"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "File path for write/read/delete operations",
+                    NodeConfigField = "FilePath",
+                    IsEnabled = true
+                };
+                parameters["content"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Content to write (for write operation)",
+                    NodeConfigField = "Content",
+                    IsEnabled = true
+                };
+                required.Add("operation");
+                
+                outputs.Add(new CopilotAgentToolOutput { Placeholder = $"{{{{{nodeName}.Content}}}}", DataType = "string", Description = "File content (for read operation)", IsEnabled = true });
+                outputs.Add(new CopilotAgentToolOutput { Placeholder = $"{{{{{nodeName}.Files}}}}", DataType = "array", Description = "File list (for list operation)", IsEnabled = true });
+                break;
+
+            case "SqlServer":
+            case "Postgresql":
+                parameters["query"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "SQL query to execute",
+                    NodeConfigField = "Query",
+                    IsEnabled = true
+                };
+                required.Add("query");
+                
+                outputs.Add(new CopilotAgentToolOutput { Placeholder = $"{{{{{nodeName}.Results}}}}", DataType = "json", Description = "Query results as JSON array", IsEnabled = true });
+                break;
+
+            case "HttpRequest":
+                parameters["url"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "URL to request",
+                    NodeConfigField = "Url",
+                    IsEnabled = true
+                };
+                parameters["method"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "HTTP method: GET, POST, PUT, DELETE",
+                    NodeConfigField = "Method",
+                    IsEnabled = true
+                };
+                required.Add("url");
+                
+                outputs.Add(new CopilotAgentToolOutput { Placeholder = $"{{{{{nodeName}.Body}}}}", DataType = "string", Description = "Response body", IsEnabled = true });
+                break;
+
+            default:
+                parameters["data"] = new CopilotAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Data to pass to the tool",
+                    NodeConfigField = "Data",
+                    IsEnabled = true
+                };
+                break;
+        }
+
+        return (parameters, required, outputs);
+    }
+    
+    // DTOs for canvas data (reused from DeepSeekAgentEditor)
+    public class CanvasNodeInfo
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string NodeType { get; set; } = "";
+    }
+
+    public class CanvasConnectionInfo
+    {
+        public Guid SourceId { get; set; }
+        public Guid TargetId { get; set; }
+        public string? Label { get; set; }
+    }
+}

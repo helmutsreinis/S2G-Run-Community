@@ -1,0 +1,50 @@
+{
+    "Name": "Database Query API",
+    "Description": "HTTP endpoint that queries SQL Server and returns results",
+    "Version": "1.0",
+    "Nodes": [
+        {
+            "NodeType": "HttpListener",
+            "Name": "ApiListener",
+            "X": 100,
+            "Y": 100,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"ListenerPath\":\"/api/users\",\"Methods\":[\"GET\"],\"Authentication\":\"None\"}",
+            "IsTrigger": true,
+            "Tags": []
+        },
+        {
+            "NodeType": "SqlServer",
+            "Name": "QueryUsers",
+            "X": 100,
+            "Y": 220,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"ConnectionString\":\"{{Secrets.SqlConnectionString}}\",\"Query\":\"SELECT Id, Name, Email FROM Users WHERE IsActive = 1\",\"QueryType\":\"Query\"}",
+            "Tags": []
+        },
+        {
+            "NodeType": "HttpResponse",
+            "Name": "SendResults",
+            "X": 100,
+            "Y": 340,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"StatusCode\":\"200\",\"ContentType\":\"application/json\",\"Body\":\"{{QueryUsers.Rows}}\"}",
+            "Tags": []
+        }
+    ],
+    "Connections": [
+        {
+            "SourceId": "ApiListener",
+            "TargetId": "QueryUsers",
+            "Label": null
+        },
+        {
+            "SourceId": "QueryUsers",
+            "TargetId": "SendResults",
+            "Label": null
+        }
+    ]
+}

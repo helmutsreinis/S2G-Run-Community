@@ -1,0 +1,269 @@
+@using S2GPulseWeb.Web.Logic
+@inject CacheStorageService CacheService
+@inject WorkflowService WorkflowService
+
+<div class="cache-viewer">
+    <div class="cache-header">
+        <h5>💾 Cache Viewer</h5>
+        <button class="btn btn-sm btn-outline-primary" @onclick="Refresh">🔄 Refresh</button>
+    </div>
+    
+    @if (!cacheData.Any())
+    {
+        <div class="empty-cache">
+            <p>No cached data available.</p>
+            <small>Execute a Cache node's Set operation to store data.</small>
+        </div>
+    }
+    else
+    {
+        @foreach (var workflowKvp in cacheData)
+        {
+            <div class="workflow-cache-section">
+                <div class="workflow-header-row">
+                    <span class="workflow-name">📋 @GetWorkflowName(workflowKvp.Key)</span>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ClearWorkflow(workflowKvp.Key))">
+                        Clear
+                    </button>
+                </div>
+                
+                @foreach (var nodeKvp in workflowKvp.Value)
+                {
+                    <div class="node-cache-section">
+                        <div class="node-header-row">
+                            <span class="node-name">🔷 @GetNodeName(workflowKvp.Key, nodeKvp.Key)</span>
+                        </div>
+                        
+                        <div class="cache-entries">
+                            @foreach (var propKvp in nodeKvp.Value)
+                            {
+                                <div class="cache-entry">
+                                    <div class="property-name">@propKvp.Key</div>
+                                    <div class="property-value">
+                                        @if (propKvp.Value.Value is string strVal && strVal.Length > 100)
+                                        {
+                                            <details>
+                                                <summary>@strVal.Substring(0, 100)...</summary>
+                                                <pre>@strVal</pre>
+                                            </details>
+                                        }
+                                        else
+                                        {
+                                            @FormatValue(propKvp.Value.Value)
+                                        }
+                                    </div>
+                                    @if (propKvp.Value.ExpiresAt.HasValue)
+                                    {
+                                        <div class="expiration">
+                                            ⏱️ Expires: @propKvp.Value.ExpiresAt.Value.ToLocalTime().ToString("HH:mm:ss")
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .cache-viewer {
+        padding: 1rem;
+        background: var(--background-dark, #0a1a1a);
+        border-radius: 8px;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+
+    .cache-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border-color, #1a4040);
+    }
+
+    .cache-header h5 {
+        margin: 0;
+        color: var(--accent-color, #00a8a8);
+    }
+
+    .empty-cache {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-secondary, #a0c0c0);
+    }
+
+    .empty-cache p {
+        margin-bottom: 0.5rem;
+    }
+
+    .workflow-cache-section {
+        margin-bottom: 1.5rem;
+        background: var(--background-medium, #0f2424);
+        border-radius: 6px;
+        padding: 0.75rem;
+    }
+
+    .workflow-header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .workflow-name {
+        font-weight: 500;
+        color: var(--text-primary, #e0f0f0);
+    }
+
+    .node-cache-section {
+        margin-left: 1rem;
+        padding-left: 1rem;
+        border-left: 2px solid var(--accent-color, #00a8a8);
+        margin-bottom: 0.75rem;
+    }
+
+    .node-header-row {
+        margin-bottom: 0.5rem;
+    }
+
+    .node-name {
+        font-size: 0.9rem;
+        color: var(--text-secondary, #a0c0c0);
+    }
+
+    .cache-entries {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .cache-entry {
+        background: var(--background-light, #142c2c);
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+
+    .property-name {
+        font-weight: 500;
+        color: var(--accent-color, #00a8a8);
+        margin-bottom: 0.25rem;
+    }
+
+    .property-value {
+        font-family: monospace;
+        color: var(--text-primary, #e0f0f0);
+        word-break: break-all;
+    }
+
+    .property-value pre {
+        margin: 0.5rem 0 0 0;
+        padding: 0.5rem;
+        background: var(--background-dark, #0a1a1a);
+        border-radius: 4px;
+        overflow-x: auto;
+        font-size: 0.8rem;
+    }
+
+    .expiration {
+        font-size: 0.75rem;
+        color: var(--warning-color, #f5a623);
+        margin-top: 0.25rem;
+    }
+
+    details summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+    }
+
+    details summary:hover {
+        color: var(--accent-color);
+    }
+</style>
+
+@code {
+    [Parameter] public Guid? NodeId { get; set; }
+    [Parameter] public Guid? WorkflowId { get; set; }
+
+    private Dictionary<Guid, Dictionary<Guid, Dictionary<string, CacheStorageService.CacheDisplayEntry>>> cacheData = new();
+    private Dictionary<Guid, string> workflowNames = new();
+    private Dictionary<(Guid workflowId, Guid nodeId), string> nodeNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        if (NodeId.HasValue && WorkflowId.HasValue)
+        {
+            var allData = CacheService.GetAllCacheData();
+            cacheData = new Dictionary<Guid, Dictionary<Guid, Dictionary<string, CacheStorageService.CacheDisplayEntry>>>();
+            
+            if (allData.TryGetValue(WorkflowId.Value, out var workflowNodes))
+            {
+                if (workflowNodes.TryGetValue(NodeId.Value, out var nodeProps))
+                {
+                    cacheData[WorkflowId.Value] = new Dictionary<Guid, Dictionary<string, CacheStorageService.CacheDisplayEntry>>
+                    {
+                        { NodeId.Value, nodeProps }
+                    };
+                }
+            }
+        }
+        else
+        {
+            cacheData = CacheService.GetAllCacheData();
+        }
+        
+        // Load workflow and node names for display
+        foreach (var workflowId in cacheData.Keys)
+        {
+            if (!workflowNames.ContainsKey(workflowId))
+            {
+                var workflow = await WorkflowService.GetWorkflowAsync(workflowId);
+                workflowNames[workflowId] = workflow?.Name ?? workflowId.ToString().Substring(0, 8);
+                
+                if (workflow != null)
+                {
+                    foreach (var node in workflow.Nodes)
+                    {
+                        nodeNames[(workflowId, node.Id)] = node.Name;
+                    }
+                }
+            }
+        }
+        
+        StateHasChanged();
+    }
+
+    private string GetWorkflowName(Guid workflowId)
+    {
+        return workflowNames.TryGetValue(workflowId, out var name) ? name : workflowId.ToString().Substring(0, 8);
+    }
+
+    private string GetNodeName(Guid workflowId, Guid nodeId)
+    {
+        return nodeNames.TryGetValue((workflowId, nodeId), out var name) ? name : nodeId.ToString().Substring(0, 8);
+    }
+
+    private void ClearWorkflow(Guid workflowId)
+    {
+        CacheService.ClearWorkflow(workflowId);
+        cacheData.Remove(workflowId);
+        StateHasChanged();
+    }
+
+    private string FormatValue(object? value)
+    {
+        if (value == null) return "null";
+        if (value is string s) return s;
+        return System.Text.Json.JsonSerializer.Serialize(value);
+    }
+}

@@ -1,0 +1,135 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T22:05:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_PivotTable",
+        "displayName": "Pivot Table",
+        "description": "Groups and aggregates JSON array data by one or more fields, similar to Excel pivot tables. Supports multiple aggregation functions including sum, count, average, min, max, first, last, and collect (gather all values). Can group by multiple fields for hierarchical analysis, and outputs both detailed grouped data and a flat summary table. Ideal for data analysis, reporting, and transforming raw data into meaningful summaries.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"3\" y1=\"9\" x2=\"21\" y2=\"9\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"9\" y1=\"3\" x2=\"9\" y2=\"21\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"3\" y1=\"15\" x2=\"21\" y2=\"15\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"15\" y1=\"3\" x2=\"15\" y2=\"21\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var dataInput = input.get('data');\nvar groupByFields = input.get('groupBy') || '';\nvar aggregateField = input.get('aggregateField') || '';\nvar aggregateFunction = input.get('aggregateFunction') || 'count';\nvar includeDetails = input.get('includeDetails') === 'true';\n\nif (!dataInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Data input is required');\n    output.set('Result', '[]');\n    tags.trigger('error');\n} else {\n    try {\n        var data = json.parse(dataInput);\n        if (!Array.isArray(data)) {\n            throw new Error('Input must be a JSON array');\n        }\n        \n        var groupFields = groupByFields ? groupByFields.split(',').map(function(f) { return f.trim(); }) : [];\n        \n        function getVal(obj, path) {\n            if (!path) return obj;\n            var parts = path.split('.');\n            var val = obj;\n            for (var i = 0; i < parts.length; i++) {\n                if (val === null || val === undefined) return undefined;\n                val = val[parts[i]];\n            }\n            return val;\n        }\n        \n        function getGroupKey(item) {\n            if (groupFields.length === 0) return '_all_';\n            var keyParts = [];\n            for (var i = 0; i < groupFields.length; i++) {\n                var val = getVal(item, groupFields[i]);\n                keyParts.push(val === undefined ? 'undefined' : String(val));\n            }\n            return keyParts.join('|');\n        }\n        \n        var groups = {};\n        var groupData = {};\n        \n        for (var i = 0; i < data.length; i++) {\n            var item = data[i];\n            var key = getGroupKey(item);\n            \n            if (!groups[key]) {\n                groups[key] = [];\n                groupData[key] = {};\n                for (var g = 0; g < groupFields.length; g++) {\n                    groupData[key][groupFields[g]] = getVal(item, groupFields[g]);\n                }\n            }\n            \n            var aggVal = aggregateField ? getVal(item, aggregateField) : 1;\n            groups[key].push(aggVal);\n        }\n        \n        function aggregate(values, func) {\n            var nums = values.filter(function(v) { return typeof v === 'number' && !isNaN(v); });\n            \n            switch (func) {\n                case 'sum':\n                    var sum = 0;\n                    for (var i = 0; i < nums.length; i++) sum += nums[i];\n                    return sum;\n                case 'avg':\n                case 'average':\n                    if (nums.length === 0) return 0;\n                    var total = 0;\n                    for (var i = 0; i < nums.length; i++) total += nums[i];\n                    return total / nums.length;\n                case 'min':\n                    if (nums.length === 0) return null;\n                    var min = nums[0];\n                    for (var i = 1; i < nums.length; i++) if (nums[i] < min) min = nums[i];\n                    return min;\n                case 'max':\n                    if (nums.length === 0) return null;\n                    var max = nums[0];\n                    for (var i = 1; i < nums.length; i++) if (nums[i] > max) max = nums[i];\n                    return max;\n                case 'first':\n                    return values.length > 0 ? values[0] : null;\n                case 'last':\n                    return values.length > 0 ? values[values.length - 1] : null;\n                case 'collect':\n                    return values;\n                case 'count':\n                default:\n                    return values.length;\n            }\n        }\n        \n        var results = [];\n        var keys = Object.keys(groups);\n        \n        for (var k = 0; k < keys.length; k++) {\n            var key = keys[k];\n            var row = {};\n            \n            var gd = groupData[key];\n            var gdKeys = Object.keys(gd);\n            for (var g = 0; g < gdKeys.length; g++) {\n                row[gdKeys[g]] = gd[gdKeys[g]];\n            }\n            \n            var aggResult = aggregate(groups[key], aggregateFunction);\n            row[aggregateFunction + '_' + (aggregateField || 'count')] = aggResult;\n            row['_count'] = groups[key].length;\n            \n            if (includeDetails) {\n                row['_values'] = groups[key];\n            }\n            \n            results.push(row);\n        }\n        \n        var grandTotal = 0;\n        for (var r = 0; r < results.length; r++) {\n            var val = results[r][aggregateFunction + '_' + (aggregateField || 'count')];\n            if (typeof val === 'number') grandTotal += val;\n        }\n        \n        output.set('Result', json.stringify(results));\n        output.set('ResultArray', results);\n        output.set('GroupCount', results.length);\n        output.set('TotalRows', data.length);\n        output.set('GrandTotal', grandTotal);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Pivot: ' + data.length + ' rows -> ' + results.length + ' groups');\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Pivot failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('Result', '[]');\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "data",
+                "displayLabel": "Data (JSON Array)",
+                "placeholderText": "[{\"category\": \"A\", \"amount\": 100}, {\"category\": \"B\", \"amount\": 200}]",
+                "helpText": "A JSON array of objects to pivot. Each object represents a row of data. Example: sales data with fields like 'region', 'product', 'amount', 'date'. The array can contain any number of objects with consistent field names.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "groupBy",
+                "displayLabel": "Group By Fields",
+                "placeholderText": "category, region",
+                "helpText": "Comma-separated list of field names to group by. Supports dot notation for nested fields (e.g., 'user.country'). Multiple fields create hierarchical grouping. Leave empty to aggregate all data into a single total. Examples: 'category' (single field), 'region, product' (multi-level), 'order.customer.country' (nested).",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "aggregateField",
+                "displayLabel": "Aggregate Field",
+                "placeholderText": "amount",
+                "helpText": "The field name containing numeric values to aggregate (sum, average, etc.). Supports dot notation for nested fields. Leave empty when using 'count' to count rows. For 'collect', this is the field whose values will be gathered into an array. Examples: 'price', 'order.total', 'metrics.revenue'.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "aggregateFunction",
+                "displayLabel": "Aggregate Function",
+                "helpText": "The aggregation function to apply: 'count' = count rows in each group, 'sum' = add all values, 'avg/average' = calculate mean, 'min' = find minimum value, 'max' = find maximum value, 'first' = take first value in group, 'last' = take last value in group, 'collect' = gather all values into an array.",
+                "fieldType": "Dropdown",
+                "defaultValue": "sum",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4,
+                "dropdownOptions": "count,sum,avg,min,max,first,last,collect"
+            },
+            {
+                "fieldName": "includeDetails",
+                "displayLabel": "Include Value Details",
+                "helpText": "When enabled, includes a '_values' array in each result row containing all the individual values that were aggregated. Useful for debugging or when you need access to the raw values alongside the aggregate. May increase output size significantly for large datasets.",
+                "fieldType": "Boolean",
+                "defaultValue": "false",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 5
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "Pivoted results as JSON string. Each object contains the group-by fields, the aggregated value (named as function_field, e.g., 'sum_amount'), and '_count' for row count per group.",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResultArray",
+                "description": "Pivoted results as an array object for direct use in downstream nodes.",
+                "dataType": "any",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "GroupCount",
+                "description": "Number of unique groups/categories found in the data.",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "TotalRows",
+                "description": "Total number of input rows processed.",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "GrandTotal",
+                "description": "Sum of all aggregated values across all groups (useful for sum/count operations).",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if the pivot operation failed.",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message if the operation failed.",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Pivot operation completed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Pivot operation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error occurred",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

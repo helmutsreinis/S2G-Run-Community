@@ -1,0 +1,95 @@
+{
+  "Name": "MSPC Customer/Sub Sync Events ",
+  "ExportedAt": "2026-02-12T20:29:23.3126553Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "5810c82a-de8c-4517-987a-c3f3a95da00a",
+      "NodeType": "HttpResponse",
+      "Name": "Response",
+      "X": 820,
+      "Y": 180,
+      "Width": 300,
+      "Height": 120,
+      "Configuration": "{\u0022StatusCode\u0022:200,\u0022Body\u0022:\u0022Success\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Status: {{Response.StatusCode}}",
+        "Body: {{Response.Body}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "5eeec414-72ba-4ac4-8350-92eaa4b131a1",
+      "NodeType": "AzureStorage",
+      "Name": "Azure Table",
+      "X": 300,
+      "Y": 520,
+      "Width": 300,
+      "Height": 150,
+      "Configuration": "{\u0022Operation\u0022:\u0022TableUpsert\u0022,\u0022ConnectionString\u0022:\u0022DefaultEndpointsProtocol=https;AccountName=axplatformsyncstorage;AccountKey={{Secrets.AzureStorageKey}};EndpointSuffix=core.windows.net;\u0022,\u0022TableName\u0022:\u0022filtered\u0022,\u0022PartitionKey\u0022:\u0022{{Listener.Body.PartitionKey}}\u0022,\u0022RowKey\u0022:\u0022{{Listener.Body.RowKey}}\u0022,\u0022Filter\u0022:\u0022\u0022,\u0022FilterClauses\u0022:null,\u0022MaxResults\u0022:100,\u0022EntityProperties\u0022:\u0022CustomerId = {{Listener.Body.CustomerId}}, EventName = {{Listener.Body.EventName}}, AppXiteResponse = {{Listener.Body.AppXiteResponse}}, Payload = {{Listener.Body.Payload}}, AuditUri = {{Listener.Body.AuditUri}}, CustomerSubscription = {{Listener.Body.CustomerSubscription}}, IndirectResellers = {{Listener.Body.IndirectResellers}}, ResourceChangeUtcDate = {{Listener.Body.ResourceChangeUtcDate}}, ResourceName = {{Listener.Body.ResourceName}}, ResourceUri = {{Listener.Body.ResourceUri}}\u0022,\u0022OutputFormat\u0022:\u0022JSON\u0022,\u0022DiscoveredColumns\u0022:\u0022odata.etag,PartitionKey,RowKey,Timestamp,CustomerId,EventName,AppXiteResponse,Payload,AuditUri,CustomerSubscription,IndirectResellers,ResourceChangeUtcDate,ResourceName,ResourceUri\u0022,\u0022LastResultSample\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Operation: {{Azure Table.Operation}}",
+        "Table: {{Azure Table.TableName}}",
+        "Result: {{Azure Table.Success}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "e443ef9d-e8cb-4d0b-83d7-4f16797b7c4c",
+      "NodeType": "HttpListener",
+      "Name": "Listener",
+      "X": 300,
+      "Y": 160,
+      "Width": 300,
+      "Height": 160,
+      "Configuration": "{\u0022Method\u0022:\u0022POST\u0022,\u0022Path\u0022:\u0022/api\u0022,\u0022Port\u0022:8080,\u0022Host\u0022:\u0022localhost\u0022,\u0022DefaultResponse\u0022:\u0022OK\u0022,\u0022ContentType\u0022:\u0022application/json\u0022,\u0022DefaultStatusCode\u0022:200,\u0022TimeoutSeconds\u0022:300,\u0022LastBodySample\u0022:\u0022{\\u0022PartitionKey\\u0022:\\u002228AFF6E0-5BF5-44C6-8244-6465ECA11F62\\u0022,\\u0022RowKey\\u0022:\\u002229438a43-9625-4918-a59b-757b919f74bf\\u0022,\\u0022EventName\\u0022:\\u0022reseller-relationship-accepted-by-customer\\u0022,\\u0022ResourceUri\\u0022:\\u0022https://api.partnercenter.microsoft.com/v1/customers/b62e20a1-e7d4-43cf-be0a-7838e22b981c\\u0022,\\u0022ResourceName\\u0022:\\u0022Customer\\u0022,\\u0022AuditUri\\u0022:\\u0022https://api.partnercenter.microsoft.com/auditactivity/v1/auditrecords/28aff6e0-5bf5-44c6-8244-6465eca11f62_b62e20a1-e7d4-43cf-be0a-7838e22b981c_resellerrelationshipacceptedbycustomer_639065221138845476\\u0022,\\u0022ResourceChangeUtcDate\\u0022:\\u00222026-02-12T19:41:53.8845476\\u002B00:00\\u0022,\\u0022IsProcessed\\u0022:\\u0022true\\u0022,\\u0022IndirectResellers\\u0022:\\u0022[{\\\\\\u0022Id\\\\\\u0022:\\\\\\u00226be0d5fc-5347-4b8b-a60f-80a3d351751f\\\\\\u0022,\\\\\\u0022Name\\\\\\u0022:\\\\\\u0022Optimezers\\\\\\u0022,\\\\\\u0022RelationshipType\\\\\\u0022:\\\\\\u0022is_indirect_cloud_solution_provider_of\\\\\\u0022,\\\\\\u0022MpnId\\\\\\u0022:\\\\\\u0022766692\\\\\\u0022,\\\\\\u0022Location\\\\\\u0022:null,\\\\\\u0022State\\\\\\u0022:null,\\\\\\u0022Attributes\\\\\\u0022:{\\\\\\u0022ObjectType\\\\\\u0022:\\\\\\u0022PartnerRelationship\\\\\\u0022}}]\\u0022,\\u0022CustomerSubscription\\u0022:null,\\u0022CustomerId\\u0022:\\u0022b62e20a1-e7d4-43cf-be0a-7838e22b981c\\u0022,\\u0022Payload\\u0022:\\u0022{\\\\\\u0022TenantId\\\\\\u0022:\\\\\\u002228AFF6E0-5BF5-44C6-8244-6465ECA11F62\\\\\\u0022,\\\\\\u0022MicrosoftEvent\\\\\\u0022:{\\\\\\u0022EventName\\\\\\u0022:\\\\\\u0022reseller-relationship-accepted-by-customer\\\\\\u0022,\\\\\\u0022ResourceUri\\\\\\u0022:\\\\\\u0022https://api.partnercenter.microsoft.com/v1/customers/b62e20a1-e7d4-43cf-be0a-7838e22b981c\\\\\\u0022,\\\\\\u0022ResourceName\\\\\\u0022:\\\\\\u0022Customer\\\\\\u0022,\\\\\\u0022AuditUri\\\\\\u0022:\\\\\\u0022https://api.partnercenter.microsoft.com/auditactivity/v1/auditrecords/28aff6e0-5bf5-44c6-8244-6465eca11f62_b62e20a1-e7d4-43cf-be0a-7838e22b981c_resellerrelationshipacceptedbycustomer_639065221138845476\\\\\\u0022,\\\\\\u0022ResourceChangeUtcDate\\\\\\u0022:\\\\\\u00222026-02-12T19:41:53.8845476\\u002B00:00\\\\\\u0022},\\\\\\u0022RelationShips\\\\\\u0022:[{\\\\\\u0022Id\\\\\\u0022:\\\\\\u00226be0d5fc-5347-4b8b-a60f-80a3d351751f\\\\\\u0022,\\\\\\u0022RelationshipType\\\\\\u0022:\\\\\\u0022is_indirect_cloud_solution_provider_of\\\\\\u0022,\\\\\\u0022MpnId\\\\\\u0022:\\\\\\u0022766692\\\\\\u0022,\\\\\\u0022Name\\\\\\u0022:\\\\\\u0022Optimezers\\\\\\u0022,\\\\\\u0022Location\\\\\\u0022:null,\\\\\\u0022State\\\\\\u0022:null,\\\\\\u0022Attributes\\\\\\u0022:{\\\\\\u0022ObjectType\\\\\\u0022:\\\\\\u0022PartnerRelationship\\\\\\u0022}}],\\\\\\u0022CustomerSubscription\\\\\\u0022:null}\\u0022,\\u0022AppXiteResponse\\u0022:\\u0022[\\\\r\\\\n  {\\\\r\\\\n    \\\\\\u0022SyncCommand\\\\\\u0022: {\\\\r\\\\n      \\\\\\u0022DistributorSync\\\\\\u0022: {\\\\r\\\\n        \\\\\\u0022Id\\\\\\u0022: \\\\\\u0022f9260d49-f297-4f95-991e-16f922ed1d7a\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022ResellContractId\\\\\\u0022: \\\\\\u0022a4c65d5a-3b4b-480c-a606-2fd8d926361d\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022MpnId\\\\\\u0022: null\\\\r\\\\n      },\\\\r\\\\n      \\\\\\u0022ResellerSync\\\\\\u0022: null,\\\\r\\\\n      \\\\\\u0022ResellerOnBoard\\\\\\u0022: null,\\\\r\\\\n      \\\\\\u0022BillingDay\\\\\\u0022: null,\\\\r\\\\n      \\\\\\u0022MpnId\\\\\\u0022: \\\\\\u0022-1\\\\\\u0022,\\\\r\\\\n      \\\\\\u0022Customer\\\\\\u0022: {\\\\r\\\\n        \\\\\\u0022TenantId\\\\\\u0022: \\\\\\u0022b62e20a1-e7d4-43cf-be0a-7838e22b981c\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022Domain\\\\\\u0022: \\\\\\u0022__hook_d_ihy__\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022CompanyName\\\\\\u0022: \\\\\\u0022__hook_cn_ihy__\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022IsFromHook\\\\\\u0022: true\\\\r\\\\n      },\\\\r\\\\n      \\\\\\u0022RefreshSubscriptions\\\\\\u0022: false,\\\\r\\\\n      \\\\\\u0022RefreshCustomerData\\\\\\u0022: true,\\\\r\\\\n      \\\\\\u0022CommandName\\\\\\u0022: \\\\\\u0022CustomerSyncCommand\\\\\\u0022,\\\\r\\\\n      \\\\\\u0022VendorId\\\\\\u0022: \\\\\\u0022af817907-beb0-4ce2-be96-b674de7a876b\\\\\\u0022\\\\r\\\\n    },\\\\r\\\\n    \\\\\\u0022MicrosoftCustomerProfile\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022Customer\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022Message\\\\\\u0022: \\\\\\u0022Message sent to vendor/microsoft/customer.synchronize.from.hook queue.\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022FirstCustomerAzureTenantId\\\\\\u0022: \\\\\\u002200000000-0000-0000-0000-000000000000\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022CustomerAzureTenantIds\\\\\\u0022: [],\\\\r\\\\n    \\\\\\u0022Customers\\\\\\u0022: [],\\\\r\\\\n    \\\\\\u0022CustomerId\\\\\\u0022: \\\\\\u002200000000-0000-0000-0000-000000000000\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022AuditId\\\\\\u0022: \\\\\\u002200000000-0000-0000-0000-000000000000\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022CustomerSyncSubscriptionsResult\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022CustomerSyncSubscriptionsCommand\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022PartnerIdsNotInRethink\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022ResellersToCreate\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022PartnerIdsInRethinkWithNoCustomer\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022ResellersToRefresh\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022NewCustomerCreated\\\\\\u0022: false,\\\\r\\\\n    \\\\\\u0022SubscriptionsToMove\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022NewCustomerSynchronizedNotifyCommand\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022IsDistributorSyncEnabled\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022IsResellerSyncEnabled\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022IsPartialSync\\\\\\u0022: false,\\\\r\\\\n    \\\\\\u0022Duration\\\\\\u0022: null\\\\r\\\\n  },\\\\r\\\\n  {\\\\r\\\\n    \\\\\\u0022SyncCommand\\\\\\u0022: {\\\\r\\\\n      \\\\\\u0022DistributorSync\\\\\\u0022: {\\\\r\\\\n        \\\\\\u0022Id\\\\\\u0022: \\\\\\u0022f9260d49-f297-4f95-991e-16f922ed1d7a\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022ResellContractId\\\\\\u0022: \\\\\\u0022a4c65d5a-3b4b-480c-a606-2fd8d926361d\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022MpnId\\\\\\u0022: null\\\\r\\\\n      },\\\\r\\\\n      \\\\\\u0022ResellerSync\\\\\\u0022: {\\\\r\\\\n        \\\\\\u0022Id\\\\\\u0022: \\\\\\u002250799ddb-c9a8-4554-b895-f2ba99ba06d4\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022ResellContractId\\\\\\u0022: \\\\\\u0022a20f51a4-046f-4e53-abf3-2d36f8396f96\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022MpnId\\\\\\u0022: \\\\\\u0022766692\\\\\\u0022\\\\r\\\\n      },\\\\r\\\\n      \\\\\\u0022ResellerOnBoard\\\\\\u0022: null,\\\\r\\\\n      \\\\\\u0022BillingDay\\\\\\u0022: null,\\\\r\\\\n      \\\\\\u0022MpnId\\\\\\u0022: \\\\\\u0022-1\\\\\\u0022,\\\\r\\\\n      \\\\\\u0022Customer\\\\\\u0022: {\\\\r\\\\n        \\\\\\u0022TenantId\\\\\\u0022: \\\\\\u0022b62e20a1-e7d4-43cf-be0a-7838e22b981c\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022Domain\\\\\\u0022: \\\\\\u0022__hook_d_ihy__\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022CompanyName\\\\\\u0022: \\\\\\u0022__hook_cn_ihy__\\\\\\u0022,\\\\r\\\\n        \\\\\\u0022IsFromHook\\\\\\u0022: true\\\\r\\\\n      },\\\\r\\\\n      \\\\\\u0022RefreshSubscriptions\\\\\\u0022: false,\\\\r\\\\n      \\\\\\u0022RefreshCustomerData\\\\\\u0022: true,\\\\r\\\\n      \\\\\\u0022CommandName\\\\\\u0022: \\\\\\u0022CustomerSyncCommand\\\\\\u0022,\\\\r\\\\n      \\\\\\u0022VendorId\\\\\\u0022: \\\\\\u0022af817907-beb0-4ce2-be96-b674de7a876b\\\\\\u0022\\\\r\\\\n    },\\\\r\\\\n    \\\\\\u0022MicrosoftCustomerProfile\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022Customer\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022Message\\\\\\u0022: \\\\\\u0022Message sent to vendor/microsoft/customer.synchronize.from.hook queue.\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022FirstCustomerAzureTenantId\\\\\\u0022: \\\\\\u002200000000-0000-0000-0000-000000000000\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022CustomerAzureTenantIds\\\\\\u0022: [],\\\\r\\\\n    \\\\\\u0022Customers\\\\\\u0022: [],\\\\r\\\\n    \\\\\\u0022CustomerId\\\\\\u0022: \\\\\\u002200000000-0000-0000-0000-000000000000\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022AuditId\\\\\\u0022: \\\\\\u002200000000-0000-0000-0000-000000000000\\\\\\u0022,\\\\r\\\\n    \\\\\\u0022CustomerSyncSubscriptionsResult\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022CustomerSyncSubscriptionsCommand\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022PartnerIdsNotInRethink\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022ResellersToCreate\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022PartnerIdsInRethinkWithNoCustomer\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022ResellersToRefresh\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022NewCustomerCreated\\\\\\u0022: false,\\\\r\\\\n    \\\\\\u0022SubscriptionsToMove\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022NewCustomerSynchronizedNotifyCommand\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022IsDistributorSyncEnabled\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022IsResellerSyncEnabled\\\\\\u0022: null,\\\\r\\\\n    \\\\\\u0022IsPartialSync\\\\\\u0022: false,\\\\r\\\\n    \\\\\\u0022Duration\\\\\\u0022: null\\\\r\\\\n  }\\\\r\\\\n]\\u0022,\\u0022Timestamp\\u0022:null,\\u0022ETag\\u0022:{}}\u0022,\u0022LastQueryParams\u0022:\u0022\u0022,\u0022UseProxyMode\u0022:true}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Method: {{Listener.Method}}",
+        "Path: {{Listener.Path}}",
+        "Request ID: {{Listener.RequestId}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "da3f55e2-8348-4a46-be83-90effd14c89a",
+      "SourceId": "e443ef9d-e8cb-4d0b-83d7-4f16797b7c4c",
+      "TargetId": "5810c82a-de8c-4517-987a-c3f3a95da00a",
+      "Label": null
+    },
+    {
+      "Id": "d55e9d56-6bc0-4f14-ad50-f2c746e7022f",
+      "SourceId": "e443ef9d-e8cb-4d0b-83d7-4f16797b7c4c",
+      "TargetId": "5eeec414-72ba-4ac4-8350-92eaa4b131a1",
+      "Label": "no-wait"
+    }
+  ]
+}

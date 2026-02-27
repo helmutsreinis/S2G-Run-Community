@@ -1,0 +1,180 @@
+@using S2GPulseWeb.Web.Components.Pages.Workflow.Designer
+
+<div class="icon-picker-editor">
+    <div class="current-icon-section">
+        <label class="form-label">Node Icon</label>
+        <div class="d-flex align-items-center gap-3">
+            <div class="current-icon-display">
+                <span class="icon-preview">@DisplayIcon</span>
+            </div>
+            <div class="d-flex flex-column gap-2">
+                @if (!string.IsNullOrEmpty(SelectedIcon))
+                {
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ResetToDefault">
+                        ↩️ Reset to Default
+                    </button>
+                }
+                <span class="text-muted small">@(string.IsNullOrEmpty(SelectedIcon) ? "Using default icon" : "Custom icon selected")</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="icon-search mt-3">
+        <input type="text" class="form-control form-control-sm" 
+               placeholder="🔍 Search icons..." 
+               @bind="searchText" 
+               @bind:event="oninput" />
+    </div>
+
+    <div class="icon-categories mt-3">
+        @foreach (var category in FilteredIcons)
+        {
+            <div class="icon-category">
+                <div class="category-header">@category.Key</div>
+                <div class="icon-grid">
+                    @foreach (var icon in category.Value)
+                    {
+                        <button type="button" 
+                                class="icon-button @(icon == DisplayIcon ? "selected" : "")"
+                                @onclick="@(() => SelectIcon(icon))"
+                                title="Select @icon">
+                            @icon
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .icon-picker-editor {
+        padding: 0.5rem 0;
+    }
+
+    .current-icon-display {
+        width: 60px;
+        height: 60px;
+        background: var(--background-dark);
+        border: 2px solid var(--accent-color);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .icon-preview {
+        font-size: 2rem;
+    }
+
+    .icon-categories {
+        max-height: 300px;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+    }
+
+    .icon-category {
+        margin-bottom: 1rem;
+    }
+
+    .category-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.25rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .icon-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+        gap: 0.25rem;
+    }
+
+    .icon-button {
+        width: 40px;
+        height: 40px;
+        background: var(--background-light);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 1.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+    }
+
+    .icon-button:hover {
+        background: var(--background-medium);
+        border-color: var(--accent-color);
+        transform: scale(1.1);
+    }
+
+    .icon-button.selected {
+        background: rgba(0, 168, 168, 0.2);
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 2px rgba(0, 168, 168, 0.3);
+    }
+</style>
+
+@code {
+    [Parameter] public string? SelectedIcon { get; set; }
+    [Parameter] public string DefaultIcon { get; set; } = "⚙️";
+    [Parameter] public EventCallback<string?> OnIconChanged { get; set; }
+
+    private string searchText = "";
+
+    private string DisplayIcon => string.IsNullOrEmpty(SelectedIcon) ? DefaultIcon : SelectedIcon;
+
+    private Dictionary<string, List<string>> AllIcons => NodeHelper.GetAllAvailableIcons();
+
+    private Dictionary<string, List<string>> FilteredIcons
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(searchText))
+                return AllIcons;
+
+            // Filter categories to only those that have matching icons
+            // For emoji search, we just check if any icon is in the search text or matches
+            var filtered = new Dictionary<string, List<string>>();
+            foreach (var category in AllIcons)
+            {
+                var matchingIcons = category.Value
+                    .Where(icon => icon.Contains(searchText) || 
+                                   category.Key.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                if (matchingIcons.Any())
+                {
+                    filtered[category.Key] = matchingIcons;
+                }
+            }
+            return filtered.Any() ? filtered : AllIcons;
+        }
+    }
+
+    private async Task SelectIcon(string icon)
+    {
+        // If selecting the default icon, clear the override
+        if (icon == DefaultIcon)
+        {
+            SelectedIcon = null;
+        }
+        else
+        {
+            SelectedIcon = icon;
+        }
+        await OnIconChanged.InvokeAsync(SelectedIcon);
+    }
+
+    private async Task ResetToDefault()
+    {
+        SelectedIcon = null;
+        await OnIconChanged.InvokeAsync(null);
+    }
+}

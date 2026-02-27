@@ -1,0 +1,145 @@
+@page "/account/register"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject MembershipPlanService MembershipPlanService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Register - @PlatformSettings.SiteName</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <h2>Create Account</h2>
+        
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+
+        <EditForm Model="registerModel" OnValidSubmit="HandleRegister" FormName="register">
+            <DataAnnotationsValidator />
+            
+            <div class="form-group">
+                <label for="firstName">First Name</label>
+                <InputText id="firstName" @bind-Value="registerModel.FirstName" class="form-control" placeholder="Enter first name" />
+                <ValidationMessage For="@(() => registerModel.FirstName)" />
+            </div>
+
+            <div class="form-group">
+                <label for="lastName">Last Name</label>
+                <InputText id="lastName" @bind-Value="registerModel.LastName" class="form-control" placeholder="Enter last name" />
+                <ValidationMessage For="@(() => registerModel.LastName)" />
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email</label>
+                <InputText id="email" @bind-Value="registerModel.Email" class="form-control" placeholder="Enter email" />
+                <ValidationMessage For="@(() => registerModel.Email)" />
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <InputText id="password" type="password" @bind-Value="registerModel.Password" class="form-control" placeholder="Enter password" />
+                <ValidationMessage For="@(() => registerModel.Password)" />
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <InputText id="confirmPassword" type="password" @bind-Value="registerModel.ConfirmPassword" class="form-control" placeholder="Confirm password" />
+                <ValidationMessage For="@(() => registerModel.ConfirmPassword)" />
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span>Creating Account...</span>
+                }
+                else
+                {
+                    <span>Register</span>
+                }
+            </button>
+        </EditForm>
+
+        <div class="auth-links">
+            <span>Already have an account? <a href="/account/login">Sign in</a></span>
+            <a href="/">← Back to Home</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private RegisterModel registerModel { get; set; } = new();
+
+    private string? errorMessage;
+    private bool isLoading = false;
+
+    private async Task HandleRegister()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        // Check if Free tier can accept new members
+        var freePlan = await MembershipPlanService.GetFreePlanAsync();
+        if (freePlan != null)
+        {
+            var (canAccept, reason) = await MembershipPlanService.CanAcceptNewMembersAsync(freePlan.Id);
+            if (!canAccept)
+            {
+                errorMessage = "We're currently not accepting new registrations. Please contact support or try again later.";
+                isLoading = false;
+                return;
+            }
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = registerModel.Email,
+            Email = registerModel.Email,
+            FirstName = registerModel.FirstName,
+            LastName = registerModel.LastName
+        };
+
+        var result = await UserManager.CreateAsync(user, registerModel.Password!);
+
+        if (result.Succeeded)
+        {
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            // New users must accept terms first
+            NavigationManager.NavigateTo("/account/accept-terms?returnUrl=/account/setup-2fa");
+        }
+        else
+        {
+            errorMessage = string.Join(", ", result.Errors.Select(e => e.Description));
+        }
+
+        isLoading = false;
+    }
+
+    private class RegisterModel
+    {
+        [Required(ErrorMessage = "First name is required")]
+        [StringLength(50, ErrorMessage = "First name must be less than 50 characters")]
+        public string? FirstName { get; set; }
+
+        [Required(ErrorMessage = "Last name is required")]
+        [StringLength(50, ErrorMessage = "Last name must be less than 50 characters")]
+        public string? LastName { get; set; }
+
+        [Required(ErrorMessage = "Email is required")]
+        [EmailAddress(ErrorMessage = "Invalid email address")]
+        public string? Email { get; set; }
+
+        [Required(ErrorMessage = "Password is required")]
+        [StringLength(100, MinimumLength = 8, ErrorMessage = "Password must be at least 8 characters")]
+        public string? Password { get; set; }
+
+        [Required(ErrorMessage = "Please confirm your password")]
+        [Compare("Password", ErrorMessage = "Passwords do not match")]
+        public string? ConfirmPassword { get; set; }
+    }
+}

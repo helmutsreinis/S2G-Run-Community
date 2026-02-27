@@ -1,0 +1,434 @@
+@using System.Text.Json
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject OAuthService OAuthService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>Microsoft 365 Connection:</label>
+        @if (isLoadingConnections)
+        {
+            <div class="loading-text">Loading connections...</div>
+        }
+        else if (!connections.Any())
+        {
+            <div class="warning-message">
+                <span>⚠️</span> No connections found. <a href="/connections" target="_blank">Add a connection</a>
+            </div>
+        }
+        else
+        {
+            <select value="@Config.ConnectionId" @onchange="OnConnectionChanged" class="form-control">
+                <option value="">-- Select Connection --</option>
+                @foreach (var conn in connections)
+                {
+                    <option value="@conn.Id">@conn.ConnectionName (@conn.Email)</option>
+                }
+            </select>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(Config.ConnectionId))
+    {
+        <div class="node-property">
+            <label>OneDrive Folder:</label>
+            <div class="folder-selector">
+                <input type="text" value="@Config.FolderPath" class="form-control" readonly placeholder="Select a folder..." />
+                <button class="btn btn-sm btn-secondary" @onclick="BrowseFolders" disabled="@isLoadingFolders">
+                    @if (isLoadingFolders)
+                    {
+                        <span>...</span>
+                    }
+                    else
+                    {
+                        <span>📁 Browse</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (showFolderBrowser)
+        {
+            <div class="folder-browser">
+                <div class="folder-browser-header">
+                    <span>Select Folder</span>
+                    @if (currentPath.Count > 0)
+                    {
+                        <button class="btn btn-xs btn-secondary" @onclick="NavigateUp">⬆️ Up</button>
+                    }
+                </div>
+                <div class="folder-list">
+                    @if (isLoadingFolders)
+                    {
+                        <div class="loading-text">Loading folders...</div>
+                    }
+                    else if (folderItems.Any())
+                    {
+                        @foreach (var folder in folderItems)
+                        {
+                            <div class="folder-item" @onclick="() => NavigateToFolder(folder)">
+                                <span class="folder-icon">📁</span>
+                                <span class="folder-name">@folder.Name</span>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="empty-folder">No subfolders found</div>
+                    }
+                </div>
+                <div class="folder-browser-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="SelectCurrentFolder">
+                        ✓ Select This Folder
+                    </button>
+                    <button class="btn btn-sm btn-secondary" @onclick="() => showFolderBrowser = false">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        }
+    }
+
+    <div class="node-property">
+        <label>Poll Interval (seconds):</label>
+        <input type="number" value="@Config.PollIntervalSeconds" @onchange="OnIntervalChanged" 
+               class="form-control" min="10" max="3600" placeholder="60" />
+        <small class="text-muted">Minimum 10 seconds, maximum 1 hour</small>
+    </div>
+
+    <div class="node-property">
+        <label class="checkbox-label">
+            <input type="checkbox" checked="@Config.MonitorModified" @onchange="OnMonitorModifiedChanged" />
+            <span>Also monitor modified files</span>
+        </label>
+        <small class="text-muted">When enabled, triggers on both new and modified files</small>
+    </div>
+
+    <div class="node-property">
+        <label class="checkbox-label">
+            <input type="checkbox" checked="@Config.IncludeSubfolders" @onchange="OnIncludeSubfoldersChanged" />
+            <span>Include subfolders (recursive)</span>
+        </label>
+        <small class="text-muted">When enabled, monitors all files in subfolders as well</small>
+    </div>
+
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>When a file change is detected:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{OneDriveTrigger.FileName}</code> - Name of the file</li>
+                    <li><code>{OneDriveTrigger.FilePath}</code> - Full path to the file</li>
+                    <li><code>{OneDriveTrigger.FileId}</code> - OneDrive file ID</li>
+                    <li><code>{OneDriveTrigger.DownloadUrl}</code> - Direct download URL</li>
+                    <li><code>{OneDriveTrigger.FileSize}</code> - File size in bytes</li>
+                    <li><code>{OneDriveTrigger.CreatedDateTime}</code> - Creation timestamp</li>
+                    <li><code>{OneDriveTrigger.MimeType}</code> - File MIME type</li>
+                    <li><code>{OneDriveTrigger.TriggerType}</code> - "Created" or "Modified"</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>
+
+<style>
+    .folder-selector {
+        display: flex;
+        gap: 0.5rem;
+    }
+    
+    .folder-selector input {
+        flex: 1;
+    }
+    
+    .folder-browser {
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-top: 0.5rem;
+    }
+    
+    .folder-browser-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #4facfe;
+    }
+    
+    .folder-list {
+        max-height: 200px;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        padding: 0.25rem;
+    }
+    
+    .folder-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+    
+    .folder-item:hover {
+        background: rgba(79, 172, 254, 0.2);
+    }
+    
+    .folder-icon {
+        filter: grayscale(100%) brightness(1.3);
+    }
+    
+    .folder-name {
+        color: #e0e0e0;
+    }
+    
+    .empty-folder {
+        text-align: center;
+        color: #666;
+        padding: 1rem;
+    }
+    
+    .folder-browser-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+        justify-content: flex-end;
+    }
+    
+    .warning-message {
+        color: #ffc107;
+        font-size: 0.9rem;
+    }
+    
+    .warning-message a {
+        color: #4facfe;
+    }
+    
+    .loading-text {
+        color: #888;
+        font-style: italic;
+    }
+    
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: #e0e0e0;
+    }
+    
+    .checkbox-label input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    
+    // Organization context (null = personal workflow)
+    [Parameter] public Guid? OrganizationId { get; set; }
+
+    private OneDriveTriggerConfig Config { get; set; } = new();
+    private List<OAuthConnection> connections = new();
+    private List<FolderItem> folderItems = new();
+    private List<FolderItem> currentPath = new();
+    private bool isLoadingConnections = true;
+    private bool isLoadingFolders = false;
+    private bool showFolderBrowser = false;
+    private string? userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        userId = UserManager.GetUserId(authState.User);
+        
+        if (userId != null)
+        {
+            // Use org context for connection filtering
+            connections = await OAuthService.GetConnectionsAsync(userId, OrganizationId);
+        }
+        isLoadingConnections = false;
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<OneDriveTriggerConfig>(Configuration) ?? new();
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnConnectionChanged(ChangeEventArgs e)
+    {
+        Config.ConnectionId = e.Value?.ToString();
+        Config.FolderId = null;
+        Config.FolderPath = null;
+        await NotifyChanged();
+    }
+
+    private async Task OnIntervalChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int interval))
+        {
+            Config.PollIntervalSeconds = Math.Max(10, Math.Min(3600, interval));
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnMonitorModifiedChanged(ChangeEventArgs e)
+    {
+        Config.MonitorModified = e.Value is bool val ? val : e.Value?.ToString() == "true";
+        await NotifyChanged();
+    }
+
+    private async Task OnIncludeSubfoldersChanged(ChangeEventArgs e)
+    {
+        Config.IncludeSubfolders = e.Value is bool val ? val : e.Value?.ToString() == "true";
+        await NotifyChanged();
+    }
+
+    private async Task BrowseFolders()
+    {
+        if (string.IsNullOrEmpty(Config.ConnectionId)) return;
+        
+        showFolderBrowser = true;
+        currentPath.Clear();
+        await LoadFolders("root");
+    }
+
+    private async Task LoadFolders(string folderId)
+    {
+        if (!Guid.TryParse(Config.ConnectionId, out var connectionId)) return;
+        
+        isLoadingFolders = true;
+        StateHasChanged();
+        
+        try
+        {
+            var graphClient = await OAuthService.GetGraphClientAsync(connectionId);
+            if (graphClient == null)
+            {
+                folderItems = new();
+                return;
+            }
+
+            // Get drive ID first, then use Drives[driveId] pattern (Graph SDK v5)
+            var drive = await graphClient.Me.Drive.GetAsync();
+            if (drive?.Id == null)
+            {
+                folderItems = new();
+                return;
+            }
+
+            // Get folder item ID for root
+            string actualFolderId = folderId;
+            if (folderId == "root")
+            {
+                var rootItem = await graphClient.Drives[drive.Id].Root.GetAsync();
+                if (rootItem?.Id == null)
+                {
+                    folderItems = new();
+                    return;
+                }
+                actualFolderId = rootItem.Id;
+            }
+
+            // Get children using Items[itemId]/Children pattern
+            var children = await graphClient.Drives[drive.Id].Items[actualFolderId].Children.GetAsync();
+            
+            folderItems = children?.Value?
+                .Where(item => item.Folder != null)
+                .Select(item => new FolderItem 
+                { 
+                    Id = item.Id ?? "", 
+                    Name = item.Name ?? "Unnamed",
+                    Path = item.ParentReference?.Path + "/" + item.Name
+                })
+                .OrderBy(f => f.Name)
+                .ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading folders: {ex.Message}");
+            folderItems = new();
+        }
+        finally
+        {
+            isLoadingFolders = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NavigateToFolder(FolderItem folder)
+    {
+        currentPath.Add(folder);
+        await LoadFolders(folder.Id);
+    }
+
+    private async Task NavigateUp()
+    {
+        if (currentPath.Count > 0)
+        {
+            currentPath.RemoveAt(currentPath.Count - 1);
+            var parentId = currentPath.Count > 0 ? currentPath[^1].Id : "root";
+            await LoadFolders(parentId);
+        }
+    }
+
+    private async Task SelectCurrentFolder()
+    {
+        if (currentPath.Count > 0)
+        {
+            var current = currentPath[^1];
+            Config.FolderId = current.Id;
+            Config.FolderPath = "/" + string.Join("/", currentPath.Select(p => p.Name));
+        }
+        else
+        {
+            Config.FolderId = "root";
+            Config.FolderPath = "/";
+        }
+        
+        showFolderBrowser = false;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    private class FolderItem
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Path { get; set; }
+    }
+
+    public class OneDriveTriggerConfig
+    {
+        public string? ConnectionId { get; set; }
+        public string? FolderId { get; set; }
+        public string? FolderPath { get; set; }
+        public int PollIntervalSeconds { get; set; } = 60;
+        public bool MonitorModified { get; set; } = false;
+        public bool IncludeSubfolders { get; set; } = false;
+    }
+}

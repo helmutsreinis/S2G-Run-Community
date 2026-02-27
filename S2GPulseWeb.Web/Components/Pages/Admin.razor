@@ -1,0 +1,1092 @@
+@page "/admin"
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject SubscriptionService SubscriptionService
+@inject MembershipPlanService MembershipPlanService
+@inject UsageTrackingService UsageTrackingService
+@inject OrganizationService OrganizationService
+@inject PlatformSettingsService PlatformSettings
+@inject NodeLogService NodeLogService
+@inject VectorDbService VectorDbService
+@inject StorageTableService StorageTableService
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavigationManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Admin Portal - @PlatformSettings.SiteName</PageTitle>
+
+@if (!isAdmin)
+{
+    <div class="admin-container">
+        <div class="access-denied">
+            <h1>🔒 Access Denied</h1>
+            <p>You don't have permission to access this page.</p>
+            <a href="/" class="btn btn-primary">Go Home</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1>🔑 Admin Portal</h1>
+            <p class="subtitle">Manage users, legal documents, and platform content</p>
+        </div>
+
+        <div class="admin-tabs">
+            <button class="admin-tab @(activeTab == "users" ? "active" : "")" 
+                    @onclick="SetUsersTab">
+                👥 Users & Subscriptions
+            </button>
+            <button class="admin-tab @(activeTab == "connectors" ? "active" : "")" 
+                    @onclick="SetConnectorsTab">
+                🔌 Connectors
+            </button>
+            <button class="admin-tab @(activeTab == "legal" ? "active" : "")" 
+                    @onclick="SetLegalTab">
+                📜 Legal Documents
+            </button>
+            <button class="admin-tab @(activeTab == "notes" ? "active" : "")" 
+                    @onclick="SetNotesTab">
+                📝 Developer Notes
+            </button>
+            <button class="admin-tab @(activeTab == "nodes" ? "active" : "")" 
+                    @onclick="SetNodesTab">
+                🧩 Node Designer
+            </button>
+            <button class="admin-tab @(activeTab == "plans" ? "active" : "")" 
+                    @onclick="SetPlansTab">
+                💳 Membership Plans
+            </button>
+            <button class="admin-tab @(activeTab == "branding" ? "active" : "")" 
+                    @onclick="SetBrandingTab">
+                🎨 Branding
+            </button>
+            <button class="admin-tab @(activeTab == "organizations" ? "active" : "")" 
+                    @onclick="SetOrganizationsTab">
+                🏢 Organizations
+            </button>
+        </div>
+
+        @if (activeTab == "users")
+        {
+        <div class="admin-stats">
+            <div class="stat-card">
+                <span class="stat-value">@totalUsers</span>
+                <span class="stat-label">Total Users</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">@freeUsers</span>
+                <span class="stat-label">Free Users</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">@paidUsers</span>
+                <span class="stat-label">Paid Users</span>
+            </div>
+        </div>
+
+        <div class="admin-section">
+            <h2>📊 User Subscriptions</h2>
+            
+            <div class="search-bar">
+                <input type="text" @bind="searchQuery" @bind:event="oninput" 
+                       placeholder="Search by email..." class="search-input" />
+            </div>
+
+            @if (subscriptions == null)
+            {
+                <p class="loading">Loading...</p>
+            }
+            else
+            {
+                <div class="users-table-container">
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th style="min-width: 200px;">Email</th>
+                                <th style="min-width: 120px;">Name</th>
+                                <th>Tier</th>
+                                <th>Status</th>
+                                <th>Executions</th>
+                                <th>Storage</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var sub in PagedSubscriptions)
+                            {
+                                var usage = userUsages.GetValueOrDefault(sub.UserId);
+                                var execLimitDisplay = usage?.ExecutionLimitOverride?.ToString("N0") ?? "Default";
+                                var storageLimitDisplay = usage?.StorageLimitOverride.HasValue == true 
+                                    ? FormatBytes(usage.StorageLimitOverride.Value) 
+                                    : "Default";
+                                <tr>
+                                    <td>@sub.User?.Email</td>
+                                    <td>@($"{sub.User?.FirstName} {sub.User?.LastName}".Trim())</td>
+                                    <td>
+                                        @if (sub.MembershipPlan != null)
+                                        {
+                                            <span class="plan-badge" style="@GetPlanBadgeStyle(sub.MembershipPlan)">
+                                                @sub.MembershipPlan.Name
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="plan-badge plan-free">Free</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="status-badge status-@sub.Status">
+                                            @sub.Status
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="usage-display">@((usage?.ExecutionsThisMonth ?? 0).ToString("N0"))</span>
+                                        <span class="limit-display @(usage?.ExecutionLimitOverride.HasValue == true ? "custom" : "")">
+                                            /@execLimitDisplay
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="usage-display">@FormatBytes(usage?.TotalStorageBytes ?? 0)</span>
+                                        <span class="limit-display @(usage?.StorageLimitOverride.HasValue == true ? "custom" : "")">
+                                            /@storageLimitDisplay
+                                        </span>
+                                    </td>
+                                    <td>@sub.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                    <td>
+                                        <div class="action-buttons">
+                                            <select class="plan-select" @onchange="(e) => SetPlan(sub.UserId, e)">
+                                                @foreach (var plan in availablePlans)
+                                                {
+                                                    var isSelected = GetUserPlanId(sub) == plan.Id;
+                                                    <option value="@plan.Id" selected="@isSelected">@plan.Name</option>
+                                                }
+                                            </select>
+                                            <button class="btn btn-sm btn-edit" 
+                                                    @onclick="() => OpenLimitEditor(sub.UserId, sub.User?.Email ?? string.Empty)">
+                                                ✏️
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" 
+                                                    @onclick="() => ConfirmClearStorage(sub.UserId, sub.User?.Email ?? string.Empty)"
+                                                    title="Clear all storage data">
+                                                🗑️
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                
+                @* Pagination Controls *@
+                <div class="pagination-controls">
+                    <span class="pagination-info">
+                        Showing @((currentPage - 1) * pageSize + 1)-@Math.Min(currentPage * pageSize, FilteredSubscriptions.Count()) of @FilteredSubscriptions.Count() users
+                    </span>
+                    <div class="pagination-buttons">
+                        <button class="btn btn-sm btn-secondary" @onclick="PreviousPage" disabled="@(currentPage <= 1)">
+                            ← Previous
+                        </button>
+                        <span class="page-indicator">Page @currentPage of @TotalPages</span>
+                        <button class="btn btn-sm btn-secondary" @onclick="NextPage" disabled="@(currentPage >= TotalPages)">
+                            Next →
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+        } @* End users tab *@
+
+        @if (activeTab == "legal")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminLegalDocuments />
+        </div>
+        }
+
+        @if (activeTab == "connectors")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminConnectors />
+        </div>
+        }
+
+        @if (activeTab == "notes")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminDeveloperNotes />
+        </div>
+        }
+
+        @if (activeTab == "nodes")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminNodeDesigner />
+        </div>
+        }
+
+        @if (activeTab == "plans")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminMembershipPlans />
+        </div>
+        }
+
+        @if (activeTab == "branding")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminBranding />
+        </div>
+        }
+
+        @if (activeTab == "organizations")
+        {
+        <div class="admin-section">
+        <S2GPulseWeb.Web.Components.Pages.AdminComponents.AdminOrganizations />
+        </div>
+        }
+    </div>
+}
+
+@* Limit Editor Modal *@
+@if (showLimitEditor)
+{
+    <div class="modal-overlay" @onclick="CloseLimitEditor">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h3>Edit User Limits</h3>
+            <p class="modal-subtitle">@editingUserEmail</p>
+            
+            <div class="form-group">
+                <label>Execution Limit (leave empty for tier default)</label>
+                <input type="number" class="form-control" @bind="editingExecutionLimit" 
+                       placeholder="e.g. 5000000" min="0" />
+            </div>
+            
+            <div class="form-group">
+                <label>Storage Limit in MB (leave empty for tier default)</label>
+                <input type="number" class="form-control" @bind="editingStorageLimitMB" 
+                       placeholder="e.g. 500" min="0" step="1" />
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseLimitEditor">Cancel</button>
+                <button class="btn btn-danger" @onclick="ClearLimits" disabled="@isSaving">Reset All to Default</button>
+                <button class="btn btn-primary" @onclick="SaveLimits" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Clear Storage Confirmation Modal *@
+@if (showClearStorageConfirm)
+{
+    <div class="modal-overlay" @onclick="CloseClearStorageConfirm">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h3>⚠️ Clear Storage</h3>
+            <p class="modal-subtitle">@clearingUserEmail</p>
+            
+            <p class="warning-text">Select what to delete:</p>
+            
+            <div class="storage-options">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="clearLogs" />
+                    <span>📋 Logs</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="clearVectors" />
+                    <span>🧠 Vector DB</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="clearTables" />
+                    <span>📊 Storage Tables</span>
+                </label>
+                <label class="checkbox-label danger-option">
+                    <input type="checkbox" @bind="deleteAccount" />
+                    <span>🗑️ Delete User Account</span>
+                </label>
+            </div>
+            
+            @if (deleteAccount)
+            {
+                <p class="warning-text danger">⚠️ <strong>WARNING:</strong> This will permanently delete the user account, subscription, workflows, and all associated data!</p>
+            }
+            else
+            {
+                <p class="warning-text"><strong>This action cannot be undone!</strong></p>
+            }
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseClearStorageConfirm">Cancel</button>
+                <button class="btn btn-danger" @onclick="ExecuteClearStorage" 
+                        disabled="@(isClearing || (!clearLogs && !clearVectors && !clearTables && !deleteAccount))">
+                    @(isClearing ? (deleteAccount ? "Deleting..." : "Clearing...") : (deleteAccount ? "Delete Account" : "Delete Selected"))
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .admin-container {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+
+    .admin-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+
+    .admin-header h1 {
+        font-size: 2rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .subtitle {
+        color: #888;
+        margin-top: 0.5rem;
+    }
+
+    .admin-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 2rem;
+        justify-content: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 0.5rem;
+    }
+
+    .admin-tab {
+        background: transparent;
+        border: none;
+        color: #888;
+        padding: 0.75rem 1.5rem;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: all 0.2s;
+        font-size: 0.95rem;
+    }
+
+    .admin-tab:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #ddd;
+    }
+
+    .admin-tab.active {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+        font-weight: 600;
+    }
+
+    .admin-stats {
+        display: flex;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+        justify-content: center;
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1.5rem 2rem;
+        text-align: center;
+        min-width: 150px;
+    }
+
+    .stat-value {
+        display: block;
+        font-size: 2rem;
+        font-weight: 700;
+        color: #667eea;
+    }
+
+    .stat-label {
+        display: block;
+        color: #888;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
+    }
+
+    .admin-section {
+        background: rgba(26, 26, 46, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 1.5rem;
+    }
+
+    .admin-section h2 {
+        margin-bottom: 1rem;
+        color: #eee;
+    }
+
+    .search-bar {
+        margin-bottom: 1rem;
+    }
+
+    .search-input {
+        width: 100%;
+        max-width: 400px;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 0.95rem;
+    }
+
+    .users-table-container {
+        overflow-x: auto;
+    }
+
+    .users-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .users-table th,
+    .users-table td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .users-table th {
+        color: #888;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
+
+    .users-table tbody tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .plan-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: inline-block;
+    }
+    
+    .plan-free {
+        background: rgba(100, 100, 100, 0.3);
+        color: #aaa;
+    }
+
+    .status-badge {
+        padding: 0.2rem 0.5rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+    }
+
+    .status-free {
+        background: rgba(100, 100, 100, 0.2);
+        color: #888;
+    }
+
+    .status-active {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+    }
+
+    .status-canceled {
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .btn-success {
+        background: #2ecc71;
+        border: none;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    .btn-warning {
+        background: #f39c12;
+        border: none;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    .access-denied {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .access-denied h1 {
+        font-size: 2rem;
+        color: #e74c3c;
+    }
+
+    .loading {
+        text-align: center;
+        color: #888;
+        padding: 2rem;
+    }
+
+    .limit-display {
+        font-size: 0.85rem;
+        color: #888;
+    }
+
+    .limit-display.custom {
+        color: #667eea;
+        font-weight: 600;
+    }
+
+    .btn-edit {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #888;
+        border-radius: 6px;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .btn-edit:hover {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: #1a1a2e;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 2rem;
+        max-width: 400px;
+        width: 90%;
+    }
+
+    .modal-content h3 {
+        margin: 0 0 0.25rem;
+        color: #fff;
+    }
+
+    .modal-subtitle {
+        color: #888;
+        margin: 0 0 1.5rem;
+        font-size: 0.9rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group label {
+        display: block;
+        color: #aaa;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 1rem;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
+
+    .btn-secondary {
+        background: rgba(100, 100, 100, 0.3);
+        border: none;
+        color: #aaa;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        color: #fff;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .btn-danger {
+        background: #e74c3c;
+        border: none;
+        color: #fff;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .warning-text {
+        color: #e74c3c;
+        margin: 0.5rem 0;
+    }
+
+    .warning-list {
+        color: #bbb;
+        margin: 0.5rem 0 1rem 1.5rem;
+    }
+
+    .warning-list li {
+        margin: 0.25rem 0;
+    }
+
+    .storage-options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin: 1rem 0;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: #ddd;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1rem;
+        padding: 0.75rem 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .pagination-info {
+        color: #888;
+        font-size: 0.85rem;
+    }
+
+    .pagination-buttons {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .page-indicator {
+        color: #aaa;
+        font-size: 0.9rem;
+        padding: 0 0.5rem;
+    }
+
+    .users-table td {
+        word-break: break-word;
+        max-width: 250px;
+    }
+    
+    .plan-select {
+        background: rgba(30, 30, 50, 0.9);
+        border: 1px solid rgba(102, 126, 234, 0.4);
+        border-radius: 6px;
+        color: #fff;
+        padding: 0.3rem 0.5rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        min-width: 100px;
+    }
+    
+    .plan-select:hover {
+        border-color: #667eea;
+    }
+    
+    .plan-select:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+    
+    .plan-select option {
+        background: #1a1a2e;
+        color: #fff;
+    }
+</style>
+
+@code {
+    private bool isAdmin = false;
+    private string? currentUserId;
+    private List<UserSubscription>? subscriptions;
+    private Dictionary<string, UserUsage> userUsages = new();
+    private string searchQuery = "";
+    private string activeTab = "users";
+    
+    // Tab switching methods
+    private void SetUsersTab() => activeTab = "users";
+    private void SetConnectorsTab() => activeTab = "connectors";
+    private void SetLegalTab() => activeTab = "legal";
+    private void SetNotesTab() => activeTab = "notes";
+    private void SetNodesTab() => activeTab = "nodes";
+    private void SetPlansTab() => activeTab = "plans";
+    private void SetBrandingTab() => activeTab = "branding";
+    private void SetOrganizationsTab() => activeTab = "organizations";
+    
+    // Limit editor modal state
+    private bool showLimitEditor = false;
+    private string editingUserId = "";
+    private string editingUserEmail = "";
+    private int? editingExecutionLimit;
+    private int? editingStorageLimitMB; // In MB for easier input
+    private bool isSaving = false;
+    
+    // Clear storage confirmation modal state
+    private bool showClearStorageConfirm = false;
+    private string clearingUserId = "";
+    private string clearingUserEmail = "";
+    private bool isClearing = false;
+    private bool clearLogs = true;
+    private bool clearVectors = true;
+    private bool clearTables = true;
+    private bool deleteAccount = false;
+
+    private int totalUsers => subscriptions?.Count ?? 0;
+    private int freeUsers => subscriptions?.Count(s => s.MembershipPlan?.IsFree == true || s.MembershipPlanId == null) ?? 0;
+    private int paidUsers => subscriptions?.Count(s => s.MembershipPlan?.IsFree == false && s.MembershipPlanId != null) ?? 0;
+    private List<MembershipPlan> availablePlans = new();
+
+    private IEnumerable<UserSubscription> FilteredSubscriptions =>
+        subscriptions?.Where(s => 
+            string.IsNullOrEmpty(searchQuery) ||
+            (s.User?.Email?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (s.User?.FirstName?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (s.User?.LastName?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false)
+        ) ?? Enumerable.Empty<UserSubscription>();
+    
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private int TotalPages => (int)Math.Ceiling((double)FilteredSubscriptions.Count() / pageSize);
+    private IEnumerable<UserSubscription> PagedSubscriptions =>
+        FilteredSubscriptions.Skip((currentPage - 1) * pageSize).Take(pageSize);
+    
+    private void NextPage()
+    {
+        if (currentPage < TotalPages) currentPage++;
+    }
+    
+    private void PreviousPage()
+    {
+        if (currentPage > 1) currentPage--;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var appUser = await UserManager.GetUserAsync(user);
+            if (appUser != null)
+            {
+                currentUserId = appUser.Id;
+                isAdmin = await SubscriptionService.IsAdminAsync(appUser.Id);
+
+                if (isAdmin)
+                {
+                    await LoadDataAsync();
+                }
+            }
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        subscriptions = await SubscriptionService.GetAllSubscriptionsAsync();
+        availablePlans = await MembershipPlanService.GetAllPlansAsync(includeInactive: false);
+        
+        // Load usage for each user
+        foreach (var sub in subscriptions)
+        {
+            var usage = await UsageTrackingService.GetUsageAsync(sub.UserId);
+            userUsages[sub.UserId] = usage;
+        }
+    }
+    
+    private int? GetUserPlanId(UserSubscription sub)
+    {
+        if (sub.MembershipPlanId.HasValue)
+            return sub.MembershipPlanId.Value;
+        // Default to Free plan if not set
+        return availablePlans.FirstOrDefault(p => p.IsFree)?.Id;
+    }
+    
+    private string GetPlanBadgeStyle(MembershipPlan plan)
+    {
+        string bg;
+        if (!string.IsNullOrEmpty(plan.BadgeColorGradientStart) && !string.IsNullOrEmpty(plan.BadgeColorGradientEnd))
+            bg = $"background: linear-gradient(135deg, {plan.BadgeColorGradientStart} 0%, {plan.BadgeColorGradientEnd} 100%);";
+        else if (!string.IsNullOrEmpty(plan.BadgeColorGradientStart))
+            bg = $"background: {plan.BadgeColorGradientStart};";
+        else
+            bg = "background: rgba(100, 100, 100, 0.3);";
+        
+        var color = !string.IsNullOrEmpty(plan.BadgeTextColor) ? $"color: {plan.BadgeTextColor};" : "color: #fff;";
+        return $"{bg} {color}";
+    }
+
+    private async Task SetPlan(string userId, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var planId))
+        {
+            await SubscriptionService.SetPlanAsync(userId, planId);
+            await LoadDataAsync();
+            StateHasChanged();
+        }
+    }
+    
+    [Obsolete("Use SetPlan instead")]
+    private async Task SetTier(string userId, SubscriptionTier tier)
+    {
+        #pragma warning disable CS0618
+        await SubscriptionService.SetTierAsync(userId, tier);
+        #pragma warning restore CS0618
+        await LoadDataAsync();
+        StateHasChanged();
+    }
+    
+    private void OpenLimitEditor(string userId, string email)
+    {
+        editingUserId = userId;
+        editingUserEmail = email;
+        var usage = userUsages.GetValueOrDefault(userId);
+        editingExecutionLimit = usage?.ExecutionLimitOverride;
+        // Convert bytes to MB for display
+        editingStorageLimitMB = usage?.StorageLimitOverride.HasValue == true 
+            ? (int)(usage.StorageLimitOverride.Value / (1024 * 1024))
+            : null;
+        showLimitEditor = true;
+    }
+    
+    private void CloseLimitEditor()
+    {
+        showLimitEditor = false;
+        editingUserId = "";
+        editingUserEmail = "";
+        editingExecutionLimit = null;
+        editingStorageLimitMB = null;
+    }
+    
+    private async Task SaveLimits()
+    {
+        if (string.IsNullOrEmpty(editingUserId)) return;
+        
+        isSaving = true;
+        try
+        {
+            await UsageTrackingService.SetExecutionLimitOverrideAsync(editingUserId, editingExecutionLimit);
+            
+            // Convert MB to bytes for storage
+            long? storageLimitBytes = editingStorageLimitMB.HasValue 
+                ? (long)editingStorageLimitMB.Value * 1024 * 1024 
+                : null;
+            await UsageTrackingService.SetStorageLimitOverrideAsync(editingUserId, storageLimitBytes);
+            
+            await LoadDataAsync();
+            CloseLimitEditor();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+    
+    private async Task ClearLimits()
+    {
+        if (string.IsNullOrEmpty(editingUserId)) return;
+        
+        isSaving = true;
+        try
+        {
+            await UsageTrackingService.SetExecutionLimitOverrideAsync(editingUserId, null);
+            await UsageTrackingService.SetStorageLimitOverrideAsync(editingUserId, null);
+            await LoadDataAsync();
+            CloseLimitEditor();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+    
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+    
+    private void ConfirmClearStorage(string userId, string email)
+    {
+        clearingUserId = userId;
+        clearingUserEmail = email;
+        showClearStorageConfirm = true;
+    }
+    
+    private void CloseClearStorageConfirm()
+    {
+        showClearStorageConfirm = false;
+        clearingUserId = "";
+        clearingUserEmail = "";
+        // Reset to all checked for next time
+        clearLogs = true;
+        clearVectors = true;
+        clearTables = true;
+        deleteAccount = false;
+    }
+    
+    private async Task ExecuteClearStorage()
+    {
+        if (string.IsNullOrEmpty(clearingUserId)) return;
+        
+        isClearing = true;
+        try
+        {
+            // Clear only selected storage types
+            if (clearLogs)
+                await NodeLogService.ClearLogsAsync(clearingUserId);
+            if (clearVectors)
+                await VectorDbService.ClearAllForUserAsync(clearingUserId);
+            if (clearTables)
+                await StorageTableService.ClearAllForUserAsync(clearingUserId);
+            
+            // Delete user account if requested
+            if (deleteAccount)
+            {
+                await DeleteUserAccountAsync(clearingUserId);
+            }
+            
+            await LoadDataAsync();
+            CloseClearStorageConfirm();
+        }
+        finally
+        {
+            isClearing = false;
+        }
+    }
+    
+    private async Task DeleteUserAccountAsync(string userId)
+    {
+        var user = await UserManager.FindByIdAsync(userId);
+        if (user == null) return;
+        
+        await using var db = await DbContextFactory.CreateDbContextAsync();
+        
+        // Get workflow IDs for this user
+        var workflowIds = await db.Workflows
+            .Where(w => w.OwnerId == userId)
+            .Select(w => w.Id)
+            .ToListAsync();
+        // Get node IDs for this user's workflows
+        var nodeIds = await db.WorkflowNodes
+            .Where(n => workflowIds.Contains(n.WorkflowId))
+            .Select(n => n.Id)
+            .ToListAsync();
+        
+        // Delete connections where source or target node belongs to this user
+        var connections = await db.WorkflowConnections
+            .Where(c => nodeIds.Contains(c.SourceNodeId) || nodeIds.Contains(c.TargetNodeId))
+            .ToListAsync();
+        db.WorkflowConnections.RemoveRange(connections);
+        
+        // Delete nodes for these workflows
+        var nodes = await db.WorkflowNodes
+            .Where(n => workflowIds.Contains(n.WorkflowId))
+            .ToListAsync();
+        db.WorkflowNodes.RemoveRange(nodes);
+        
+        // Delete workflows
+        var workflows = await db.Workflows
+            .Where(w => w.OwnerId == userId)
+            .ToListAsync();
+        db.Workflows.RemoveRange(workflows);
+        
+        // Delete subscription
+        var subscription = await db.UserSubscriptions.FirstOrDefaultAsync(s => s.UserId == userId);
+        if (subscription != null)
+        {
+            db.UserSubscriptions.Remove(subscription);
+        }
+        
+        // Delete usage tracking
+        var usage = await db.UserUsages.FirstOrDefaultAsync(u => u.UserId == userId);
+        if (usage != null)
+        {
+            db.UserUsages.Remove(usage);
+        }
+        
+        // Delete dismissed notes
+        var dismissedNotes = await db.UserDismissedNotes.Where(d => d.UserId == userId).ToListAsync();
+        db.UserDismissedNotes.RemoveRange(dismissedNotes);
+        
+        // Delete user secrets
+        var secrets = await db.UserSecrets.Where(s => s.UserId == userId).ToListAsync();
+        db.UserSecrets.RemoveRange(secrets);
+        
+        // Delete OAuth connections
+        var oauthConnections = await db.OAuthConnections.Where(o => o.UserId == userId).ToListAsync();
+        db.OAuthConnections.RemoveRange(oauthConnections);
+        
+        await db.SaveChangesAsync();
+        
+        // Finally delete the user (using UserManager to handle Identity cleanup)
+        await UserManager.DeleteAsync(user);
+    }
+}
+

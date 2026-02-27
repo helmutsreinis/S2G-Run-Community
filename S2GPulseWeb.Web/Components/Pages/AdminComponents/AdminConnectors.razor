@@ -1,0 +1,921 @@
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject PlatformConnectorService ConnectorService
+
+<div class="connectors-admin">
+    <div class="admin-section-header">
+        <h2>🔌 Platform Connectors</h2>
+        <p class="section-description">
+            Define M365 connectors with Azure AD credentials that users can consent to from the Connections page.
+        </p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger")">
+            @statusMessage
+        </div>
+    }
+
+    @* Categories Section *@
+    <div class="categories-section">
+        <div class="section-header">
+            <h3>📁 Categories</h3>
+            <button class="btn btn-sm btn-primary" @onclick="ShowAddCategoryModal">
+                ➕ Add Category
+            </button>
+        </div>
+
+        @if (categories == null)
+        {
+            <p class="loading">Loading categories...</p>
+        }
+        else if (!categories.Any())
+        {
+            <p class="empty-message">No categories yet. Create one to organize your connectors.</p>
+        }
+        else
+        {
+            <div class="categories-list">
+                @foreach (var category in categories)
+                {
+                    <div class="category-item">
+                        <div class="category-info">
+                            <span class="category-icon">@category.IconEmoji</span>
+                            <span class="category-name">@category.Name</span>
+                            @if (!string.IsNullOrEmpty(category.Description))
+                            {
+                                <span class="category-description">— @category.Description</span>
+                            }
+                        </div>
+                        <div class="category-actions">
+                            <button class="btn btn-xs btn-secondary" @onclick="() => EditCategory(category)">✏️</button>
+                            <button class="btn btn-xs btn-danger" @onclick="() => DeleteCategory(category.Id)">🗑️</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @* Connectors Section *@
+    <div class="connectors-section">
+        <div class="section-header">
+            <h3>⚡ Connectors</h3>
+            <button class="btn btn-sm btn-primary" @onclick="ShowAddConnectorModal">
+                ➕ Add Connector
+            </button>
+        </div>
+
+        @if (connectors == null)
+        {
+            <p class="loading">Loading connectors...</p>
+        }
+        else if (!connectors.Any())
+        {
+            <p class="empty-message">No connectors configured. Add Azure AD app credentials to enable user OAuth consent.</p>
+        }
+        else
+        {
+            <div class="connectors-list">
+                @foreach (var connector in connectors)
+                {
+                    <div class="connector-card @(connector.IsEnabled ? "" : "disabled")">
+                        <div class="connector-header">
+                            <div class="connector-title">
+                                <span class="connector-name">@connector.Name</span>
+                                <span class="consent-type-badge @connector.ConsentType.ToString().ToLower()">
+                                    @connector.ConsentType
+                                </span>
+                                @if (!connector.IsEnabled)
+                                {
+                                    <span class="status-badge disabled">Disabled</span>
+                                }
+                            </div>
+                            <div class="connector-actions">
+                                <button class="btn btn-xs btn-secondary" @onclick="() => EditConnector(connector)">✏️</button>
+                                <button class="btn btn-xs btn-danger" @onclick="() => DeleteConnector(connector.Id)">🗑️</button>
+                            </div>
+                        </div>
+                        <div class="connector-body">
+                            <div class="connector-category">
+                                @if (connector.Category != null)
+                                {
+                                    <span>@connector.Category.IconEmoji @connector.Category.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="uncategorized">Uncategorized</span>
+                                }
+                            </div>
+                            <div class="connector-client-id">
+                                <span class="label">Client ID:</span>
+                                <code>@connector.ClientId</code>
+                                @if (string.IsNullOrEmpty(connector.ClientSecret))
+                                {
+                                    <span class="status-badge secret-missing" title="Client secret is missing. Edit connector to re-enter.">⚠️ Secret Missing</span>
+                                }
+                            </div>
+                            @if (!string.IsNullOrEmpty(connector.Description))
+                            {
+                                <div class="connector-description">
+                                    @((MarkupString)connector.Description)
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@* Category Modal *@
+@if (showCategoryModal)
+{
+    <div class="modal-overlay" @onclick="CloseCategoryModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h3>@(editingCategory == null ? "Add Category" : "Edit Category")</h3>
+            
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" class="form-control" @bind="categoryName" placeholder="e.g., Partner Operations" />
+            </div>
+            
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <input type="text" class="form-control" @bind="categoryDescription" placeholder="Brief description" />
+            </div>
+            
+            <div class="form-group">
+                <label>Icon Emoji</label>
+                <div class="emoji-picker">
+                    @foreach (var emoji in availableEmojis)
+                    {
+                        <button type="button" 
+                                class="emoji-option @(categoryIcon == emoji ? "selected" : "")"
+                                @onclick="() => categoryIcon = emoji">
+                            @emoji
+                        </button>
+                    }
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseCategoryModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveCategory" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Connector Modal *@
+@if (showConnectorModal)
+{
+    <div class="modal-overlay" @onclick="CloseConnectorModal">
+        <div class="modal-content modal-lg" @onclick:stopPropagation="true">
+            <h3>@(editingConnector == null ? "Add Connector" : "Edit Connector")</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" class="form-control" @bind="connectorName" placeholder="e.g., Production Graph Access" />
+                </div>
+                
+                <div class="form-group">
+                    <label>Category</label>
+                    <select class="form-control" @bind="connectorCategoryId">
+                        <option value="">— Uncategorized —</option>
+                        @if (categories != null)
+                        {
+                            @foreach (var cat in categories)
+                            {
+                                <option value="@cat.Id">@cat.IconEmoji @cat.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Consent Type *</label>
+                    <select class="form-control" @bind="connectorConsentType">
+                        <option value="@ConnectorConsentType.Graph">Graph (Microsoft Graph API)</option>
+                        <option value="@ConnectorConsentType.PartnerCenter">Partner Center</option>
+                        <option value="@ConnectorConsentType.AzureManagement">Azure Management</option>
+                        <option value="@ConnectorConsentType.GitHubCopilot">GitHub Copilot (Device Flow)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Tenant ID</label>
+                    <input type="text" class="form-control" @bind="connectorTenantId" placeholder="common (multi-tenant)" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Client ID (Application ID) *</label>
+                <input type="text" class="form-control" @bind="connectorClientId" 
+                       placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </div>
+
+            <div class="form-group">
+                <label>
+                    Client Secret @(editingConnector != null ? "(leave empty to keep existing)" : "*")
+                    @if (editingConnector != null)
+                    {
+                        <button type="button" class="btn btn-xs" style="margin-left: 10px; padding: 2px 8px; font-size: 0.7rem;" 
+                                @onclick="ToggleSecretVisibility">
+                            @(showSecret ? "🔒 Hide" : "👁️ Show")
+                        </button>
+                    }
+                </label>
+                <input type="@(showSecret ? "text" : "password")" class="form-control" @bind="connectorClientSecret" 
+                       placeholder="Enter client secret" />
+                @if (editingConnector != null && !string.IsNullOrEmpty(editingConnector.ClientSecret) && string.IsNullOrEmpty(connectorClientSecret))
+                {
+                    <small style="color: #4facfe;">Current secret is set (hidden). Enter a new value to replace it.</small>
+                }
+                else if (editingConnector != null && string.IsNullOrEmpty(editingConnector.ClientSecret))
+                {
+                    <small style="color: #f39c12;">⚠️ No secret stored. Please enter the client secret.</small>
+                }
+            </div>
+
+            <div class="form-group">
+                <label>Required Scopes (comma-separated)</label>
+                <input type="text" class="form-control" @bind="connectorScopes" 
+                       placeholder="e.g., User.Read, Files.Read.All, offline_access" />
+            </div>
+
+            <div class="form-group">
+                <label>User-Facing Description</label>
+                <Radzen.Blazor.RadzenHtmlEditor @bind-Value="@connectorDescription" 
+                                                 Style="height: 150px; background: #1a1a2e;" />
+            </div>
+
+            <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="connectorEnabled" />
+                    <span>Enabled (visible to users)</span>
+                </label>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseConnectorModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveConnector" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .connectors-admin {
+        color: #e0e0e0;
+    }
+
+    .admin-section-header h2 {
+        margin: 0 0 0.5rem;
+        color: #667eea;
+    }
+
+    .section-description {
+        color: #888;
+        margin: 0 0 1.5rem;
+    }
+
+    .categories-section,
+    .connectors-section {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
+        padding: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .section-header h3 {
+        margin: 0;
+        font-size: 1rem;
+        color: #ccc;
+    }
+
+    .categories-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .category-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .category-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .category-icon {
+        font-size: 1.25rem;
+    }
+
+    .category-name {
+        font-weight: 600;
+        color: #fff;
+    }
+
+    .category-description {
+        color: #888;
+        font-size: 0.9rem;
+    }
+
+    .category-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .connectors-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .connector-card {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 1rem;
+    }
+
+    .connector-card.disabled {
+        opacity: 0.6;
+    }
+
+    .connector-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .connector-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .connector-name {
+        font-weight: 600;
+        font-size: 1.05rem;
+        color: #fff;
+    }
+
+    .consent-type-badge {
+        padding: 0.2rem 0.6rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .consent-type-badge.graph {
+        background: rgba(0, 120, 212, 0.2);
+        color: #0078d4;
+    }
+
+    .consent-type-badge.partnercenter {
+        background: rgba(243, 156, 18, 0.2);
+        color: #f39c12;
+    }
+
+    .consent-type-badge.azuremanagement {
+        background: rgba(0, 188, 212, 0.2);
+        color: #00bcd4;
+    }
+
+    .consent-type-badge.githubcopilot {
+        background: rgba(36, 41, 47, 0.3);
+        color: #238636;
+    }
+
+    .status-badge.disabled {
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+    }
+
+    .status-badge.secret-missing {
+        background: rgba(243, 156, 18, 0.2);
+        color: #f39c12;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        margin-left: 0.5rem;
+    }
+
+    .connector-body {
+        font-size: 0.9rem;
+    }
+
+    .connector-category {
+        color: #888;
+        margin-bottom: 0.5rem;
+    }
+
+    .connector-category .uncategorized {
+        font-style: italic;
+        color: #666;
+    }
+
+    .connector-client-id {
+        color: #aaa;
+        margin-bottom: 0.5rem;
+    }
+
+    .connector-client-id .label {
+        color: #888;
+    }
+
+    .connector-client-id code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        color: #4facfe;
+    }
+
+    .connector-description {
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        color: #bbb;
+        font-size: 0.85rem;
+    }
+
+    .empty-message {
+        color: #666;
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .loading {
+        color: #888;
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: #1a1a2e;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 2rem;
+        max-width: 450px;
+        width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-content.modal-lg {
+        max-width: 650px;
+    }
+
+    .modal-content h3 {
+        margin: 0 0 1.5rem;
+        color: #fff;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+        display: block;
+        color: #aaa;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.6rem 0.85rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 0.95rem;
+    }
+
+    .form-control:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+
+    .emoji-input {
+        width: 80px;
+        text-align: center;
+        font-size: 1.5rem;
+    }
+
+    .emoji-picker {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .emoji-option {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        background: rgba(255, 255, 255, 0.05);
+        border: 2px solid transparent;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .emoji-option:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: scale(1.1);
+    }
+
+    .emoji-option.selected {
+        border-color: #667eea;
+        background: rgba(102, 126, 234, 0.2);
+    }
+
+    .checkbox-group {
+        margin-top: 1rem;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: #ddd;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+        margin-top: 1.5rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: opacity 0.2s;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .btn-xs {
+        padding: 0.2rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .btn-sm {
+        padding: 0.35rem 0.75rem;
+        font-size: 0.85rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+    }
+
+    .btn-secondary {
+        background: rgba(100, 100, 100, 0.3);
+        color: #aaa;
+    }
+
+    .btn-danger {
+        background: #e74c3c;
+        color: #fff;
+    }
+
+    .alert {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .alert-success {
+        background: rgba(46, 204, 113, 0.15);
+        color: #2ecc71;
+        border: 1px solid rgba(46, 204, 113, 0.3);
+    }
+
+    .alert-danger {
+        background: rgba(231, 76, 60, 0.15);
+        color: #e74c3c;
+        border: 1px solid rgba(231, 76, 60, 0.3);
+    }
+</style>
+
+@code {
+    private List<ConnectorCategory>? categories;
+    private List<PlatformConnector>? connectors;
+    
+    private string statusMessage = "";
+    private bool isSuccess;
+    private bool isSaving;
+    
+    // Category modal state
+    private bool showCategoryModal;
+    private ConnectorCategory? editingCategory;
+    private string categoryName = "";
+    private string? categoryDescription;
+    private string categoryIcon = "📁";
+    
+    // Predefined emoji options for categories
+    private readonly string[] availableEmojis = new[]
+    {
+        "📁", "📂", "🏢", "☁️", "🔒", "🔓", "👥", "📊", "📈", "💼",
+        "🌐", "🔌", "⚡", "🛠️", "⚙️", "📧", "📅", "📋", "🗂️", "💾",
+        "🔄", "🚀", "💡", "🎯", "🏆", "⭐", "🔐", "🛡️", "📱", "💻"
+    };
+    
+    // Connector modal state
+    private bool showConnectorModal;
+    private PlatformConnector? editingConnector;
+    private string connectorName = "";
+    private string? connectorCategoryId;
+    private ConnectorConsentType connectorConsentType = ConnectorConsentType.Graph;
+    private string connectorClientId = "";
+    private string connectorClientSecret = "";
+    private string connectorTenantId = "common";
+    private string connectorScopes = "";
+    private string connectorDescription = "";
+    private bool connectorEnabled = true;
+    private bool showSecret = false;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        categories = await ConnectorService.GetCategoriesAsync();
+        connectors = await ConnectorService.GetConnectorsAsync();
+    }
+
+    #region Category CRUD
+
+    private void ShowAddCategoryModal()
+    {
+        editingCategory = null;
+        categoryName = "";
+        categoryDescription = null;
+        categoryIcon = "📁";
+        showCategoryModal = true;
+    }
+
+    private void EditCategory(ConnectorCategory category)
+    {
+        editingCategory = category;
+        categoryName = category.Name;
+        categoryDescription = category.Description;
+        categoryIcon = category.IconEmoji;
+        showCategoryModal = true;
+    }
+
+    private void CloseCategoryModal()
+    {
+        showCategoryModal = false;
+        editingCategory = null;
+    }
+
+    private async Task SaveCategory()
+    {
+        if (string.IsNullOrWhiteSpace(categoryName))
+        {
+            statusMessage = "Category name is required.";
+            isSuccess = false;
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            if (editingCategory == null)
+            {
+                await ConnectorService.CreateCategoryAsync(categoryName, categoryDescription, categoryIcon);
+                statusMessage = "Category created successfully.";
+            }
+            else
+            {
+                await ConnectorService.UpdateCategoryAsync(
+                    editingCategory.Id, categoryName, categoryDescription, categoryIcon, editingCategory.DisplayOrder);
+                statusMessage = "Category updated successfully.";
+            }
+
+            isSuccess = true;
+            CloseCategoryModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteCategory(Guid id)
+    {
+        var result = await ConnectorService.DeleteCategoryAsync(id);
+        if (result)
+        {
+            statusMessage = "Category deleted. Connectors are now uncategorized.";
+            isSuccess = true;
+            await LoadDataAsync();
+        }
+        else
+        {
+            statusMessage = "Failed to delete category.";
+            isSuccess = false;
+        }
+    }
+
+    #endregion
+
+    #region Connector CRUD
+
+    private void ShowAddConnectorModal()
+    {
+        editingConnector = null;
+        connectorName = "";
+        connectorCategoryId = null;
+        connectorConsentType = ConnectorConsentType.Graph;
+        connectorClientId = "";
+        connectorClientSecret = "";
+        connectorTenantId = "common";
+        connectorScopes = "User.Read, offline_access";
+        connectorDescription = "";
+        connectorEnabled = true;
+        showSecret = false;
+        showConnectorModal = true;
+    }
+
+    private void EditConnector(PlatformConnector connector)
+    {
+        editingConnector = connector;
+        connectorName = connector.Name;
+        connectorCategoryId = connector.CategoryId?.ToString();
+        connectorConsentType = connector.ConsentType;
+        connectorClientId = connector.ClientId;
+        connectorClientSecret = connector.ClientSecret ?? ""; // Load existing secret for viewing
+        connectorTenantId = connector.TenantId;
+        connectorScopes = connector.RequiredScopes;
+        connectorDescription = connector.Description;
+        connectorEnabled = connector.IsEnabled;
+        showSecret = false; // Start hidden
+        showConnectorModal = true;
+    }
+
+    private void ToggleSecretVisibility()
+    {
+        showSecret = !showSecret;
+    }
+
+    private void CloseConnectorModal()
+    {
+        showConnectorModal = false;
+        editingConnector = null;
+    }
+
+    private async Task SaveConnector()
+    {
+        if (string.IsNullOrWhiteSpace(connectorName) || string.IsNullOrWhiteSpace(connectorClientId))
+        {
+            statusMessage = "Name and Client ID are required.";
+            isSuccess = false;
+            return;
+        }
+
+        if (editingConnector == null && string.IsNullOrWhiteSpace(connectorClientSecret))
+        {
+            statusMessage = "Client Secret is required for new connectors.";
+            isSuccess = false;
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            Guid? categoryId = string.IsNullOrEmpty(connectorCategoryId) 
+                ? null 
+                : Guid.Parse(connectorCategoryId);
+
+            if (editingConnector == null)
+            {
+                await ConnectorService.CreateConnectorAsync(
+                    categoryId, connectorName, connectorDescription, connectorConsentType,
+                    connectorClientId, connectorClientSecret, connectorTenantId, connectorScopes);
+                statusMessage = "Connector created successfully.";
+            }
+            else
+            {
+                await ConnectorService.UpdateConnectorAsync(
+                    editingConnector.Id, categoryId, connectorName, connectorDescription,
+                    connectorConsentType, connectorClientId, 
+                    string.IsNullOrEmpty(connectorClientSecret) ? null : connectorClientSecret,
+                    connectorTenantId, connectorScopes, connectorEnabled, editingConnector.DisplayOrder);
+                statusMessage = "Connector updated successfully.";
+            }
+
+            isSuccess = true;
+            CloseConnectorModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteConnector(Guid id)
+    {
+        var result = await ConnectorService.DeleteConnectorAsync(id);
+        if (result)
+        {
+            statusMessage = "Connector deleted.";
+            isSuccess = true;
+            await LoadDataAsync();
+        }
+        else
+        {
+            statusMessage = "Failed to delete connector.";
+            isSuccess = false;
+        }
+    }
+
+    #endregion
+}

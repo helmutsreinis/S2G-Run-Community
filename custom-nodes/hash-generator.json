@@ -1,0 +1,120 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:21:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_HashGenerator",
+        "displayName": "Hash Generator",
+        "description": "Generates cryptographic hashes from text input. Supports MD5, SHA-1, and SHA-256 algorithms using pure JavaScript implementations.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 2L2 7L12 12L22 7L12 2Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2 17L12 22L22 17\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2 12L12 17L22 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// Hash Generator - MD5, SHA-1, SHA-256\n// Pure JavaScript implementations\n\nvar text = input.get(\"text\");\nvar algorithm = input.get(\"algorithm\") || \"SHA-256\";\nvar outputFormat = input.get(\"outputFormat\") || \"hex\";\n\n// MD5 Implementation\nfunction md5(str) {\n    function rotateLeft(x, n) { return (x << n) | (x >>> (32 - n)); }\n    function addUnsigned(x, y) {\n        var x4 = (x & 0x40000000), y4 = (y & 0x40000000);\n        var x8 = (x & 0x80000000), y8 = (y & 0x80000000);\n        var result = (x & 0x3FFFFFFF) + (y & 0x3FFFFFFF);\n        if (x4 & y4) return (result ^ 0x80000000 ^ x8 ^ y8);\n        if (x4 | y4) {\n            if (result & 0x40000000) return (result ^ 0xC0000000 ^ x8 ^ y8);\n            else return (result ^ 0x40000000 ^ x8 ^ y8);\n        } else return (result ^ x8 ^ y8);\n    }\n    function F(x,y,z) { return (x & y) | ((~x) & z); }\n    function G(x,y,z) { return (x & z) | (y & (~z)); }\n    function H(x,y,z) { return (x ^ y ^ z); }\n    function I(x,y,z) { return (y ^ (x | (~z))); }\n    function FF(a,b,c,d,x,s,ac) { a = addUnsigned(a, addUnsigned(addUnsigned(F(b,c,d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }\n    function GG(a,b,c,d,x,s,ac) { a = addUnsigned(a, addUnsigned(addUnsigned(G(b,c,d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }\n    function HH(a,b,c,d,x,s,ac) { a = addUnsigned(a, addUnsigned(addUnsigned(H(b,c,d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }\n    function II(a,b,c,d,x,s,ac) { a = addUnsigned(a, addUnsigned(addUnsigned(I(b,c,d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }\n    function toWordArray(str) {\n        var len = str.length, words = [], i;\n        for (i = 0; i < len; i++) words[i >> 2] |= (str.charCodeAt(i) & 0xFF) << ((i % 4) * 8);\n        words[len >> 2] |= 0x80 << ((len % 4) * 8);\n        words[(((len + 8) >> 6) << 4) + 14] = len * 8;\n        return words;\n    }\n    function toHex(n) {\n        var hex = '', i;\n        for (i = 0; i < 4; i++) hex += ((n >> (i * 8 + 4)) & 0xF).toString(16) + ((n >> (i * 8)) & 0xF).toString(16);\n        return hex;\n    }\n    var x = toWordArray(str), a = 0x67452301, b = 0xEFCDAB89, c = 0x98BADCFE, d = 0x10325476;\n    var S = [7,12,17,22, 5,9,14,20, 4,11,16,23, 6,10,15,21];\n    var T = [0xD76AA478,0xE8C7B756,0x242070DB,0xC1BDCEEE,0xF57C0FAF,0x4787C62A,0xA8304613,0xFD469501,0x698098D8,0x8B44F7AF,0xFFFF5BB1,0x895CD7BE,0x6B901122,0xFD987193,0xA679438E,0x49B40821,0xF61E2562,0xC040B340,0x265E5A51,0xE9B6C7AA,0xD62F105D,0x02441453,0xD8A1E681,0xE7D3FBC8,0x21E1CDE6,0xC33707D6,0xF4D50D87,0x455A14ED,0xA9E3E905,0xFCEFA3F8,0x676F02D9,0x8D2A4C8A,0xFFFA3942,0x8771F681,0x6D9D6122,0xFDE5380C,0xA4BEEA44,0x4BDECFA9,0xF6BB4B60,0xBEBFBC70,0x289B7EC6,0xEAA127FA,0xD4EF3085,0x04881D05,0xD9D4D039,0xE6DB99E5,0x1FA27CF8,0xC4AC5665,0xF4292244,0x432AFF97,0xAB9423A7,0xFC93A039,0x655B59C3,0x8F0CCC92,0xFFEFF47D,0x85845DD1,0x6FA87E4F,0xFE2CE6E0,0xA3014314,0x4E0811A1,0xF7537E82,0xBD3AF235,0x2AD7D2BB,0xEB86D391];\n    for (var k = 0; k < x.length; k += 16) {\n        var AA = a, BB = b, CC = c, DD = d;\n        for (var i = 0; i < 64; i++) {\n            var g, f;\n            if (i < 16) { f = F(b,c,d); g = i; }\n            else if (i < 32) { f = G(b,c,d); g = (5*i + 1) % 16; }\n            else if (i < 48) { f = H(b,c,d); g = (3*i + 5) % 16; }\n            else { f = I(b,c,d); g = (7*i) % 16; }\n            var temp = d; d = c; c = b;\n            b = addUnsigned(b, rotateLeft(addUnsigned(a, addUnsigned(addUnsigned(f, x[k+g] || 0), T[i])), S[(i>>4)*4 + (i%4)]));\n            a = temp;\n        }\n        a = addUnsigned(a, AA); b = addUnsigned(b, BB); c = addUnsigned(c, CC); d = addUnsigned(d, DD);\n    }\n    return toHex(a) + toHex(b) + toHex(c) + toHex(d);\n}\n\n// SHA-1 Implementation\nfunction sha1(str) {\n    function rotl(n, s) { return (n << s) | (n >>> (32 - s)); }\n    function toHex32(val) {\n        var hex = '';\n        for (var i = 7; i >= 0; i--) hex += ((val >>> (i * 4)) & 0xF).toString(16);\n        return hex;\n    }\n    var msg = [];\n    for (var i = 0; i < str.length; i++) msg.push(str.charCodeAt(i) & 0xFF);\n    msg.push(0x80);\n    var len = msg.length;\n    while ((msg.length % 64) !== 56) msg.push(0);\n    var bits = (str.length * 8);\n    msg.push(0, 0, 0, 0, (bits >>> 24) & 0xFF, (bits >>> 16) & 0xFF, (bits >>> 8) & 0xFF, bits & 0xFF);\n    var h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;\n    for (var chunk = 0; chunk < msg.length; chunk += 64) {\n        var w = [];\n        for (var i = 0; i < 16; i++) {\n            w[i] = (msg[chunk + i*4] << 24) | (msg[chunk + i*4 + 1] << 16) | (msg[chunk + i*4 + 2] << 8) | msg[chunk + i*4 + 3];\n        }\n        for (var i = 16; i < 80; i++) {\n            w[i] = rotl(w[i-3] ^ w[i-8] ^ w[i-14] ^ w[i-16], 1);\n        }\n        var a = h0, b = h1, c = h2, d = h3, e = h4;\n        for (var i = 0; i < 80; i++) {\n            var f, k;\n            if (i < 20) { f = (b & c) | ((~b) & d); k = 0x5A827999; }\n            else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }\n            else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }\n            else { f = b ^ c ^ d; k = 0xCA62C1D6; }\n            var temp = (rotl(a, 5) + f + e + k + w[i]) | 0;\n            e = d; d = c; c = rotl(b, 30); b = a; a = temp;\n        }\n        h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;\n    }\n    return toHex32(h0) + toHex32(h1) + toHex32(h2) + toHex32(h3) + toHex32(h4);\n}\n\n// SHA-256 Implementation\nfunction sha256(str) {\n    function rotr(n, x) { return (x >>> n) | (x << (32 - n)); }\n    function ch(x, y, z) { return (x & y) ^ (~x & z); }\n    function maj(x, y, z) { return (x & y) ^ (x & z) ^ (y & z); }\n    function sig0(x) { return rotr(2, x) ^ rotr(13, x) ^ rotr(22, x); }\n    function sig1(x) { return rotr(6, x) ^ rotr(11, x) ^ rotr(25, x); }\n    function gam0(x) { return rotr(7, x) ^ rotr(18, x) ^ (x >>> 3); }\n    function gam1(x) { return rotr(17, x) ^ rotr(19, x) ^ (x >>> 10); }\n    function toHex32(val) {\n        var hex = '';\n        for (var i = 7; i >= 0; i--) hex += ((val >>> (i * 4)) & 0xF).toString(16);\n        return hex;\n    }\n    var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];\n    var h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n    var msg = [];\n    for (var i = 0; i < str.length; i++) msg.push(str.charCodeAt(i) & 0xFF);\n    msg.push(0x80);\n    while ((msg.length % 64) !== 56) msg.push(0);\n    var bits = str.length * 8;\n    msg.push(0, 0, 0, 0, (bits >>> 24) & 0xFF, (bits >>> 16) & 0xFF, (bits >>> 8) & 0xFF, bits & 0xFF);\n    for (var chunk = 0; chunk < msg.length; chunk += 64) {\n        var w = [];\n        for (var i = 0; i < 16; i++) {\n            w[i] = (msg[chunk + i*4] << 24) | (msg[chunk + i*4 + 1] << 16) | (msg[chunk + i*4 + 2] << 8) | msg[chunk + i*4 + 3];\n        }\n        for (var i = 16; i < 64; i++) {\n            w[i] = (gam1(w[i-2]) + w[i-7] + gam0(w[i-15]) + w[i-16]) | 0;\n        }\n        var a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];\n        for (var i = 0; i < 64; i++) {\n            var t1 = (hh + sig1(e) + ch(e,f,g) + K[i] + w[i]) | 0;\n            var t2 = (sig0(a) + maj(a,b,c)) | 0;\n            hh=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t1+t2)|0;\n        }\n        h[0]=(h[0]+a)|0; h[1]=(h[1]+b)|0; h[2]=(h[2]+c)|0; h[3]=(h[3]+d)|0;\n        h[4]=(h[4]+e)|0; h[5]=(h[5]+f)|0; h[6]=(h[6]+g)|0; h[7]=(h[7]+hh)|0;\n    }\n    return h.map(toHex32).join('');\n}\n\nfunction hexToBase64(hex) {\n    var bytes = [];\n    for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));\n    var b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';\n    var result = '';\n    for (var i = 0; i < bytes.length; i += 3) {\n        var b1 = bytes[i], b2 = bytes[i+1] || 0, b3 = bytes[i+2] || 0;\n        result += b64chars[(b1 >> 2)];\n        result += b64chars[((b1 & 3) << 4) | (b2 >> 4)];\n        result += (i+1 < bytes.length) ? b64chars[((b2 & 15) << 2) | (b3 >> 6)] : '=';\n        result += (i+2 < bytes.length) ? b64chars[b3 & 63] : '=';\n    }\n    return result;\n}\n\nif (!text && text !== \"\") {\n    log.error(\"Text input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Text input is required\");\n    output.set(\"Hash\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var hash = \"\";\n        \n        switch (algorithm.toUpperCase()) {\n            case \"MD5\":\n                hash = md5(text);\n                break;\n            case \"SHA-1\":\n            case \"SHA1\":\n                hash = sha1(text);\n                break;\n            case \"SHA-256\":\n            case \"SHA256\":\n            default:\n                hash = sha256(text);\n                break;\n        }\n        \n        var result = hash;\n        if (outputFormat === \"base64\") {\n            result = hexToBase64(hash);\n        } else if (outputFormat === \"uppercase\") {\n            result = hash.toUpperCase();\n        }\n        \n        output.set(\"Hash\", result);\n        output.set(\"HashHex\", hash);\n        output.set(\"HashBase64\", hexToBase64(hash));\n        output.set(\"Algorithm\", algorithm);\n        output.set(\"InputLength\", text.length);\n        output.set(\"HashLength\", hash.length);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        \n        log.info(algorithm + \" hash generated: \" + hash.substring(0, 16) + \"...\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Hash generation failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Hash\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "text",
+                "displayLabel": "Text",
+                "placeholderText": "Text to hash",
+                "helpText": "The input text to generate a hash for.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "algorithm",
+                "displayLabel": "Algorithm",
+                "helpText": "The hash algorithm to use.",
+                "fieldType": "Dropdown",
+                "defaultValue": "SHA-256",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "MD5,SHA-1,SHA-256"
+            },
+            {
+                "fieldName": "outputFormat",
+                "displayLabel": "Output Format",
+                "helpText": "Format for the primary hash output.",
+                "fieldType": "Dropdown",
+                "defaultValue": "hex",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3,
+                "dropdownOptions": "hex,uppercase,base64"
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Hash",
+                "description": "The generated hash in the selected format",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "HashHex",
+                "description": "The hash in lowercase hexadecimal",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "HashBase64",
+                "description": "The hash in Base64 encoding",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Algorithm",
+                "description": "The algorithm used",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "InputLength",
+                "description": "Length of the input text",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HashLength",
+                "description": "Length of the hex hash",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if hashing failed",
+                "dataType": "boolean",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if hashing failed",
+                "dataType": "string",
+                "displayOrder": 8
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Hash generated successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Hashing succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Hashing failed",
+                "color": "#ef4444",
+                "conditionDescription": "Hashing failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

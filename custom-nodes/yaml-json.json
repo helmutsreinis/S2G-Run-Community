@@ -1,0 +1,97 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:25:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_YamlJson",
+        "displayName": "YAML ↔ JSON",
+        "description": "Converts between YAML and JSON formats. Supports basic YAML parsing including objects, arrays, strings, numbers, and booleans.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M14 3V7C14 7.55228 14.4477 8 15 8H19M14 3H7C5.89543 3 5 3.89543 5 5V19C5 20.1046 5.89543 21 7 21H17C18.1046 21 19 20.1046 19 19V8M14 3L19 8\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M9 12L7 14L9 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M15 12L17 14L15 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// YAML ↔ JSON Converter\n// Basic YAML parser - supports objects, arrays, strings, numbers, booleans\n\nvar mode = input.get(\"mode\") || \"toJson\";\nvar inputText = input.get(\"inputText\");\nvar indent = parseInt(input.get(\"indent\") || \"2\");\n\nif (!inputText || inputText.trim() === \"\") {\n    log.error(\"Input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Input is required\");\n    output.set(\"Result\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var result = \"\";\n        \n        if (mode.toLowerCase() === \"toyaml\" || mode.toLowerCase() === \"encode\") {\n            // JSON to YAML\n            var data = json.parse(inputText);\n            \n            function toYaml(obj, level) {\n                var spaces = \"\";\n                for (var s = 0; s < level * indent; s++) spaces += \" \";\n                var lines = [];\n                \n                if (Array.isArray(obj)) {\n                    for (var i = 0; i < obj.length; i++) {\n                        var item = obj[i];\n                        if (typeof item === \"object\" && item !== null) {\n                            lines.push(spaces + \"-\");\n                            var subLines = toYaml(item, level + 1).split('\\n');\n                            for (var j = 0; j < subLines.length; j++) {\n                                if (subLines[j].trim()) lines.push(subLines[j]);\n                            }\n                        } else {\n                            lines.push(spaces + \"- \" + formatValue(item));\n                        }\n                    }\n                } else if (typeof obj === \"object\" && obj !== null) {\n                    var keys = Object.keys(obj);\n                    for (var k = 0; k < keys.length; k++) {\n                        var key = keys[k];\n                        var val = obj[key];\n                        if (typeof val === \"object\" && val !== null) {\n                            lines.push(spaces + key + \":\");\n                            var subLines = toYaml(val, level + 1).split('\\n');\n                            for (var m = 0; m < subLines.length; m++) {\n                                if (subLines[m].trim()) lines.push(subLines[m]);\n                            }\n                        } else {\n                            lines.push(spaces + key + \": \" + formatValue(val));\n                        }\n                    }\n                }\n                return lines.join('\\n');\n            }\n            \n            function formatValue(v) {\n                if (v === null) return \"null\";\n                if (v === true) return \"true\";\n                if (v === false) return \"false\";\n                if (typeof v === \"number\") return String(v);\n                if (typeof v === \"string\") {\n                    if (v.indexOf(':') >= 0 || v.indexOf('#') >= 0 || v.indexOf('\\n') >= 0 || v.match(/^[\\[\\]{}&*!|>'\"%@`]/) || v === \"\") {\n                        return '\"' + v.replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"').replace(/\\n/g, '\\\\n') + '\"';\n                    }\n                    return v;\n                }\n                return String(v);\n            }\n            \n            result = toYaml(data, 0);\n            log.info(\"Converted JSON to YAML\");\n        } else {\n            // YAML to JSON (basic parser)\n            var lines = inputText.split('\\n');\n            var root = {};\n            var stack = [{obj: root, indent: -1}];\n            var currentArray = null;\n            \n            function parseValue(str) {\n                str = str.trim();\n                if (str === \"null\" || str === \"~\") return null;\n                if (str === \"true\") return true;\n                if (str === \"false\") return false;\n                if (str.match(/^-?\\d+$/)) return parseInt(str);\n                if (str.match(/^-?\\d*\\.\\d+$/)) return parseFloat(str);\n                if ((str.charAt(0) === '\"' && str.charAt(str.length-1) === '\"') || \n                    (str.charAt(0) === \"'\" && str.charAt(str.length-1) === \"'\")) {\n                    return str.substring(1, str.length - 1);\n                }\n                return str;\n            }\n            \n            function getIndent(line) {\n                var count = 0;\n                for (var i = 0; i < line.length; i++) {\n                    if (line[i] === ' ') count++;\n                    else break;\n                }\n                return count;\n            }\n            \n            for (var i = 0; i < lines.length; i++) {\n                var line = lines[i];\n                var trimmed = line.trim();\n                if (trimmed === \"\" || trimmed.charAt(0) === '#') continue;\n                \n                var lineIndent = getIndent(line);\n                \n                // Pop stack to correct level\n                while (stack.length > 1 && stack[stack.length-1].indent >= lineIndent) {\n                    stack.pop();\n                }\n                var parent = stack[stack.length-1].obj;\n                \n                if (trimmed.charAt(0) === '-') {\n                    // Array item\n                    var val = trimmed.substring(1).trim();\n                    if (!Array.isArray(parent)) {\n                        // Need to convert parent's last key to array\n                        var lastKey = stack[stack.length-1].key;\n                        if (lastKey) {\n                            var parentObj = stack.length > 1 ? stack[stack.length-2].obj : root;\n                            parentObj[lastKey] = [];\n                            parent = parentObj[lastKey];\n                            stack[stack.length-1].obj = parent;\n                        }\n                    }\n                    if (val.indexOf(':') > 0) {\n                        var colonIdx = val.indexOf(':');\n                        var k = val.substring(0, colonIdx).trim();\n                        var v = val.substring(colonIdx + 1).trim();\n                        var newObj = {};\n                        newObj[k] = parseValue(v);\n                        parent.push(newObj);\n                        stack.push({obj: newObj, indent: lineIndent, key: k});\n                    } else if (val) {\n                        parent.push(parseValue(val));\n                    } else {\n                        var newObj = {};\n                        parent.push(newObj);\n                        stack.push({obj: newObj, indent: lineIndent});\n                    }\n                } else if (trimmed.indexOf(':') > 0) {\n                    var colonIdx = trimmed.indexOf(':');\n                    var key = trimmed.substring(0, colonIdx).trim();\n                    var val = trimmed.substring(colonIdx + 1).trim();\n                    \n                    if (val === '' || val.charAt(0) === '#') {\n                        // Object or array follows\n                        parent[key] = {};\n                        stack.push({obj: parent[key], indent: lineIndent, key: key});\n                    } else {\n                        parent[key] = parseValue(val);\n                    }\n                }\n            }\n            \n            result = json.stringify(root);\n            log.info(\"Converted YAML to JSON\");\n        }\n        \n        output.set(\"Result\", result);\n        output.set(\"Mode\", mode);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Conversion failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Result\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "mode",
+                "displayLabel": "Mode",
+                "placeholderText": "toJson or toYaml",
+                "helpText": "'toJson' converts YAML to JSON. 'toYaml' converts JSON to YAML.",
+                "fieldType": "Dropdown",
+                "defaultValue": "toJson",
+                "isRequired": true,
+                "allowPlaceholders": false,
+                "displayOrder": 1,
+                "dropdownOptions": "toJson,toYaml"
+            },
+            {
+                "fieldName": "inputText",
+                "displayLabel": "Input",
+                "placeholderText": "YAML or JSON",
+                "helpText": "For toJson: YAML text. For toYaml: JSON object/array.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "indent",
+                "displayLabel": "Indent Spaces",
+                "placeholderText": "2",
+                "helpText": "Number of spaces for YAML indentation (toYaml mode).",
+                "fieldType": "Text",
+                "defaultValue": "2",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The converted output",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "Mode",
+                "description": "The conversion mode used",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred",
+                "dataType": "boolean",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if conversion failed",
+                "dataType": "string",
+                "displayOrder": 4
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Conversion completed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Conversion failed",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

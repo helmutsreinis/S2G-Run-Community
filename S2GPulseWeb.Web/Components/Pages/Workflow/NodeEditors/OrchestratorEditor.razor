@@ -1,0 +1,1082 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+@using S2GPulseWeb.Web.Logic
+@inject BuiltInNodeCatalogService BuiltInNodeCatalogService
+
+<div class="node-editor-fields orchestrator-editor">
+    @* Task Configuration Section *@
+    <div class="editor-section">
+        <div class="section-header" @onclick="() => taskConfigExpanded = !taskConfigExpanded">
+            <span class="section-icon">📋</span>
+            <span class="section-title">Task Configuration</span>
+            <span class="expand-icon">@(taskConfigExpanded ? "▼" : "▶")</span>
+        </div>
+        @if (taskConfigExpanded)
+        {
+            <div class="section-content">
+                <div class="form-group">
+                    <label class="form-label">Task Description</label>
+                    <textarea class="form-control" rows="3"
+                              placeholder="Describe the orchestration task..."
+                              value="@config.TaskDescription"
+                              @onchange="@(e => UpdateConfig(c => c.TaskDescription = e.Value?.ToString() ?? ""))"></textarea>
+                    <small class="form-text text-muted">High-level task description passed to all agents</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label class="form-label">Max Iterations</label>
+                        <input type="number" class="form-control" min="1" max="20"
+                               value="@config.MaxIterations"
+                               @onchange="@(e => UpdateConfig(c => c.MaxIterations = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : 5))" />
+                    </div>
+                    <div class="form-group half">
+                        <label class="form-label">Evaluation Type</label>
+                        <select class="form-control"
+                                value="@config.EvaluationType"
+                                @onchange="@(e => UpdateConfig(c => c.EvaluationType = Enum.TryParse<EvaluationType>(e.Value?.ToString(), out var v) ? v : EvaluationType.Expression))">
+                            <option value="Expression">Expression</option>
+                            <option value="AIEvaluation">AI Evaluation</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Success Criteria</label>
+                    @if (config.EvaluationType == EvaluationType.Expression)
+                    {
+                        <input type="text" class="form-control monospace"
+                               placeholder="{{Reporter.Status}} == 'success'"
+                               value="@config.SuccessCriteria"
+                               @onchange="@(e => UpdateConfig(c => c.SuccessCriteria = e.Value?.ToString()))" />
+                        <small class="form-text text-muted">Expression to evaluate success (uses placeholder values)</small>
+                    }
+                    else
+                    {
+                        <textarea class="form-control" rows="2"
+                                  placeholder="Evaluate if the task was completed successfully..."
+                                  value="@config.SuccessCriteria"
+                                  @onchange="@(e => UpdateConfig(c => c.SuccessCriteria = e.Value?.ToString()))"></textarea>
+                        <small class="form-text text-muted">AI prompt for evaluating task completion</small>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Steering AI Section - Shows detected orchestrate connection *@
+    <div class="editor-section steering-ai-section">
+        <div class="section-header" @onclick="() => steeringAIExpanded = !steeringAIExpanded">
+            <span class="section-icon">🎯</span>
+            <span class="section-title">Steering AI @(discoveredSteeringAI != null ? "✓" : "(Not Connected)")</span>
+            <span class="expand-icon">@(steeringAIExpanded ? "▼" : "▶")</span>
+        </div>
+        @if (steeringAIExpanded)
+        {
+            <div class="section-content">
+                @if (discoveredSteeringAI != null)
+                {
+                    <div class="steering-ai-card">
+                        @{
+                            var steeringIconSvg = GetAgentIconSvg(discoveredSteeringAI.NodeType);
+                        }
+                        @if (!string.IsNullOrWhiteSpace(steeringIconSvg))
+                        {
+                            <span class="agent-icon custom-svg-icon">@((MarkupString)steeringIconSvg)</span>
+                        }
+                        else
+                        {
+                            <span class="agent-icon">@GetAgentIcon(discoveredSteeringAI.NodeType)</span>
+                        }
+                        <div class="steering-ai-info">
+                            <span class="steering-ai-name">@discoveredSteeringAI.RoleName</span>
+                            <span class="agent-badge">@discoveredSteeringAI.NodeType</span>
+                        </div>
+                        <span class="steering-status connected">Connected</span>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Custom Instructions (Prepended to Auto-Prompt)</label>
+                        <textarea class="form-control" rows="2"
+                                  placeholder="Add custom context or rules for the steering AI..."
+                                  value="@config.SteeringAIPromptPrefix"
+                                  @onchange="@(e => UpdateConfig(c => c.SteeringAIPromptPrefix = e.Value?.ToString()))"></textarea>
+                        <small class="form-text text-muted">Added before the auto-generated agent roster. Leave empty to use default.</small>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <span>No steering AI connected.</span>
+                        <span>Draw a connection from an AI node to this Orchestrator with <code>orchestrate</code> label.</span>
+                    </div>
+                    <small class="form-text text-muted">Without a steering AI, agents run in sequential order (legacy mode).</small>
+                }
+            </div>
+        }
+    </div>
+
+    @* Agents Section - Shows discovered agents from canvas connections *@
+    <div class="editor-section">
+        <div class="section-header" @onclick="() => agentsExpanded = !agentsExpanded">
+            <span class="section-icon">🤖</span>
+            <span class="section-title">Connected Agents (@discoveredAgents.Count)</span>
+            <span class="expand-icon">@(agentsExpanded ? "▼" : "▶")</span>
+        </div>
+        @if (agentsExpanded)
+        {
+            <div class="section-content">
+                @if (discoveredAgents.Count == 0)
+                {
+                    <div class="empty-state">
+                        <span>No agents connected. Draw connections from AI nodes to this Orchestrator with "agent" label.</span>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var (agent, index) in discoveredAgents.Select((a, i) => (a, i)))
+                    {
+                        <div class="agent-card @(expandedAgentIndex == index ? "expanded" : "")">
+                            <div class="agent-header">
+                                <div class="reorder-buttons">
+                                    <button class="reorder-btn" @onclick="() => MoveAgentUp(agent.NodeId)" @onclick:stopPropagation="true" disabled="@(index == 0)" title="Move up">▲</button>
+                                    <button class="reorder-btn" @onclick="() => MoveAgentDown(agent.NodeId)" @onclick:stopPropagation="true" disabled="@(index == discoveredAgents.Count - 1)" title="Move down">▼</button>
+                                </div>
+                                <span class="agent-order">@(GetAgentOrder(agent.NodeId) + 1)</span>
+                                @{
+                                    var agentIconSvg = GetAgentIconSvg(agent.NodeType);
+                                }
+                                @if (!string.IsNullOrWhiteSpace(agentIconSvg))
+                                {
+                                    <span class="agent-icon custom-svg-icon" @onclick="() => ToggleAgent(index)">@((MarkupString)agentIconSvg)</span>
+                                }
+                                else
+                                {
+                                    <span class="agent-icon" @onclick="() => ToggleAgent(index)">@GetAgentIcon(agent.NodeType)</span>
+                                }
+                                <span class="agent-name" @onclick="() => ToggleAgent(index)">@agent.RoleName</span>
+                                <span class="agent-badge">@(agent.NodeType ?? "AI")</span>
+                                <span class="expand-icon" @onclick="() => ToggleAgent(index)">@(expandedAgentIndex == index ? "▼" : "▶")</span>
+                            </div>
+                            @if (expandedAgentIndex == index)
+                            {
+                                <div class="agent-details">
+                                    <div class="form-group">
+                                        <label class="form-label d-flex align-items-center">
+                                            <input type="checkbox" class="form-check-input me-2"
+                                                   checked="@GetAgentEnabled(agent.NodeId)"
+                                                   @onchange="@(e => SetAgentEnabled(agent.NodeId, e.Value is bool b && b))" />
+                                            Enabled
+                                        </label>
+                                        <small class="form-text text-muted">Disabled agents won't be called by the steering AI</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Skill Description</label>
+                                        <textarea class="form-control" rows="2"
+                                                  placeholder="Describe what this agent is good at..."
+                                                  value="@GetAgentSkillDescription(agent.NodeId)"
+                                                  @onchange="@(e => SetAgentSkillDescription(agent.NodeId, e.Value?.ToString()))"></textarea>
+                                        <small class="form-text text-muted">Steering AI uses this to decide when to call this agent</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Role Name (Override)</label>
+                                        <input type="text" class="form-control" 
+                                               placeholder="@agent.RoleName"
+                                               value="@GetAgentRoleOverride(agent.NodeId)"
+                                               @onchange="@(e => SetAgentRoleOverride(agent.NodeId, e.Value?.ToString()))" />
+                                        <small class="form-text text-muted">Leave empty to use node name</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">System Prompt (Override)</label>
+                                        <textarea class="form-control" rows="2"
+                                                  placeholder="Uses agent's configured prompt if empty..."
+                                                  value="@GetAgentPromptOverride(agent.NodeId)"
+                                                  @onchange="@(e => SetAgentPromptOverride(agent.NodeId, e.Value?.ToString()))"></textarea>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </div>
+
+    @* Output Tags Section *@
+    <div class="editor-section">
+        <div class="section-header" @onclick="() => tagsExpanded = !tagsExpanded">
+            <span class="section-icon">🏷️</span>
+            <span class="section-title">Output Tags</span>
+            <span class="expand-icon">@(tagsExpanded ? "▼" : "▶")</span>
+        </div>
+        @if (tagsExpanded)
+        {
+            <div class="section-content">
+                <div class="output-tags">
+                    <span class="tag-chip complete">complete</span>
+                    <span class="tag-chip error">error</span>
+                    @foreach (var tag in config.OutputTags.Where(t => t != "complete" && t != "error"))
+                    {
+                        <span class="tag-chip custom">@tag <button class="remove-chip" @onclick="() => RemoveTag(tag)">×</button></span>
+                    }
+                </div>
+                <small class="form-text text-muted">Orchestrator routes to "complete" on success, "error" on max iterations</small>
+            </div>
+        }
+    </div>
+
+    @* Execution Stats *@
+    @if (!string.IsNullOrEmpty(config.LastExecutedAt))
+    {
+        <div class="execution-stats">
+            <label class="form-label">Last Execution</label>
+            <div class="stats-display">
+                <span>🕐 @config.LastExecutedAt</span>
+                @if (config.LastIterationCount.HasValue)
+                {
+                    <span class="ms-2">🔄 @config.LastIterationCount iterations</span>
+                }
+                @if (config.LastSuccess.HasValue)
+                {
+                    <span class="ms-2">@(config.LastSuccess.Value ? "✅ Success" : "❌ Max reached")</span>
+                }
+            </div>
+        </div>
+    }
+
+    @* Help Section *@
+    <details class="help-section">
+        <summary>📖 Output Placeholders</summary>
+        <div class="help-content">
+            <ul>
+                <li><code>{{Orchestrator.FinalResult}}</code> - "completed" or "max_iterations_reached"</li>
+                <li><code>{{Orchestrator.IterationCount}}</code> - Number of iterations performed</li>
+                <li><code>{{Orchestrator.IsSuccess}}</code> - Boolean success status</li>
+                <li><code>{{Orchestrator.AgentResponses}}</code> - JSON of all agent responses</li>
+                <li><code>{{Orchestrator.LastEvaluation}}</code> - Final evaluation message</li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+<style>
+    .orchestrator-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .editor-section {
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--background-dark);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .section-header:hover {
+        background: rgba(0, 168, 168, 0.1);
+    }
+
+    .section-icon {
+        font-size: 1rem;
+    }
+
+    .section-title {
+        flex: 1;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .expand-icon {
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+    }
+
+    .section-content {
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+
+    .form-group:last-child {
+        margin-bottom: 0;
+    }
+
+    .form-row {
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    .form-group.half {
+        flex: 1;
+    }
+
+    .form-label {
+        color: var(--text-primary);
+        font-weight: 500;
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.8rem;
+    }
+
+    .form-text.text-muted {
+        color: var(--text-secondary) !important;
+        font-size: 0.7rem;
+    }
+
+    .monospace {
+        font-family: monospace;
+    }
+
+    .empty-state {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        padding: 0.5rem;
+        text-align: center;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+    }
+
+    /* Agent Cards */
+    .agent-card {
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+        overflow: hidden;
+    }
+
+    .agent-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        background: var(--background-dark);
+        cursor: pointer;
+    }
+
+    .agent-header:hover {
+        background: rgba(0, 168, 168, 0.1);
+    }
+
+    .agent-order {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--accent-color);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        font-weight: bold;
+    }
+
+    .agent-icon {
+        font-size: 1.2rem;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .agent-icon.custom-svg-icon {
+        width: 24px;
+        height: 24px;
+    }
+
+    .agent-icon.custom-svg-icon svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .agent-name {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .agent-badge {
+        background: rgba(100, 100, 255, 0.2);
+        color: #6b8afd;
+        padding: 2px 6px;
+        border-radius: 10px;
+        font-size: 0.65rem;
+    }
+
+    .agent-details {
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    /* Tool Chips */
+    .tool-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+    }
+
+    .tool-chip {
+        background: rgba(128, 0, 255, 0.2);
+        color: #a855f7;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .tool-select {
+        width: auto;
+        font-size: 0.75rem;
+        padding: 2px 8px;
+    }
+
+    .remove-chip {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        padding: 0;
+        font-size: 0.9rem;
+        line-height: 1;
+    }
+
+    /* Tool Table */
+    .tool-table {
+        width: 100%;
+        font-size: 0.75rem;
+        border-collapse: collapse;
+    }
+
+    .tool-table th,
+    .tool-table td {
+        padding: 0.4rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .tool-table th {
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .tool-tag {
+        background: rgba(168, 85, 247, 0.2);
+        color: #a855f7;
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-family: monospace;
+        font-size: 0.65rem;
+    }
+
+    /* Reorder Buttons */
+    .reorder-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        margin-right: 0.5rem;
+    }
+
+    .reorder-btn {
+        background: transparent;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 0;
+        width: 18px;
+        height: 14px;
+        font-size: 0.5rem;
+        line-height: 1;
+        cursor: pointer;
+        border-radius: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .reorder-btn:hover:not(:disabled) {
+        background: rgba(0, 168, 168, 0.2);
+        color: var(--accent-color);
+        border-color: var(--accent-color);
+    }
+
+    .reorder-btn:disabled {
+        opacity: 0.3;
+        cursor: default;
+    }
+
+    /* Output Tags */
+    .output-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .tag-chip {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .tag-chip.complete {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .tag-chip.error {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .tag-chip.custom {
+        background: rgba(234, 179, 8, 0.2);
+        color: #eab308;
+    }
+
+    /* Stats */
+    .execution-stats {
+        padding: 0.5rem;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .stats-display {
+        color: var(--accent-color);
+        font-family: monospace;
+        font-size: 0.7rem;
+    }
+
+    /* Help Section */
+    .help-section {
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .help-section summary {
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .help-content {
+        margin-top: 0.5rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .help-content code {
+        color: var(--accent-color);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .help-content ul {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+    }
+
+    .help-content li {
+        margin: 0.25rem 0;
+    }
+
+    /* Steering AI Section */
+    .steering-ai-section .section-header .section-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .steering-ai-card {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem;
+        background: var(--background-dark);
+        border-radius: 6px;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        margin-bottom: 0.5rem;
+    }
+
+    .steering-ai-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .steering-ai-name {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .steering-status {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 500;
+    }
+
+    .steering-status.connected {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .empty-state code {
+        background: rgba(0, 168, 168, 0.2);
+        color: var(--accent-color);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: monospace;
+    }
+
+    .d-flex { display: flex; }
+    .align-items-center { align-items: center; }
+    .me-2 { margin-right: 0.5rem; }
+    .form-check-input {
+        width: 1rem;
+        height: 1rem;
+        accent-color: var(--accent-color);
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public Guid NodeId { get; set; }
+    
+    // Canvas data for discovering connections
+    [Parameter] public List<CanvasNodeInfo>? CanvasNodes { get; set; }
+    [Parameter] public List<CanvasConnectionInfo>? CanvasConnections { get; set; }
+
+    private OrchestratorConfig config = new();
+    private List<DiscoveredAgent> discoveredAgents = new();
+    private List<DiscoveredTool> discoveredTools = new();
+    private DiscoveredAgent? discoveredSteeringAI = null;
+    
+    private bool taskConfigExpanded = true;
+    private bool steeringAIExpanded = true;
+    private bool agentsExpanded = true;
+    private bool tagsExpanded = false;
+    private int expandedAgentIndex = -1;
+    private bool isDiscovering = false; // Guard against infinite loop
+
+    protected override void OnParametersSet()
+    {
+        // Only re-parse config if it changed externally (not from our own NotifyChanged)
+        if (!isDiscovering)
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<OrchestratorConfig>(Configuration ?? "{}") ?? new();
+            }
+            catch { config = new(); }
+            
+            DiscoverConnections();
+        }
+    }
+    
+    /// <summary>
+    /// Discovers agents and tools from canvas connections and syncs to config.
+    /// </summary>
+    private void DiscoverConnections()
+    {
+        discoveredAgents.Clear();
+        discoveredTools.Clear();
+        discoveredSteeringAI = null;
+        
+        if (CanvasNodes == null || CanvasConnections == null || NodeId == Guid.Empty)
+            return;
+        
+        // Discover steering AI: connection TO this Orchestrator with "orchestrate" label
+        var orchestrateConnection = CanvasConnections
+            .FirstOrDefault(c => c.TargetId == NodeId && 
+                        string.Equals(c.Label, "orchestrate", StringComparison.OrdinalIgnoreCase));
+        
+        if (orchestrateConnection != null)
+        {
+            var steeringNode = CanvasNodes.FirstOrDefault(n => n.Id == orchestrateConnection.SourceId);
+            if (steeringNode != null && IsAINode(steeringNode.NodeType))
+            {
+                discoveredSteeringAI = new DiscoveredAgent
+                {
+                    NodeId = steeringNode.Id,
+                    RoleName = steeringNode.Name,
+                    NodeType = steeringNode.NodeType
+                };
+                
+                // Sync to config
+                if (config.SteeringAINodeId != steeringNode.Id)
+                {
+                    config.SteeringAINodeId = steeringNode.Id;
+                    config.SteeringAINodeName = steeringNode.Name;
+                }
+            }
+        }
+        else if (config.SteeringAINodeId.HasValue)
+        {
+            // Steering AI was disconnected - clear from config
+            config.SteeringAINodeId = null;
+            config.SteeringAINodeName = null;
+        }
+        
+        // Discover agents: connections TO this Orchestrator with "agent" label
+        var agentConnections = CanvasConnections
+            .Where(c => c.TargetId == NodeId && 
+                        string.Equals(c.Label, "agent", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        
+        var needsConfigUpdate = false;
+        
+        foreach (var conn in agentConnections)
+        {
+            var sourceNode = CanvasNodes.FirstOrDefault(n => n.Id == conn.SourceId);
+            if (sourceNode != null && IsAINode(sourceNode.NodeType))
+            {
+                discoveredAgents.Add(new DiscoveredAgent
+                {
+                    NodeId = sourceNode.Id,
+                    RoleName = sourceNode.Name,
+                    NodeType = sourceNode.NodeType
+                });
+                
+                // Ensure this agent exists in config with correct info
+                var existingAgent = config.Agents.FirstOrDefault(a => a.NodeId == sourceNode.Id);
+                if (existingAgent == null)
+                {
+                    config.Agents.Add(new AgentConfig
+                    {
+                        NodeId = sourceNode.Id,
+                        RoleName = sourceNode.Name,
+                        NodeType = sourceNode.NodeType,
+                        ExecutionOrder = config.Agents.Count
+                    });
+                    needsConfigUpdate = true;
+                }
+                else if (existingAgent.NodeType != sourceNode.NodeType)
+                {
+                    // Update node type if changed
+                    existingAgent.NodeType = sourceNode.NodeType;
+                    if (string.IsNullOrEmpty(existingAgent.RoleName))
+                        existingAgent.RoleName = sourceNode.Name;
+                    needsConfigUpdate = true;
+                }
+            }
+        }
+        
+        // Remove agents from config that are no longer connected
+        var connectedAgentIds = discoveredAgents.Select(a => a.NodeId).ToHashSet();
+        var agentsToRemove = config.Agents.Where(a => !connectedAgentIds.Contains(a.NodeId)).ToList();
+        foreach (var agent in agentsToRemove)
+        {
+            config.Agents.Remove(agent);
+            needsConfigUpdate = true;
+        }
+        
+        // Discover tools: connections with "tool:*" labels (check BOTH directions for flexibility)
+        // Outgoing from Orchestrator OR incoming to Orchestrator
+        var toolConnections = CanvasConnections
+            .Where(c => c.Label?.StartsWith("tool:", StringComparison.OrdinalIgnoreCase) == true &&
+                        (c.SourceId == NodeId || c.TargetId == NodeId))
+            .ToList();
+        
+        foreach (var conn in toolConnections)
+        {
+            // Get the tool node (the one that's NOT the orchestrator)
+            var toolNodeId = conn.SourceId == NodeId ? conn.TargetId : conn.SourceId;
+            var toolNode = CanvasNodes.FirstOrDefault(n => n.Id == toolNodeId);
+            
+            discoveredTools.Add(new DiscoveredTool
+            {
+                ToolTag = conn.Label ?? "tool:unknown",
+                EntryNodeId = toolNodeId,
+                EntryNodeName = toolNode?.Name ?? "Unknown",
+                EntryNodeType = toolNode?.NodeType ?? "Unknown"
+            });
+            
+            // Sync to config.ToolChains
+            var toolTag = conn.Label ?? "tool:unknown";
+            if (!config.ToolChains.Any(t => t.ToolTag == toolTag))
+            {
+                config.ToolChains.Add(new ToolChainConfig
+                {
+                    ToolTag = toolTag,
+                    EntryNodeId = toolNodeId,
+                    EntryNodeType = toolNode?.NodeType ?? "Unknown",
+                    BranchCount = 1,
+                    TotalNodeCount = 1
+                });
+                needsConfigUpdate = true;
+            }
+        }
+        
+        // Remove tool chains that are no longer connected
+        var connectedToolTags = discoveredTools.Select(t => t.ToolTag).ToHashSet();
+        var toolsToRemove = config.ToolChains.Where(t => !connectedToolTags.Contains(t.ToolTag)).ToList();
+        foreach (var tool in toolsToRemove)
+        {
+            config.ToolChains.Remove(tool);
+            needsConfigUpdate = true;
+        }
+        
+        // Notify config change if needed (with guard to prevent infinite loop)
+        if (needsConfigUpdate)
+        {
+            isDiscovering = true;
+            _ = NotifyChanged().ContinueWith(_ => isDiscovering = false);
+        }
+    }
+    
+    private bool IsAINode(string nodeType) => nodeType switch
+    {
+        "Anthropic" => true,
+        "OpenAI" => true,
+        "Mistral" => true,
+        "Groq" => true,
+        "Gemini" => true,
+        "DeepSeek" => true,
+        "DeepSeekAgent" => true,
+        _ => false
+    };
+
+    private async Task UpdateConfig(Action<OrchestratorConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+    
+    // Agent override methods using config.Agents as storage
+    private string GetAgentRoleOverride(Guid nodeId)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        return agent?.RoleName ?? "";
+    }
+    
+    private async Task SetAgentRoleOverride(Guid nodeId, string? value)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        if (agent == null)
+        {
+            agent = new AgentConfig { NodeId = nodeId };
+            config.Agents.Add(agent);
+        }
+        agent.RoleName = value ?? "";
+        await NotifyChanged();
+    }
+    
+    private string GetAgentPromptOverride(Guid nodeId)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        return agent?.SystemPrompt ?? "";
+    }
+    
+    private async Task SetAgentPromptOverride(Guid nodeId, string? value)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        if (agent == null)
+        {
+            agent = new AgentConfig { NodeId = nodeId };
+            config.Agents.Add(agent);
+        }
+        agent.SystemPrompt = value ?? "";
+        await NotifyChanged();
+    }
+    
+    private string GetAgentSkillDescription(Guid nodeId)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        return agent?.SkillDescription ?? "";
+    }
+    
+    private async Task SetAgentSkillDescription(Guid nodeId, string? value)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        if (agent == null)
+        {
+            agent = new AgentConfig { NodeId = nodeId };
+            config.Agents.Add(agent);
+        }
+        agent.SkillDescription = value ?? "";
+        await NotifyChanged();
+    }
+    
+    private bool GetAgentEnabled(Guid nodeId)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        return agent?.IsEnabled ?? true; // Default to enabled
+    }
+    
+    private async Task SetAgentEnabled(Guid nodeId, bool value)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        if (agent == null)
+        {
+            agent = new AgentConfig { NodeId = nodeId };
+            config.Agents.Add(agent);
+        }
+        agent.IsEnabled = value;
+        await NotifyChanged();
+    }
+    
+    private List<string> GetAgentTools(Guid nodeId)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        return agent?.AssignedTools ?? new List<string>();
+    }
+
+    private void ToggleAgent(int index)
+    {
+        expandedAgentIndex = expandedAgentIndex == index ? -1 : index;
+    }
+    
+    private int GetAgentOrder(Guid nodeId)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        return agent?.ExecutionOrder ?? 0;
+    }
+    
+    private async Task MoveAgentUp(Guid nodeId)
+    {
+        var agentsList = config.Agents.OrderBy(a => a.ExecutionOrder).ToList();
+        var index = agentsList.FindIndex(a => a.NodeId == nodeId);
+        
+        if (index > 0)
+        {
+            // Swap execution orders
+            var currentOrder = agentsList[index].ExecutionOrder;
+            agentsList[index].ExecutionOrder = agentsList[index - 1].ExecutionOrder;
+            agentsList[index - 1].ExecutionOrder = currentOrder;
+            await NotifyChanged();
+        }
+    }
+    
+    private async Task MoveAgentDown(Guid nodeId)
+    {
+        var agentsList = config.Agents.OrderBy(a => a.ExecutionOrder).ToList();
+        var index = agentsList.FindIndex(a => a.NodeId == nodeId);
+        
+        if (index >= 0 && index < agentsList.Count - 1)
+        {
+            // Swap execution orders
+            var currentOrder = agentsList[index].ExecutionOrder;
+            agentsList[index].ExecutionOrder = agentsList[index + 1].ExecutionOrder;
+            agentsList[index + 1].ExecutionOrder = currentOrder;
+            await NotifyChanged();
+        }
+    }
+
+    private async Task AddToolToAgent(Guid nodeId, string? toolTag)
+    {
+        if (string.IsNullOrEmpty(toolTag)) return;
+
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        if (agent == null)
+        {
+            agent = new AgentConfig { NodeId = nodeId };
+            config.Agents.Add(agent);
+        }
+        
+        agent.AssignedTools ??= new List<string>();
+        if (!agent.AssignedTools.Contains(toolTag))
+        {
+            agent.AssignedTools.Add(toolTag);
+            await NotifyChanged();
+        }
+    }
+
+    private async Task RemoveToolFromAgent(Guid nodeId, string toolTag)
+    {
+        var agent = config.Agents.FirstOrDefault(a => a.NodeId == nodeId);
+        if (agent?.AssignedTools != null)
+        {
+            agent.AssignedTools.Remove(toolTag);
+            await NotifyChanged();
+        }
+    }
+
+    private async Task RemoveTag(string tag)
+    {
+        config.OutputTags.Remove(tag);
+        await NotifyChanged();
+    }
+
+    private string GetAgentIcon(string? nodeType) => nodeType switch
+    {
+        "Anthropic" => "🅰️",
+        "OpenAI" => "🤖",
+        "Mistral" => "🌀",
+        "Groq" => "⚡",
+        "Gemini" => "✨",
+        "DeepSeek" => "🐋",
+        "DeepSeekAgent" => "🤖",
+        "OpenAIAgent" => "🤖",
+        "AnthropicAgent" => "🅰️",
+        "GeminiAgent" => "✨",
+        "MistralAgent" => "🌀",
+        "GroqAgent" => "⚡",
+        _ => "🤖"
+    };
+    
+    /// <summary>
+    /// Gets SVG icon from catalog if available, returns null if not.
+    /// </summary>
+    private string? GetAgentIconSvg(string? nodeType)
+    {
+        if (string.IsNullOrEmpty(nodeType)) return null;
+        return BuiltInNodeCatalogService.GetIconOverride(nodeType);
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+    
+    // Simple DTOs for passing canvas data
+    public class CanvasNodeInfo
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string NodeType { get; set; } = "";
+    }
+    
+    public class CanvasConnectionInfo
+    {
+        public Guid SourceId { get; set; }
+        public Guid TargetId { get; set; }
+        public string? Label { get; set; }
+    }
+    
+    private class DiscoveredAgent
+    {
+        public Guid NodeId { get; set; }
+        public string RoleName { get; set; } = "";
+        public string NodeType { get; set; } = "";
+    }
+    
+    private class DiscoveredTool
+    {
+        public string ToolTag { get; set; } = "";
+        public Guid EntryNodeId { get; set; }
+        public string EntryNodeName { get; set; } = "";
+        public string EntryNodeType { get; set; } = "";
+    }
+}

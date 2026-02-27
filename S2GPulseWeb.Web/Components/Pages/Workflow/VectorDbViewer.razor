@@ -1,0 +1,367 @@
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Data
+@using System.Text.Json
+@inject VectorDbService VectorDbService
+
+<div class="vectordb-viewer">
+    <div class="viewer-header">
+        <h5>🧬 Vector DB Viewer</h5>
+        <div class="header-actions">
+            <button class="btn btn-sm btn-outline-primary" @onclick="Refresh">🔄 Refresh</button>
+            @if (documents.Any())
+            {
+                <button class="btn btn-sm btn-outline-danger" @onclick="ClearAll">🗑️ Clear All</button>
+            }
+        </div>
+    </div>
+
+    <div class="stats-row">
+        <span class="stat">📄 @documents.Count documents</span>
+        @if (documents.Any())
+        {
+            <span class="stat">📏 @documents.First().EmbeddingDimensions dimensions</span>
+        }
+    </div>
+
+    @if (showSearchPanel)
+    {
+        <div class="search-panel">
+            <div class="search-header">
+                <h6>🔍 Similarity Search</h6>
+                <button class="btn btn-sm btn-link" @onclick="() => showSearchPanel = false">×</button>
+            </div>
+            <div class="search-input-row">
+                <textarea class="form-control" @bind="searchText" rows="2" placeholder="Enter text to search..."></textarea>
+                <div class="search-controls">
+                    <input type="number" class="form-control" style="width: 80px;" @bind="searchLimit" min="1" max="20" />
+                    <button class="btn btn-primary" @onclick="PerformSearch" disabled="@string.IsNullOrWhiteSpace(searchText)">Search</button>
+                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(searchError))
+            {
+                <div class="alert alert-warning py-1 mt-2 small">@searchError</div>
+            }
+            @if (searchResults.Any())
+            {
+                <div class="search-results">
+                    <h6>Results (@searchResults.Count)</h6>
+                    @foreach (var result in searchResults)
+                    {
+                        <div class="search-result">
+                            <div class="result-header">
+                                <span class="similarity-badge" style="background: @GetSimilarityColor(result.Similarity);">
+                                    @result.Similarity.ToString("P1")
+                                </span>
+                                <span class="result-id">@result.DocumentId.ToString().Substring(0, 8)...</span>
+                            </div>
+                            <div class="result-text">@TruncateText(result.Text, 200)</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <button class="btn btn-sm btn-outline-secondary mb-2" @onclick="() => showSearchPanel = true">🔍 Search Similar</button>
+    }
+
+    @if (!documents.Any())
+    {
+        <div class="empty-state">
+            <p>No documents stored yet.</p>
+            <small>Use a VectorDb node with "Store" operation to add documents with embeddings.</small>
+        </div>
+    }
+    else
+    {
+        <div class="documents-list">
+            @foreach (var doc in documents)
+            {
+                <div class="document-card">
+                    <div class="doc-header">
+                        <span class="doc-id" title="@doc.Id">@doc.Id.ToString().Substring(0, 8)...</span>
+                        <span class="doc-date">@doc.CreatedAt.ToLocalTime().ToString("MMM d, HH:mm")</span>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDocument(doc.Id)" title="Delete">×</button>
+                    </div>
+                    <div class="doc-text">
+                        @if (doc.TextContent.Length > 150)
+                        {
+                            <details>
+                                <summary>@doc.TextContent.Substring(0, 150)...</summary>
+                                <pre>@doc.TextContent</pre>
+                            </details>
+                        }
+                        else
+                        {
+                            @doc.TextContent
+                        }
+                    </div>
+                    @if (!string.IsNullOrEmpty(doc.Metadata))
+                    {
+                        <div class="doc-metadata">
+                            <small>📋 @TruncateText(doc.Metadata, 100)</small>
+                        </div>
+                    }
+                    <div class="doc-dimensions">
+                        <small>🧬 @doc.EmbeddingDimensions dimensions</small>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .vectordb-viewer {
+        padding: 1rem;
+        background: var(--background-dark, #0a1a1a);
+        border-radius: 8px;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .viewer-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color, #1a4040);
+    }
+
+    .viewer-header h5 {
+        margin: 0;
+        color: var(--accent-color, #00a8a8);
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .stats-row {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary, #a0c0c0);
+    }
+
+    .search-panel {
+        background: var(--background-medium, #0f2424);
+        padding: 0.75rem;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+    }
+
+    .search-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .search-header h6 {
+        margin: 0;
+        color: var(--accent-color, #00a8a8);
+    }
+
+    .search-input-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .search-controls {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .search-results {
+        margin-top: 0.75rem;
+    }
+
+    .search-results h6 {
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+    }
+
+    .search-result {
+        background: var(--background-light, #142c2c);
+        padding: 0.5rem;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+    }
+
+    .result-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .similarity-badge {
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: white;
+    }
+
+    .result-id {
+        font-family: monospace;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .result-text {
+        font-size: 0.85rem;
+        color: var(--text-primary);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-secondary, #a0c0c0);
+    }
+
+    .documents-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .document-card {
+        background: var(--background-medium, #0f2424);
+        padding: 0.75rem;
+        border-radius: 6px;
+        border-left: 3px solid var(--accent-color, #00a8a8);
+    }
+
+    .doc-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .doc-id {
+        font-family: monospace;
+        font-size: 0.8rem;
+        color: var(--accent-color, #00a8a8);
+    }
+
+    .doc-date {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-left: auto;
+    }
+
+    .doc-text {
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+
+    .doc-text pre {
+        margin: 0.5rem 0 0 0;
+        padding: 0.5rem;
+        background: var(--background-dark);
+        border-radius: 4px;
+        overflow-x: auto;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+    }
+
+    .doc-metadata {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .doc-dimensions {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+    }
+
+    details summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+    }
+
+    details summary:hover {
+        color: var(--accent-color);
+    }
+</style>
+
+@code {
+    [Parameter] public Guid? NodeId { get; set; }
+
+    private List<VectorDocument> documents = new();
+    private List<VectorSearchResult> searchResults = new();
+    private bool showSearchPanel = false;
+    private string searchText = "";
+    private int searchLimit = 5;
+    private string? searchError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        if (NodeId.HasValue)
+        {
+            documents = await VectorDbService.GetAllAsync(NodeId.Value);
+        }
+        searchResults.Clear();
+        searchError = null;
+        StateHasChanged();
+    }
+
+    private async Task DeleteDocument(Guid documentId)
+    {
+        await VectorDbService.DeleteAsync(documentId);
+        await Refresh();
+    }
+
+    private async Task ClearAll()
+    {
+        if (NodeId.HasValue)
+        {
+            await VectorDbService.ClearAsync(NodeId.Value);
+            await Refresh();
+        }
+    }
+
+    private void PerformSearch()
+    {
+        searchError = null;
+        searchResults.Clear();
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            searchError = "Enter text to search.";
+            return;
+        }
+
+        // For a real search, we'd need to generate an embedding from the search text
+        // Since we can't call OpenAI directly from here, we'll show a helpful message
+        searchError = "Note: Text search requires embedding. Use an OpenAI node with 'Embedding' operation to generate query vectors, then use VectorDb 'Search' operation.";
+    }
+
+    private string TruncateText(string text, int maxLength)
+    {
+        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
+    }
+
+    private string GetSimilarityColor(float similarity)
+    {
+        if (similarity > 0.9) return "#22c55e"; // Green
+        if (similarity > 0.7) return "#84cc16"; // Lime
+        if (similarity > 0.5) return "#eab308"; // Yellow
+        return "#f97316"; // Orange
+    }
+}

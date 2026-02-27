@@ -1,0 +1,123 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:30:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_HtmlEncode",
+        "displayName": "HTML Encode/Decode",
+        "description": "Encodes or decodes HTML entities. Converts special characters to/from HTML entities like &amp;lt;, &amp;gt;, &amp;amp;, etc.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M7 8L3 12L7 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M17 8L21 12L17 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M14 4L10 20\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// HTML Encode/Decode\n\nvar text = input.get(\"text\");\nvar mode = input.get(\"mode\") || \"encode\";\nvar encodeQuotes = input.get(\"encodeQuotes\") !== \"false\";\nvar encodeAll = input.get(\"encodeAllCharacters\") === \"true\";\n\n// Named HTML entities\nvar entities = {\n    '&': '&amp;',\n    '<': '&lt;',\n    '>': '&gt;',\n    '\"': '&quot;',\n    \"'\": '&#39;',\n    '\\u00A0': '&nbsp;',\n    '\\u00A9': '&copy;',\n    '\\u00AE': '&reg;',\n    '\\u2122': '&trade;',\n    '\\u20AC': '&euro;',\n    '\\u00A3': '&pound;',\n    '\\u00A5': '&yen;',\n    '\\u00A2': '&cent;',\n    '\\u2013': '&ndash;',\n    '\\u2014': '&mdash;',\n    '\\u2018': '&lsquo;',\n    '\\u2019': '&rsquo;',\n    '\\u201C': '&ldquo;',\n    '\\u201D': '&rdquo;',\n    '\\u2022': '&bull;',\n    '\\u2026': '&hellip;'\n};\n\n// Reverse mapping\nvar reverseEntities = {};\nfor (var char in entities) {\n    reverseEntities[entities[char]] = char;\n}\n\n// Add numeric entities for common chars\nreverseEntities['&#38;'] = '&';\nreverseEntities['&#60;'] = '<';\nreverseEntities['&#62;'] = '>';\nreverseEntities['&#34;'] = '\"';\nreverseEntities['&#39;'] = \"'\";\nreverseEntities['&#160;'] = '\\u00A0';\n\nif (!text && text !== \"\") {\n    log.error(\"Text input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Text input is required\");\n    output.set(\"Result\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var result = text;\n        var changedCount = 0;\n        \n        if (mode === \"encode\") {\n            if (encodeAll) {\n                // Encode all non-ASCII and special characters\n                var encoded = \"\";\n                for (var i = 0; i < text.length; i++) {\n                    var char = text[i];\n                    var code = text.charCodeAt(i);\n                    if (entities[char]) {\n                        encoded += entities[char];\n                        changedCount++;\n                    } else if (code > 127) {\n                        encoded += '&#' + code + ';';\n                        changedCount++;\n                    } else {\n                        encoded += char;\n                    }\n                }\n                result = encoded;\n            } else {\n                // Basic encoding: & < > and optionally quotes\n                result = result.replace(/&/g, function() { changedCount++; return '&amp;'; });\n                result = result.replace(/</g, function() { changedCount++; return '&lt;'; });\n                result = result.replace(/>/g, function() { changedCount++; return '&gt;'; });\n                if (encodeQuotes) {\n                    result = result.replace(/\"/g, function() { changedCount++; return '&quot;'; });\n                    result = result.replace(/'/g, function() { changedCount++; return '&#39;'; });\n                }\n            }\n        } else {\n            // Decode mode\n            // First handle named entities\n            for (var entity in reverseEntities) {\n                var regex = new RegExp(entity.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g');\n                var before = result;\n                result = result.replace(regex, reverseEntities[entity]);\n                if (result !== before) {\n                    changedCount += (before.length - result.length) / (entity.length - 1);\n                }\n            }\n            \n            // Handle numeric entities (decimal)\n            result = result.replace(/&#(\\d+);/g, function(match, num) {\n                changedCount++;\n                return String.fromCharCode(parseInt(num, 10));\n            });\n            \n            // Handle numeric entities (hex)\n            result = result.replace(/&#x([0-9a-fA-F]+);/g, function(match, hex) {\n                changedCount++;\n                return String.fromCharCode(parseInt(hex, 16));\n            });\n        }\n        \n        output.set(\"Result\", result);\n        output.set(\"OriginalLength\", text.length);\n        output.set(\"ResultLength\", result.length);\n        output.set(\"ChangedCount\", Math.floor(changedCount));\n        output.set(\"Mode\", mode);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        \n        log.info(mode + \"d HTML: \" + Math.floor(changedCount) + \" entities\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"HTML \" + mode + \" failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Result\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "text",
+                "displayLabel": "Text",
+                "placeholderText": "<script>alert('XSS')</script>",
+                "helpText": "The text to encode or decode.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "mode",
+                "displayLabel": "Mode",
+                "helpText": "Encode converts to entities, Decode converts from entities.",
+                "fieldType": "Dropdown",
+                "defaultValue": "encode",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "encode,decode"
+            },
+            {
+                "fieldName": "encodeQuotes",
+                "displayLabel": "Encode Quotes",
+                "helpText": "Also encode single and double quotes.",
+                "fieldType": "Boolean",
+                "defaultValue": "true",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "encodeAllCharacters",
+                "displayLabel": "Encode All Special Characters",
+                "helpText": "Encode all non-ASCII characters (©, ™, €, etc.).",
+                "fieldType": "Boolean",
+                "defaultValue": "false",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The encoded or decoded text",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "OriginalLength",
+                "description": "Length of the input text",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ResultLength",
+                "description": "Length of the result text",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "ChangedCount",
+                "description": "Number of entities encoded/decoded",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Mode",
+                "description": "The mode used (encode/decode)",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if operation failed",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if operation failed",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Operation succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Encoding/decoding succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Operation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Encoding/decoding failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

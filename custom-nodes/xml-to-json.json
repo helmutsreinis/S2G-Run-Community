@@ -1,0 +1,112 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T18:25:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_XmlToJson",
+        "displayName": "XML to JSON",
+        "description": "Converts XML data to JSON format. Parses XML elements, attributes, and text content into a structured JSON object.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M13 3H8.2C7.0799 3 6.51984 3 6.09202 3.21799C5.71569 3.40973 5.40973 3.71569 5.21799 4.09202C5 4.51984 5 5.0799 5 6.2V17.8C5 18.9201 5 19.4802 5.21799 19.908C5.40973 20.2843 5.71569 20.5903 6.09202 20.782C6.51984 21 7.0799 21 8.2 21H15.8C16.9201 21 17.4802 21 17.908 20.782C18.2843 20.5903 18.5903 20.2843 18.782 19.908C19 19.4802 19 18.9201 19 17.8V9M13 3L19 9M13 3V7.4C13 7.96005 13 8.24008 13.109 8.45399C13.2049 8.64215 13.3578 8.79513 13.546 8.89101C13.7599 9 14.0399 9 14.6 9H19\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M9 13L7 15.5L9 18\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M15 13L17 15.5L15 18\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M13 12L11 19\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// XML to JSON Converter\n// Parses XML input and converts it to a JSON object\n\nvar xmlInput = input.get(\"xmlInput\");\nvar attributePrefix = (input.get(\"attributePrefix\") || \"@\").trim();\nvar textProperty = (input.get(\"textProperty\") || \"#text\").trim();\nvar trimText = input.get(\"trimText\") !== \"false\";\n\nif (!xmlInput || xmlInput.trim() === \"\") {\n    log.error(\"XML input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"XML input is required\");\n    output.set(\"Json\", \"\");\n    output.set(\"JsonObject\", null);\n    tags.trigger(\"error\");\n} else {\n    try {\n        // Simple XML parser for Jint environment\n        var xml = xmlInput.trim();\n        \n        // Remove XML declaration if present\n        xml = xml.replace(/^<\\?xml[^?]*\\?>\\s*/i, \"\");\n        \n        // State tracking\n        var pos = 0;\n        \n        function skipWhitespace() {\n            while (pos < xml.length && /\\s/.test(xml[pos])) pos++;\n        }\n        \n        function parseAttributeValue() {\n            var quote = xml[pos];\n            if (quote !== '\"' && quote !== \"'\") return null;\n            pos++;\n            var start = pos;\n            while (pos < xml.length && xml[pos] !== quote) pos++;\n            var value = xml.substring(start, pos);\n            pos++; // skip closing quote\n            return decodeXmlEntities(value);\n        }\n        \n        function decodeXmlEntities(str) {\n            return str\n                .replace(/&amp;/g, \"&\")\n                .replace(/&lt;/g, \"<\")\n                .replace(/&gt;/g, \">\")\n                .replace(/&quot;/g, '\"')\n                .replace(/&apos;/g, \"'\");\n        }\n        \n        function parseName() {\n            var start = pos;\n            while (pos < xml.length && /[a-zA-Z0-9_:-]/.test(xml[pos])) pos++;\n            return xml.substring(start, pos);\n        }\n        \n        function parseElement() {\n            skipWhitespace();\n            if (pos >= xml.length || xml[pos] !== '<') return null;\n            \n            // Check for comment\n            if (xml.substring(pos, pos + 4) === \"<!--\") {\n                var endComment = xml.indexOf(\"-->\", pos + 4);\n                if (endComment === -1) pos = xml.length;\n                else pos = endComment + 3;\n                return parseElement();\n            }\n            \n            // Check for CDATA\n            if (xml.substring(pos, pos + 9) === \"<![CDATA[\") {\n                var endCdata = xml.indexOf(\"]]>\", pos + 9);\n                var cdataContent = \"\";\n                if (endCdata === -1) {\n                    cdataContent = xml.substring(pos + 9);\n                    pos = xml.length;\n                } else {\n                    cdataContent = xml.substring(pos + 9, endCdata);\n                    pos = endCdata + 3;\n                }\n                return { type: \"text\", value: cdataContent };\n            }\n            \n            // Skip processing instructions\n            if (xml.substring(pos, pos + 2) === \"<?\") {\n                var endPi = xml.indexOf(\"?>\", pos + 2);\n                if (endPi === -1) pos = xml.length;\n                else pos = endPi + 2;\n                return parseElement();\n            }\n            \n            // Check for closing tag (shouldn't happen at top level)\n            if (xml[pos + 1] === \"/\") return null;\n            \n            pos++; // skip '<'\n            var tagName = parseName();\n            if (!tagName) return null;\n            \n            var attrs = {};\n            var hasAttrs = false;\n            \n            // Parse attributes\n            while (pos < xml.length) {\n                skipWhitespace();\n                if (xml[pos] === \"/\" || xml[pos] === \">\") break;\n                \n                var attrName = parseName();\n                if (!attrName) break;\n                \n                skipWhitespace();\n                if (xml[pos] === \"=\") {\n                    pos++;\n                    skipWhitespace();\n                    var attrValue = parseAttributeValue();\n                    attrs[attributePrefix + attrName] = attrValue;\n                    hasAttrs = true;\n                }\n            }\n            \n            // Self-closing tag\n            if (xml[pos] === \"/\") {\n                pos += 2; // skip '/>' \n                return { type: \"element\", name: tagName, attrs: attrs, children: [] };\n            }\n            \n            pos++; // skip '>'\n            \n            // Parse children\n            var children = [];\n            var textContent = \"\";\n            \n            while (pos < xml.length) {\n                skipWhitespace();\n                \n                // Check for closing tag\n                if (xml.substring(pos, pos + 2) === \"</\") {\n                    pos += 2;\n                    var closeName = parseName();\n                    while (pos < xml.length && xml[pos] !== \">\") pos++;\n                    pos++; // skip '>'\n                    break;\n                }\n                \n                // Check for child element\n                if (xml[pos] === \"<\") {\n                    var child = parseElement();\n                    if (child) {\n                        if (child.type === \"text\") {\n                            textContent += child.value;\n                        } else {\n                            children.push(child);\n                        }\n                    }\n                } else {\n                    // Text content\n                    var start = pos;\n                    while (pos < xml.length && xml[pos] !== \"<\") pos++;\n                    var text = xml.substring(start, pos);\n                    if (trimText) text = text.trim();\n                    if (text) textContent += decodeXmlEntities(text);\n                }\n            }\n            \n            return {\n                type: \"element\",\n                name: tagName,\n                attrs: attrs,\n                children: children,\n                text: textContent\n            };\n        }\n        \n        function elementToJson(el) {\n            var result = {};\n            var hasContent = false;\n            \n            // Add attributes\n            var attrKeys = Object.keys(el.attrs);\n            for (var i = 0; i < attrKeys.length; i++) {\n                result[attrKeys[i]] = el.attrs[attrKeys[i]];\n                hasContent = true;\n            }\n            \n            // Group children by name\n            var childGroups = {};\n            for (var j = 0; j < el.children.length; j++) {\n                var child = el.children[j];\n                if (!childGroups[child.name]) {\n                    childGroups[child.name] = [];\n                }\n                childGroups[child.name].push(child);\n            }\n            \n            // Add children to result\n            var groupKeys = Object.keys(childGroups);\n            for (var k = 0; k < groupKeys.length; k++) {\n                var name = groupKeys[k];\n                var group = childGroups[name];\n                if (group.length === 1) {\n                    result[name] = elementToJson(group[0]);\n                } else {\n                    var arr = [];\n                    for (var m = 0; m < group.length; m++) {\n                        arr.push(elementToJson(group[m]));\n                    }\n                    result[name] = arr;\n                }\n                hasContent = true;\n            }\n            \n            // Add text content\n            if (el.text) {\n                if (hasContent) {\n                    result[textProperty] = el.text;\n                } else {\n                    return el.text; // Simple text-only element\n                }\n            }\n            \n            // Empty element\n            if (!hasContent && !el.text) {\n                return null;\n            }\n            \n            return result;\n        }\n        \n        // Parse the XML\n        var rootElement = parseElement();\n        \n        if (!rootElement) {\n            throw new Error(\"Failed to parse XML: no valid root element found\");\n        }\n        \n        // Convert to JSON object\n        var jsonObj = {};\n        jsonObj[rootElement.name] = elementToJson(rootElement);\n        \n        var jsonStr = json.stringify(jsonObj);\n        \n        output.set(\"Json\", jsonStr);\n        output.set(\"JsonObject\", jsonObj);\n        output.set(\"RootElement\", rootElement.name);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        log.info(\"Successfully converted XML to JSON (\" + jsonStr.length + \" chars)\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Failed to convert XML: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"XML parse error: \" + ex.message);\n        output.set(\"Json\", \"\");\n        output.set(\"JsonObject\", null);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "xmlInput",
+                "displayLabel": "XML Input",
+                "placeholderText": "Enter XML string or use {{Placeholder}}",
+                "helpText": "The XML string to convert to JSON. Supports elements, attributes, text content, and CDATA sections.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "attributePrefix",
+                "displayLabel": "Attribute Prefix",
+                "placeholderText": "@",
+                "helpText": "Prefix to use for XML attributes in the JSON output. Default is '@' (e.g., @id, @class).",
+                "fieldType": "Text",
+                "defaultValue": "@",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "textProperty",
+                "displayLabel": "Text Property Name",
+                "placeholderText": "#text",
+                "helpText": "Property name for text content when an element has both attributes/children and text. Default is '#text'.",
+                "fieldType": "Text",
+                "defaultValue": "#text",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "trimText",
+                "displayLabel": "Trim Whitespace",
+                "helpText": "Whether to trim leading/trailing whitespace from text content.",
+                "fieldType": "Boolean",
+                "defaultValue": "true",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Json",
+                "description": "The converted JSON string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "JsonObject",
+                "description": "The parsed JSON object (for direct property access)",
+                "dataType": "object",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "RootElement",
+                "description": "The name of the XML root element",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during conversion",
+                "dataType": "boolean",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if conversion failed",
+                "dataType": "string",
+                "displayOrder": 5
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when XML was successfully converted to JSON",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion successful",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when conversion fails (invalid XML or processing error)",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

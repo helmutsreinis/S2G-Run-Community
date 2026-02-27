@@ -1,0 +1,269 @@
+@page "/account/external-login-callback"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject LegalDocumentService LegalDocumentService
+@inject MembershipPlanService MembershipPlanService
+@inject NavigationManager NavigationManager
+@inject ILogger<ExternalLogin> Logger
+
+<PageTitle>External Login - @PlatformSettings.SiteName</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        @if (isProcessing)
+        {
+            <div class="external-login-processing">
+                <div class="spinner"></div>
+                <h3>Completing sign in...</h3>
+                <p>Please wait while we authenticate you.</p>
+            </div>
+        }
+        else if (showRegistrationForm)
+        {
+            <h2>Complete Registration</h2>
+            <p>Your @providerDisplayName account has been verified. Please provide an email to complete registration.</p>
+            
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+
+            <EditForm Model="registrationModel" OnValidSubmit="HandleRegistration" FormName="externalRegister">
+                <DataAnnotationsValidator />
+                
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <InputText id="email" @bind-Value="registrationModel.Email" class="form-control" placeholder="Enter email" />
+                    <ValidationMessage For="@(() => registrationModel.Email)" />
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">
+                    Complete Registration
+                </button>
+            </EditForm>
+
+            <div class="auth-links">
+                <a href="/account/login">Back to login</a>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <h2>Login Failed</h2>
+            <div class="alert alert-danger">@errorMessage</div>
+            <div class="auth-links">
+                <a href="/account/login">Back to login</a>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .external-login-processing {
+        text-align: center;
+        padding: 2rem;
+    }
+
+    .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(20, 184, 166, 0.2);
+        border-top-color: var(--accent-color, #14b8a6);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1.5rem;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? RemoteError { get; set; }
+
+    [SupplyParameterFromForm]
+    private RegistrationModel registrationModel { get; set; } = new();
+
+    private bool isProcessing = true;
+    private bool showRegistrationForm = false;
+    private string? errorMessage;
+    private string? providerDisplayName;
+    private ExternalLoginInfo? externalLoginInfo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ProcessExternalLoginAsync();
+    }
+
+    private async Task ProcessExternalLoginAsync()
+    {
+        if (!string.IsNullOrEmpty(RemoteError))
+        {
+            errorMessage = $"Error from external provider: {RemoteError}";
+            isProcessing = false;
+            return;
+        }
+
+        // Get external login info
+        externalLoginInfo = await SignInManager.GetExternalLoginInfoAsync();
+        if (externalLoginInfo == null)
+        {
+            errorMessage = "Error loading external login information.";
+            isProcessing = false;
+            return;
+        }
+
+        providerDisplayName = externalLoginInfo.ProviderDisplayName;
+
+        // Attempt to sign in the user with this external login
+        // Security: Do NOT bypass 2FA for SSO logins - users with 2FA must still verify
+        var result = await SignInManager.ExternalLoginSignInAsync(
+            externalLoginInfo.LoginProvider,
+            externalLoginInfo.ProviderKey,
+            isPersistent: true,
+            bypassTwoFactor: false);  // Security fix: Enforce 2FA if enabled
+
+        // Handle 2FA requirement for SSO users
+        if (result.RequiresTwoFactor)
+        {
+            Logger.LogInformation("User {Provider} login requires 2FA.", externalLoginInfo.LoginProvider);
+            NavigationManager.NavigateTo($"/account/login-2fa?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/workflow")}", forceLoad: true);
+            return;
+        }
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("User logged in with {Provider} provider.", externalLoginInfo.LoginProvider);
+            // Check if user needs to accept/re-accept legal documents
+            var userEmail = externalLoginInfo.Principal.FindFirstValue(ClaimTypes.Email);
+            if (!string.IsNullOrEmpty(userEmail))
+            {
+                var existingUser = await UserManager.FindByEmailAsync(userEmail);
+                if (existingUser != null)
+                {
+                    // Update last login timestamp
+                    existingUser.LastLoginAt = DateTime.UtcNow;
+                    await UserManager.UpdateAsync(existingUser);
+                }
+                if (existingUser != null && await LegalDocumentService.RequiresReacceptanceAsync(existingUser.Id))
+                {
+                    NavigationManager.NavigateTo($"/account/accept-terms?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/workflow")}", forceLoad: true);
+                    return;
+                }
+            }
+            NavigationManager.NavigateTo(ReturnUrl ?? "/workflow", forceLoad: true);
+            return;
+        }
+
+        if (result.IsLockedOut)
+        {
+            errorMessage = "Your account is locked out.";
+            isProcessing = false;
+            return;
+        }
+
+        // User does not have an external login, check if we can create one
+        var email = externalLoginInfo.Principal.FindFirstValue(ClaimTypes.Email);
+        
+        if (!string.IsNullOrEmpty(email))
+        {
+            // Check if user exists with this email
+            var existingUser = await UserManager.FindByEmailAsync(email);
+            if (existingUser != null)
+            {
+                // Security: Do NOT auto-link external accounts to existing users
+                // This prevents account hijacking via SSO email matching
+                errorMessage = "An account with this email already exists. Please sign in with your password first, then link this provider from your profile settings.";
+                isProcessing = false;
+                return;
+            }
+
+            // Create new user with email from provider
+            registrationModel.Email = email;
+            await CreateUserFromExternalLoginAsync(email);
+            return;
+        }
+
+        // No email claim - show registration form
+        showRegistrationForm = true;
+        isProcessing = false;
+    }
+
+    private async Task HandleRegistration()
+    {
+        if (string.IsNullOrEmpty(registrationModel.Email))
+        {
+            errorMessage = "Email is required.";
+            return;
+        }
+
+        if (externalLoginInfo == null)
+        {
+            errorMessage = "External login information is not available.";
+            return;
+        }
+
+        await CreateUserFromExternalLoginAsync(registrationModel.Email);
+    }
+
+    private async Task CreateUserFromExternalLoginAsync(string email)
+    {
+        if (externalLoginInfo == null) return;
+
+        // Check if Free tier can accept new members
+        var freePlan = await MembershipPlanService.GetFreePlanAsync();
+        if (freePlan != null)
+        {
+            var (canAccept, reason) = await MembershipPlanService.CanAcceptNewMembersAsync(freePlan.Id);
+            if (!canAccept)
+            {
+                errorMessage = "We're currently not accepting new registrations. Please contact support or try again later.";
+                showRegistrationForm = false;
+                isProcessing = false;
+                return;
+            }
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            EmailConfirmed = true, // Trust the external provider
+            FirstName = externalLoginInfo.Principal.FindFirstValue(ClaimTypes.GivenName) ?? "",
+            LastName = externalLoginInfo.Principal.FindFirstValue(ClaimTypes.Surname) ?? ""
+        };
+
+        var createResult = await UserManager.CreateAsync(user);
+        if (createResult.Succeeded)
+        {
+            var addLoginResult = await UserManager.AddLoginAsync(user, externalLoginInfo);
+            if (addLoginResult.Succeeded)
+            {
+                await SignInManager.SignInAsync(user, isPersistent: true);
+                Logger.LogInformation("Created new user {Email} via {Provider}.", email, externalLoginInfo.LoginProvider);
+                // New users must accept terms
+                NavigationManager.NavigateTo($"/account/accept-terms?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/workflow")}", forceLoad: true);
+                return;
+            }
+        }
+
+        errorMessage = string.Join(" ", createResult.Errors.Select(e => e.Description));
+        showRegistrationForm = true;
+        isProcessing = false;
+    }
+
+    private class RegistrationModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Email is required")]
+        [System.ComponentModel.DataAnnotations.EmailAddress(ErrorMessage = "Invalid email address")]
+        public string? Email { get; set; }
+    }
+}

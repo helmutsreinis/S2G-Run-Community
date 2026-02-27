@@ -1,0 +1,395 @@
+{
+  "Name": "Vector DB Ingest - Consume",
+  "ExportedAt": "2026-02-12T20:32:07.3312431Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "123f5505-4ba2-4824-b950-ee6b54c32a47",
+      "NodeType": "HttpListener",
+      "Name": "ListenerQuery",
+      "X": 840,
+      "Y": 60,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Method\u0022:\u0022GET\u0022,\u0022Path\u0022:\u0022/api\u0022,\u0022Port\u0022:8081,\u0022Host\u0022:\u0022localhost\u0022,\u0022DefaultResponse\u0022:\u0022OK\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022,\u0022DefaultStatusCode\u0022:200,\u0022LastBodySample\u0022:\u0022L\\u012Bguma cenas Gun\\u0101rs\u0022,\u0022LastQueryParams\u0022:\u0022\u0022}",
+      "IsTrigger": true,
+      "Tags": [
+        "HTTP LISTENER QUERY VECTOR"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "149600a0-2a40-4b3a-9027-ef644e27de56",
+      "NodeType": "HttpResponse",
+      "Name": "Response-Ingress",
+      "X": 380,
+      "Y": 360,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022StatusCode\u0022:200,\u0022Body\u0022:\u0022{\\n    \\u0022body\\u0022 : {{Listener.Body}},\\n    \\u0022query\\u0022: \\u0022{{Listener.asas}}\\u0022,\\n    \\u0022embedding\\u0022 : {{OpenAIEmbed.EmbeddingJson}}\\n}\\n\u0022,\u0022ContentType\u0022:\u0022application/json\u0022,\u0022Headers\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "HTTP RESPONSE"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "27279ad1-2420-4096-9d8e-0ab9f80c1f44",
+      "NodeType": "DeepSeek",
+      "Name": "DeepSeek",
+      "X": 1040,
+      "Y": 380,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Model\u0022:\u0022deepseek-reasoner\u0022,\u0022Prompt\u0022:\u0022Request Data Details: \\nVector Query Response: [\\n  {\\n    \\u0022DocumentId\\u0022: \\u0022d6deb992-e567-4f68-b85b-d704ce59f78a\\u0022,\\n    \\u0022Text\\u0022: \\u0022{\\\\r\\\\n    \\\\u0022displayName\\\\u0022: \\\\u0022testaad_gdap_m003727_0014\\\\u0022,\\\\r\\\\n   \\\\r\\\\n    \\\\u0022customer\\\\u0022: {\\\\r\\\\n        \\\\u0022displayName\\\\u0022: \\\\u0022Test Customer\\\\u0022,\\\\r\\\\n        \\\\u0022tenantId\\\\u0022: \\\\u0022c9779df6-e283-4d7c-9035-26f7c7bcbe2d\\\\u0022\\\\r\\\\n    },\\\\r\\\\n    \\\\u0022accessDetails\\\\u0022: {\\\\r\\\\n        \\\\u0022unifiedRoles\\\\u0022: [\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002244367163-eba1-44c3-98af-f5787879f96a\\\\u0022\\\\r\\\\n            },\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002229232cdf-9323-42fd-ade2-1d097af3e4de\\\\u0022\\\\r\\\\n            },\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002231392ffb-586c-42d1-9346-e59415a2cc4e\\\\u0022\\\\r\\\\n            }\\\\r\\\\n        ]\\\\r\\\\n    },\\\\r\\\\n    \\\\u0022duration\\\\u0022: \\\\u0022P10D\\\\u0022\\\\r\\\\n}\\u0022,\\n    \\u0022Similarity\\u0022: 0.18282333,\\n    \\u0022Metadata\\u0022: null,\\n    \\u0022CreatedAt\\u0022: \\u00222026-01-09T10:15:05.968724Z\\u0022\\n  },\\n  {\\n    \\u0022DocumentId\\u0022: \\u0022261c1a73-b686-4f05-aea3-1a843deb9f4d\\u0022,\\n    \\u0022Text\\u0022: \\u0022{\\\\r\\\\n    \\\\u0022displayName\\\\u0022: \\\\u0022testaad_gdap_m003727_0014\\\\u0022,\\\\r\\\\n   \\\\r\\\\n    \\\\u0022customer\\\\u0022: {\\\\r\\\\n        \\\\u0022displayName\\\\u0022: \\\\u0022Test Customer\\\\u0022,\\\\r\\\\n        \\\\u0022tenantId\\\\u0022: \\\\u0022c9779df6-e283-4d7c-9035-26f7c7bcbe2d\\\\u0022\\\\r\\\\n    },\\\\r\\\\n    \\\\u0022accessDetails\\\\u0022: {\\\\r\\\\n        \\\\u0022unifiedRoles\\\\u0022: [\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002244367163-eba1-44c3-98af-f5787879f96a\\\\u0022\\\\r\\\\n            },\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002229232cdf-9323-42fd-ade2-1d097af3e4de\\\\u0022\\\\r\\\\n            },\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002231392ffb-586c-42d1-9346-e59415a2cc4e\\\\u0022\\\\r\\\\n            }\\\\r\\\\n        ]\\\\r\\\\n    },\\\\r\\\\n    \\\\u0022duration\\\\u0022: \\\\u0022P10D\\\\u0022\\\\r\\\\n}\\u0022,\\n    \\u0022Similarity\\u0022: 0.18278572,\\n    \\u0022Metadata\\u0022: null,\\n    \\u0022CreatedAt\\u0022: \\u00222026-01-09T10:14:59.219637Z\\u0022\\n  },\\n  {\\n    \\u0022DocumentId\\u0022: \\u002253610838-2d4e-483f-b7ea-51eab0ee66f0\\u0022,\\n    \\u0022Text\\u0022: \\u0022{\\\\r\\\\n    \\\\u0022displayName\\\\u0022: \\\\u0022testaad_gdap_m003727_0014\\\\u0022,\\\\r\\\\n   \\\\r\\\\n    \\\\u0022customer\\\\u0022: {\\\\r\\\\n        \\\\u0022displayName\\\\u0022: \\\\u0022Test Customer\\\\u0022,\\\\r\\\\n        \\\\u0022tenantId\\\\u0022: \\\\u0022c9779df6-e283-4d7c-9035-26f7c7bcbe2d\\\\u0022\\\\r\\\\n    },\\\\r\\\\n    \\\\u0022accessDetails\\\\u0022: {\\\\r\\\\n        \\\\u0022unifiedRoles\\\\u0022: [\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002244367163-eba1-44c3-98af-f5787879f96a\\\\u0022\\\\r\\\\n            },\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002229232cdf-9323-42fd-ade2-1d097af3e4de\\\\u0022\\\\r\\\\n            },\\\\r\\\\n            {\\\\r\\\\n                \\\\u0022roleDefinitionId\\\\u0022: \\\\u002231392ffb-586c-42d1-9346-e59415a2cc4e\\\\u0022\\\\r\\\\n            }\\\\r\\\\n        ]\\\\r\\\\n    },\\\\r\\\\n    \\\\u0022duration\\\\u0022: \\\\u0022P10D\\\\u0022\\\\r\\\\n}\\u0022,\\n    \\u0022Similarity\\u0022: 0.18278572,\\n    \\u0022Metadata\\u0022: null,\\n    \\u0022CreatedAt\\u0022: \\u00222026-01-09T10:15:03.014357Z\\u0022\\n  }\\n]\\n\\nOutput Response in JSON format.\u0022,\u0022SystemPrompt\u0022:\u0022Respond in Latvian language and build JSON response accordingly.\u0022,\u0022JsonMode\u0022:true,\u0022ApiKey\u0022:\u0022{{Secrets.DeepSeek_ApiKey}}\u0022,\u0022Cost\u0022:0.0041475,\u0022InputTokens\u0022:3927,\u0022OutputTokens\u0022:7257}",
+      "IsTrigger": false,
+      "Tags": [
+        "DEEPSEEK RAG CLIENT"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "4b7acfd6-fd2b-40b5-9d87-3d592f7ae78b",
+      "NodeType": "HttpResponse",
+      "Name": "Response",
+      "X": 1280,
+      "Y": 380,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022StatusCode\u0022:200,\u0022Body\u0022:\u0022{{DeepSeek.AIResponse}}\u0022,\u0022ContentType\u0022:\u0022application/json\u0022,\u0022Headers\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "5157ae4d-7348-4dff-863b-6244194ead54",
+      "NodeType": "OpenAI",
+      "Name": "OpenAIInterpreter",
+      "X": 1040,
+      "Y": 60,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Operation\u0022:\u0022Chat\u0022,\u0022Model\u0022:\u0022gpt-4o\u0022,\u0022EmbeddingModel\u0022:\u0022text-embedding-3-small\u0022,\u0022Temperature\u0022:0.4,\u0022Prompt\u0022:\u0022Request Data Details: {{ListenerQuery.Body}}\\nVector Query Response: {{Vector Client.ResultsJson}}\\n\u0022,\u0022SystemPrompt\u0022:\u0022Output response in raw json data without any comments.\u0022,\u0022ApiKey\u0022:\u0022{{Secrets.OpenAI_ApiKey}}\u0022,\u0022Cost\u0022:0,\u0022InputTokens\u0022:0,\u0022OutputTokens\u0022:0}",
+      "IsTrigger": false,
+      "Tags": [
+        "OPEN AI RAG CHAT"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "51e5c690-b302-4c1a-885b-e8d5d143dadc",
+      "NodeType": "StorageTable",
+      "Name": "Table",
+      "X": 180,
+      "Y": 240,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Columns\u0022:[{\u0022Name\u0022:\u0022Id\u0022,\u0022Type\u0022:\u0022String\u0022}],\u0022EnableRetention\u0022:false,\u0022RetentionDays\u0022:30}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "549160cd-77c3-42d7-83f1-ef93c7929a2a",
+      "NodeType": "SqlServer",
+      "Name": "SQL Server",
+      "X": 1040,
+      "Y": 200,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022ConnectionString\u0022:\u0022{{Secrets.SqlConnectionString}}\u0022,\u0022Query\u0022:\u0022SELECT * FROM Table\u0022,\u0022TimeoutSeconds\u0022:30,\u0022ExpectedColumns\u0022:null,\u0022LastExecutionColumns\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "5553caee-3efe-4224-b411-9b9533cb18a7",
+      "NodeType": "StorageClient",
+      "Name": "Client",
+      "X": 180,
+      "Y": 60,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Operation\u0022:\u0022Insert\u0022,\u0022RecordId\u0022:null,\u0022FilterColumn\u0022:null,\u0022FilterOperator\u0022:\u0022==\u0022,\u0022FilterValue\u0022:null,\u0022DataJson\u0022:\u0022{\\n  \\u0022Id\\u0022: \\u0022{{Listener.asas}}\\u0022\\n}\u0022,\u0022MaxResults\u0022:100}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "5b787ee7-f0ad-4db1-a43d-2e66bfb67a97",
+      "NodeType": "HttpListener",
+      "Name": "Listener",
+      "X": 380,
+      "Y": 60,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Method\u0022:\u0022POST\u0022,\u0022Path\u0022:\u0022/apii\u0022,\u0022Port\u0022:8082,\u0022Host\u0022:\u0022localhost\u0022,\u0022DefaultResponse\u0022:\u0022OK\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022,\u0022DefaultStatusCode\u0022:200,\u0022TimeoutSeconds\u0022:300,\u0022LastBodySample\u0022:\u0022{\\r\\n  \\u0022status\\u0022: \\u0022Accept\\u0022,\\r\\n  \\u0022lineItems\\u0022: [\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022dc7bd983-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:0034:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1M\\u0022\\r\\n    },\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022ac7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\r\\n    },\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022sf7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022FFCFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\r\\n    }\\r\\n  ]\\r\\n}\u0022,\u0022LastQueryParams\u0022:\u00221\u0022,\u0022UseProxyMode\u0022:true}",
+      "IsTrigger": true,
+      "Tags": [
+        "HTTP LISTENER EMBED"
+      ],
+      "IconOverride": "\uD83C\uDF10",
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "7946ca04-2730-46be-a217-15f59d72daa2",
+      "NodeType": "VectorClient",
+      "Name": "Vector Search",
+      "X": 560,
+      "Y": 200,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Operation\u0022:\u0022Store\u0022,\u0022Text\u0022:\u0022{{Listener.Body}}\u0022,\u0022Embedding\u0022:\u0022{{OpenAIEmbed.Embedding}}\u0022,\u0022Metadata\u0022:null,\u0022QueryEmbedding\u0022:null,\u0022Limit\u0022:3,\u0022DocumentId\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "Vector Store Client"
+      ],
+      "IconOverride": "\uD83D\uDCDA",
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "bb3c4c8d-01ce-45f1-9fa9-0ed716500f0c",
+      "NodeType": "OpenAI",
+      "Name": "OpenAIQuery",
+      "X": 840,
+      "Y": 200,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Operation\u0022:\u0022Embedding\u0022,\u0022Model\u0022:\u0022gpt-4o\u0022,\u0022EmbeddingModel\u0022:\u0022text-embedding-3-large\u0022,\u0022Temperature\u0022:0.2,\u0022Prompt\u0022:\u0022\u0022,\u0022SystemPrompt\u0022:null,\u0022ApiKey\u0022:\u0022{{Secrets.OpenAI_ApiKey}}\u0022,\u0022Cost\u0022:3.8999999999999997E-07,\u0022InputTokens\u0022:3,\u0022OutputTokens\u0022:0}",
+      "IsTrigger": false,
+      "Tags": [
+        "VECTOR OPENAI EMBED"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "beb1f903-fc10-4548-8e3b-a00185bc9206",
+      "NodeType": "OpenAI",
+      "Name": "OpenAIEmbed",
+      "X": 380,
+      "Y": 200,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Operation\u0022:\u0022Embedding\u0022,\u0022Model\u0022:\u0022gpt-4o\u0022,\u0022EmbeddingModel\u0022:\u0022text-embedding-3-large\u0022,\u0022Temperature\u0022:0.2,\u0022Prompt\u0022:\u0022{{Listener.Body}}\u0022,\u0022SystemPrompt\u0022:null,\u0022ApiKey\u0022:\u0022{{Secrets.OpenAI_ApiKey}}\u0022,\u0022TimeoutSeconds\u0022:300,\u0022Cost\u0022:0.00416350999999996,\u0022InputTokens\u0022:32027,\u0022OutputTokens\u0022:0}",
+      "IsTrigger": false,
+      "Tags": [
+        "Embed"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "c761e46e-0f50-444b-99b7-6dad9c1738b5",
+      "NodeType": "VectorClient",
+      "Name": "Vector Client",
+      "X": 840,
+      "Y": 380,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{\u0022Operation\u0022:\u0022Search\u0022,\u0022Text\u0022:null,\u0022Embedding\u0022:null,\u0022Metadata\u0022:null,\u0022QueryEmbedding\u0022:\u0022{{OpenAIQuery.Embedding}}\u0022,\u0022Limit\u0022:5,\u0022DocumentId\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "VECTOR SEARCH CLIENT"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "ef8b49cb-aee0-4d44-9bfc-d095305f59c4",
+      "NodeType": "VectorDb",
+      "Name": "Vector Store",
+      "X": 560,
+      "Y": 380,
+      "Width": 60,
+      "Height": 60,
+      "Configuration": "{}",
+      "IsTrigger": false,
+      "Tags": [
+        "Vector DB"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "921f2287-df7c-4858-a68b-e1aa2e169503",
+      "SourceId": "123f5505-4ba2-4824-b950-ee6b54c32a47",
+      "TargetId": "bb3c4c8d-01ce-45f1-9fa9-0ed716500f0c",
+      "Label": null
+    },
+    {
+      "Id": "3013cbe0-d2f6-465c-ad4a-64c1a877b73a",
+      "SourceId": "27279ad1-2420-4096-9d8e-0ab9f80c1f44",
+      "TargetId": "549160cd-77c3-42d7-83f1-ef93c7929a2a",
+      "Label": null
+    },
+    {
+      "Id": "76d05f12-eec3-46da-98af-c1e85f11696b",
+      "SourceId": "27279ad1-2420-4096-9d8e-0ab9f80c1f44",
+      "TargetId": "4b7acfd6-fd2b-40b5-9d87-3d592f7ae78b",
+      "Label": "asdasdf"
+    },
+    {
+      "Id": "7e21a880-e30c-49ca-9b44-6c93d683500e",
+      "SourceId": "5553caee-3efe-4224-b411-9b9533cb18a7",
+      "TargetId": "51e5c690-b302-4c1a-885b-e8d5d143dadc",
+      "Label": "storage"
+    },
+    {
+      "Id": "cefa8f43-84cc-49a5-83c0-3600950870b1",
+      "SourceId": "5b787ee7-f0ad-4db1-a43d-2e66bfb67a97",
+      "TargetId": "5553caee-3efe-4224-b411-9b9533cb18a7",
+      "Label": null
+    },
+    {
+      "Id": "6c818770-5d55-4253-a6cd-dc558a39cbd6",
+      "SourceId": "5b787ee7-f0ad-4db1-a43d-2e66bfb67a97",
+      "TargetId": "beb1f903-fc10-4548-8e3b-a00185bc9206",
+      "Label": null
+    },
+    {
+      "Id": "c3b9e90c-3b29-41b4-8681-a7df94b09f5e",
+      "SourceId": "7946ca04-2730-46be-a217-15f59d72daa2",
+      "TargetId": "ef8b49cb-aee0-4d44-9bfc-d095305f59c4",
+      "Label": "storage"
+    },
+    {
+      "Id": "7b72c0d6-18d6-49c5-aa92-8fd5dfa744dd",
+      "SourceId": "bb3c4c8d-01ce-45f1-9fa9-0ed716500f0c",
+      "TargetId": "c761e46e-0f50-444b-99b7-6dad9c1738b5",
+      "Label": null
+    },
+    {
+      "Id": "2d68b2dc-efe1-4e3d-a39b-c964fdb0c2d8",
+      "SourceId": "beb1f903-fc10-4548-8e3b-a00185bc9206",
+      "TargetId": "149600a0-2a40-4b3a-9027-ef644e27de56",
+      "Label": null
+    },
+    {
+      "Id": "b3a4eddc-d579-438d-a832-bb4e3804f0fe",
+      "SourceId": "beb1f903-fc10-4548-8e3b-a00185bc9206",
+      "TargetId": "7946ca04-2730-46be-a217-15f59d72daa2",
+      "Label": "no-wait"
+    },
+    {
+      "Id": "84421cc0-42e0-4b59-8307-a14991b51097",
+      "SourceId": "c761e46e-0f50-444b-99b7-6dad9c1738b5",
+      "TargetId": "27279ad1-2420-4096-9d8e-0ab9f80c1f44",
+      "Label": null
+    },
+    {
+      "Id": "71fb3489-35e7-401e-99c6-54d1c7d7841c",
+      "SourceId": "c761e46e-0f50-444b-99b7-6dad9c1738b5",
+      "TargetId": "ef8b49cb-aee0-4d44-9bfc-d095305f59c4",
+      "Label": "storage"
+    }
+  ]
+}

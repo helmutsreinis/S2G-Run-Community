@@ -1,0 +1,272 @@
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@using System.Text.Json
+@inject CustomNodeService CustomNodeService
+
+@* Generic editor for custom nodes in the Designer property modal *@
+@* Dynamically renders input fields based on the CustomNodeDefinition *@
+
+<div class="node-editor-fields custom-node-editor">
+    @if (definition == null)
+    {
+        <div class="loading">Loading node definition...</div>
+    }
+    else
+    {
+        @foreach (var field in definition.InputFields.OrderBy(f => f.DisplayOrder))
+        {
+            <div class="form-group">
+                <label>
+                    @field.DisplayLabel
+                    @if (field.IsRequired)
+                    {
+                        <span class="required">*</span>
+                    }
+                </label>
+
+                @switch (field.FieldType)
+                {
+                    case CustomFieldType.Text:
+                        <input type="text" 
+                               value="@GetFieldValue(field.FieldName)" 
+                               @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))"
+                               class="form-control" 
+                               placeholder="@field.PlaceholderText" />
+                        break;
+
+                    case CustomFieldType.TextArea:
+                        <textarea value="@GetFieldValue(field.FieldName)" 
+                                  @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))"
+                                  class="form-control" 
+                                  rows="4"
+                                  placeholder="@field.PlaceholderText"></textarea>
+                        break;
+
+                    case CustomFieldType.Number:
+                        <input type="number" 
+                               value="@GetFieldValue(field.FieldName)" 
+                               @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))"
+                               class="form-control" />
+                        break;
+
+                    case CustomFieldType.Boolean:
+                        <label class="checkbox-label">
+                            <input type="checkbox" 
+                                   checked="@GetBoolValue(field.FieldName)"
+                                   @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))" />
+                            <span>@(field.HelpText ?? "Enable")</span>
+                        </label>
+                        break;
+
+                    case CustomFieldType.Select:
+                        <select class="form-control" 
+                                value="@GetFieldValue(field.FieldName)"
+                                @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))">
+                            <option value="">-- Select --</option>
+                            @if (!string.IsNullOrEmpty(field.SelectOptionsJson))
+                            {
+                                try
+                                {
+                                    var options = JsonSerializer.Deserialize<List<string>>(field.SelectOptionsJson);
+                                    if (options != null)
+                                    {
+                                        foreach (var opt in options)
+                                        {
+                                            <option value="@opt">@opt</option>
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        </select>
+                        break;
+
+                    case CustomFieldType.Password:
+                        <input type="password" 
+                               value="@GetFieldValue(field.FieldName)" 
+                               @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))"
+                               class="form-control" 
+                               placeholder="@field.PlaceholderText" />
+                        break;
+
+                    case CustomFieldType.Json:
+                    case CustomFieldType.Code:
+                        <textarea value="@GetFieldValue(field.FieldName)" 
+                                  @onchange="@(e => UpdateFieldValue(field.FieldName, e.Value?.ToString()))"
+                                  class="form-control code-editor" 
+                                  rows="6"
+                                  placeholder="@field.PlaceholderText"></textarea>
+                        break;
+                }
+
+                @if (!string.IsNullOrEmpty(field.HelpText) && field.FieldType != CustomFieldType.Boolean)
+                {
+                    <small class="help-text">@field.HelpText</small>
+                }
+
+                @if (field.AllowPlaceholders && AvailablePlaceholders.Any())
+                {
+                    <div class="placeholder-chips">
+                        @foreach (var p in AvailablePlaceholders.Take(5))
+                        {
+                            <span class="chip" @onclick="@(() => AppendPlaceholder(field.FieldName, p))">@p</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (!definition.InputFields.Any())
+        {
+            <div class="no-fields">
+                <p>This custom node has no configurable input fields.</p>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .custom-node-editor .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .custom-node-editor label {
+        display: block;
+        color: #aaa;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .custom-node-editor .required {
+        color: #e74c3c;
+        margin-left: 0.25rem;
+    }
+
+    .custom-node-editor .form-control {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 0.9rem;
+    }
+
+    .custom-node-editor .code-editor {
+        font-family: 'Consolas', 'Monaco', monospace;
+        background: #1e1e1e;
+    }
+
+    .custom-node-editor .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: #ddd;
+    }
+
+    .custom-node-editor .help-text {
+        display: block;
+        color: #666;
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+    }
+
+    .custom-node-editor .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-top: 0.5rem;
+    }
+
+    .custom-node-editor .chip {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        cursor: pointer;
+    }
+
+    .custom-node-editor .chip:hover {
+        background: rgba(102, 126, 234, 0.4);
+    }
+
+    .custom-node-editor .no-fields {
+        text-align: center;
+        color: #888;
+        padding: 1rem;
+    }
+
+    .custom-node-editor .loading {
+        text-align: center;
+        color: #888;
+        padding: 1rem;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public string NodeType { get; set; } = "";
+
+    private CustomNodeDefinition? definition;
+    private Dictionary<string, object?> configValues = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Load definition when NodeType changes
+        if (!string.IsNullOrEmpty(NodeType) && (definition == null || definition.NodeTypeKey != NodeType))
+        {
+            definition = await CustomNodeService.GetDefinitionByKeyAsync(NodeType);
+        }
+
+        // Parse configuration
+        try
+        {
+            configValues = string.IsNullOrEmpty(Configuration)
+                ? new Dictionary<string, object?>()
+                : JsonSerializer.Deserialize<Dictionary<string, object?>>(Configuration) ?? new();
+        }
+        catch
+        {
+            configValues = new Dictionary<string, object?>();
+        }
+    }
+
+    private string GetFieldValue(string fieldName)
+    {
+        if (configValues.TryGetValue(fieldName, out var value))
+            return value?.ToString() ?? "";
+        
+        // Return default value from definition
+        var field = definition?.InputFields.FirstOrDefault(f => f.FieldName == fieldName);
+        return field?.DefaultValue ?? "";
+    }
+
+    private bool GetBoolValue(string fieldName)
+    {
+        var value = GetFieldValue(fieldName);
+        return value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1";
+    }
+
+    private async Task UpdateFieldValue(string fieldName, string? value)
+    {
+        configValues[fieldName] = value;
+        await NotifyChanged();
+    }
+
+    private async Task AppendPlaceholder(string fieldName, string placeholder)
+    {
+        var current = GetFieldValue(fieldName);
+        configValues[fieldName] = current + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(configValues);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+}

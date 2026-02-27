@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pulsewebdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      # Trust connections within Docker network (safe — not exposed externally)
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d pulsewebdb" ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  s2g-pulse:
+    build:
+      context: .
+      dockerfile: S2GPulseWeb.Web/Dockerfile
+    ports:
+      - "${S2G_PORT:-8080}:8080"
+    environment:
+      # PostgreSQL connection string — built from the same password used by the postgres service
+      - ConnectionStrings__pulsewebdb=Host=postgres;Port=5432;Database=pulsewebdb;Username=postgres;Password=${POSTGRES_PASSWORD:-changeme}
+      # Optional overrides (appsettings.Docker.json has sensible defaults for all of these)
+      - Admin__MasterUserEmail=${ADMIN_EMAIL:-}
+      - Authentication__Microsoft__ClientId=${AUTHENTICATION__MICROSOFT__CLIENTID:-}
+      - Authentication__Microsoft__ClientSecret=${AUTHENTICATION__MICROSOFT__CLIENTSECRET:-}
+      - Authentication__Google__ClientId=${AUTHENTICATION__GOOGLE__CLIENTID:-}
+      - Authentication__Google__ClientSecret=${AUTHENTICATION__GOOGLE__CLIENTSECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

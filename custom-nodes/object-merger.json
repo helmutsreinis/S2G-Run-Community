@@ -1,0 +1,143 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:52:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_ObjectMerger",
+        "displayName": "Object Merger",
+        "description": "Deep merges multiple JSON objects with configurable conflict resolution strategies.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 6H4V10\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M4 6L9 11\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M16 6H20V10\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M20 6L15 11\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M12 14V20\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><circle cx=\"12\" cy=\"12\" r=\"2\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var obj1Input = input.get('object1');\nvar obj2Input = input.get('object2');\nvar obj3Input = input.get('object3') || '';\nvar conflictStrategy = input.get('conflictStrategy') || 'overwrite';\nvar arrayStrategy = input.get('arrayStrategy') || 'replace';\n\nif (!obj1Input) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Object 1 is required');\n    output.set('Result', '{}');\n    tags.trigger('error');\n} else {\n    try {\n        var obj1 = json.parse(obj1Input);\n        var obj2 = obj2Input ? json.parse(obj2Input) : {};\n        var obj3 = obj3Input ? json.parse(obj3Input) : null;\n        \n        var conflicts = [];\n        \n        function isObject(val) {\n            return val !== null && typeof val === 'object' && !Array.isArray(val);\n        }\n        \n        function deepMerge(target, source, path) {\n            path = path || '';\n            var result = {};\n            \n            var allKeys = {};\n            var targetKeys = Object.keys(target);\n            var sourceKeys = Object.keys(source);\n            for (var i = 0; i < targetKeys.length; i++) allKeys[targetKeys[i]] = true;\n            for (var i = 0; i < sourceKeys.length; i++) allKeys[sourceKeys[i]] = true;\n            var keys = Object.keys(allKeys);\n            \n            for (var k = 0; k < keys.length; k++) {\n                var key = keys[k];\n                var currentPath = path ? path + '.' + key : key;\n                var targetVal = target[key];\n                var sourceVal = source[key];\n                \n                if (targetVal === undefined) {\n                    result[key] = sourceVal;\n                } else if (sourceVal === undefined) {\n                    result[key] = targetVal;\n                } else if (isObject(targetVal) && isObject(sourceVal)) {\n                    result[key] = deepMerge(targetVal, sourceVal, currentPath);\n                } else if (Array.isArray(targetVal) && Array.isArray(sourceVal)) {\n                    conflicts.push({path: currentPath, target: targetVal, source: sourceVal, type: 'array'});\n                    if (arrayStrategy === 'concat') {\n                        result[key] = targetVal.concat(sourceVal);\n                    } else if (arrayStrategy === 'unique') {\n                        var combined = targetVal.concat(sourceVal);\n                        var seen = {};\n                        result[key] = combined.filter(function(item) {\n                            var k = typeof item === 'object' ? json.stringify(item) : String(item);\n                            if (seen[k]) return false;\n                            seen[k] = true;\n                            return true;\n                        });\n                    } else {\n                        result[key] = sourceVal;\n                    }\n                } else {\n                    conflicts.push({path: currentPath, target: targetVal, source: sourceVal, type: 'value'});\n                    if (conflictStrategy === 'keepFirst') {\n                        result[key] = targetVal;\n                    } else if (conflictStrategy === 'preferNull') {\n                        result[key] = sourceVal !== null ? sourceVal : targetVal;\n                    } else {\n                        result[key] = sourceVal;\n                    }\n                }\n            }\n            \n            return result;\n        }\n        \n        var merged = deepMerge(obj1, obj2, '');\n        if (obj3) {\n            merged = deepMerge(merged, obj3, '');\n        }\n        \n        var mergedKeys = [];\n        function collectKeys(obj, prefix) {\n            var keys = Object.keys(obj);\n            for (var i = 0; i < keys.length; i++) {\n                var p = prefix ? prefix + '.' + keys[i] : keys[i];\n                mergedKeys.push(p);\n                if (isObject(obj[keys[i]])) {\n                    collectKeys(obj[keys[i]], p);\n                }\n            }\n        }\n        collectKeys(merged, '');\n        \n        output.set('Result', json.stringify(merged));\n        output.set('ResultObject', merged);\n        output.set('ConflictCount', conflicts.length);\n        output.set('Conflicts', json.stringify(conflicts));\n        output.set('KeyCount', mergedKeys.length);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Merged objects: ' + mergedKeys.length + ' keys, ' + conflicts.length + ' conflicts');\n        \n        if (conflicts.length > 0) {\n            tags.trigger('conflicts');\n        }\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Merge failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('Result', '{}');\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "object1",
+                "displayLabel": "Object 1 (Base)",
+                "placeholderText": "{\"name\": \"John\", \"age\": 30}",
+                "helpText": "The base object to merge into.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "object2",
+                "displayLabel": "Object 2",
+                "placeholderText": "{\"age\": 31, \"city\": \"NYC\"}",
+                "helpText": "Second object to merge.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "object3",
+                "displayLabel": "Object 3 (Optional)",
+                "placeholderText": "{\"country\": \"USA\"}",
+                "helpText": "Optional third object to merge.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "conflictStrategy",
+                "displayLabel": "Conflict Strategy",
+                "helpText": "How to handle value conflicts.",
+                "fieldType": "Dropdown",
+                "defaultValue": "overwrite",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4,
+                "dropdownOptions": "overwrite,keepFirst,preferNull"
+            },
+            {
+                "fieldName": "arrayStrategy",
+                "displayLabel": "Array Strategy",
+                "helpText": "How to merge arrays.",
+                "fieldType": "Dropdown",
+                "defaultValue": "replace",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 5,
+                "dropdownOptions": "replace,concat,unique"
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "Merged object as JSON string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResultObject",
+                "description": "Merged object",
+                "dataType": "any",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ConflictCount",
+                "description": "Number of conflicts encountered",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Conflicts",
+                "description": "Conflict details as JSON",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "KeyCount",
+                "description": "Total keys in result",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if merge failed",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Merge succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "conflicts",
+                "description": "Conflicts occurred",
+                "color": "#f59e0b",
+                "conditionDescription": "Has conflicts",
+                "displayOrder": 2
+            },
+            {
+                "tagName": "error",
+                "description": "Merge failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 3
+            }
+        ],
+        "logConfigs": []
+    }
+}

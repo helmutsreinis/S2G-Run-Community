@@ -1,0 +1,1212 @@
+@page "/connections"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject OAuthService OAuthService
+@inject UserSecretService SecretService
+@inject PlatformConnectorService ConnectorService
+@inject CopilotConnectorService CopilotService
+@inject UserPreferenceService PreferenceService
+@inject OrganizationService OrganizationService
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<PageTitle>Connections - @PlatformSettings.SiteName</PageTitle>
+
+@* Newsletter popup for targeted announcements *@
+<S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@userId" CurrentPage="Connections" />
+
+<div class="connections-page">
+    <div class="connections-header">
+        <h1><span class="grayscale-icon">🔗</span> @(activeOrganizationName != null ? $"{activeOrganizationName} Connections" : "Connections")</h1>
+        <p>@(activeOrganizationName != null ? $"Manage OAuth connections for {activeOrganizationName} organization." : "Manage your personal OAuth connections to external services like Microsoft 365, OneDrive, and more.")</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger")">
+            @statusMessage
+        </div>
+    }
+
+    <div class="connections-container">
+        @* Platform Connectors Section - Admin-defined *@
+        @if (platformConnectors != null && platformConnectors.Any())
+        {
+            @foreach (var categoryGroup in platformConnectors.GroupBy(c => c.Category))
+            {
+                <div class="connections-section">
+                    <div class="section-header">
+                        @if (categoryGroup.Key != null)
+                        {
+                            <h2><span class="grayscale-icon">@categoryGroup.Key.IconEmoji</span> @categoryGroup.Key.Name</h2>
+                        }
+                        else
+                        {
+                            <h2><span class="grayscale-icon">🔌</span> Available Connectors</h2>
+                        }
+                    </div>
+
+                    <div class="connectors-grid">
+                        @foreach (var connector in categoryGroup)
+                        {
+                            var existingConnections = connections.Where(c => c.PlatformConnectorId == connector.Id).ToList();
+                            
+                            <div class="connector-card">
+                                <div class="connector-header-row">
+                                    <div class="connector-title">
+                                        <span class="connector-name">@connector.Name</span>
+                                        <span class="consent-type-badge @connector.ConsentType.ToString().ToLower()">
+                                            @connector.ConsentType
+                                        </span>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" 
+                                            @onclick="() => AddPlatformConnection(connector.Id, connector.Name)" 
+                                            disabled="@isLoading">
+                                        <span class="grayscale-icon">➕</span> Add Connection
+                                    </button>
+                                </div>
+                                
+                                @if (!string.IsNullOrEmpty(connector.Description))
+                                {
+                                    <div class="connector-description">
+                                        @((MarkupString)connector.Description)
+                                    </div>
+                                }
+
+                                @if (existingConnections.Any())
+                                {
+                                    <div class="existing-connections">
+                                        <span class="existing-label">Your connections:</span>
+                                        <div class="connections-list">
+                                            @foreach (var conn in existingConnections)
+                                            {
+                                                <div class="connection-mini">
+                                                    <div class="connection-mini-info">
+                                                        <span class="connection-email">@conn.Email</span>
+                                                        <span class="connection-status @(conn.TokenExpiry > DateTime.UtcNow ? "valid" : "expired")">
+                                                            @(conn.TokenExpiry > DateTime.UtcNow ? "✓" : "⚠")
+                                                        </span>
+                                                    </div>
+                                                    <button class="btn btn-danger btn-xs" 
+                                                            @onclick="() => DeleteConnection(conn.Id)" 
+                                                            disabled="@isLoading">
+                                                        🗑️
+                                                    </button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+
+        @* GitHub Copilot Section - Device Flow OAuth *@
+        <div class="connections-section copilot-section">
+            <div class="section-header">
+                <h2><span class="grayscale-icon">🐙</span> GitHub Copilot</h2>
+                @if (!copilotDeviceFlowActive)
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="StartCopilotDeviceFlow" disabled="@isLoading">
+                        <span class="grayscale-icon">➕</span> Connect Copilot
+                    </button>
+                }
+            </div>
+            
+            <div class="connector-description">
+                Connect your GitHub Copilot Pro/Business subscription to use AI models in workflows without additional API costs.
+            </div>
+
+            @* Device Flow Modal *@
+            @if (copilotDeviceFlowActive && copilotDeviceCode != null)
+            {
+                <div class="device-flow-modal">
+                    <div class="device-flow-content">
+                        <h3>🔐 Authorize GitHub Copilot</h3>
+                        <p>Visit the URL below and enter this code:</p>
+                        
+                        <div class="device-code-display">
+                            <span class="device-code">@copilotUserCode</span>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="CopyDeviceCode">📋 Copy</button>
+                        </div>
+                        
+                        <a href="@copilotVerificationUri" target="_blank" class="btn btn-primary device-flow-link">
+                            Open github.com/login/device →
+                        </a>
+                        
+                        <div class="device-flow-status">
+                            @if (copilotPolling)
+                            {
+                                <span class="polling-indicator">⏳ Waiting for authorization... (@copilotPollCount)</span>
+                            }
+                            else if (!string.IsNullOrEmpty(copilotFlowError))
+                            {
+                                <span class="error-text">❌ @copilotFlowError</span>
+                            }
+                        </div>
+                        
+                        <button class="btn btn-secondary btn-sm" @onclick="CancelCopilotDeviceFlow">Cancel</button>
+                    </div>
+                </div>
+            }
+
+            @* Existing Copilot Connections *@
+            @if (copilotConnections.Any())
+            {
+                <div class="existing-connections">
+                    <span class="existing-label">Your Copilot connections:</span>
+                    <div class="connections-list">
+                        @foreach (var conn in copilotConnections)
+                        {
+                            var isDesignated = aiBuilderCopilotConnectionId == conn.Id;
+                            <div class="connection-mini copilot-connection @(isDesignated ? "designated" : "")">
+                                <div class="connection-mini-info">
+                                    <span class="connection-email">@conn.Email</span>
+                                    <span class="connection-status @(conn.TokenExpiry > DateTime.UtcNow ? "valid" : "expired")">
+                                        @(conn.TokenExpiry > DateTime.UtcNow ? "✓ Active" : "⚠ Expired")
+                                    </span>
+                                </div>
+                                <div class="connection-actions-row">
+                                    <label class="ai-builder-toggle" title="Use this connection for AI Builder">
+                                        <input type="radio" 
+                                               name="aiBuilderCopilot" 
+                                               checked="@isDesignated"
+                                               @onchange="@(() => SetAiBuilderConnection(conn.Id))" />
+                                        <span class="toggle-label">🤖 AI Builder</span>
+                                    </label>
+                                    <button class="btn btn-danger btn-xs" 
+                                            @onclick="() => DeleteConnection(conn.Id)" 
+                                            disabled="@isLoading">
+                                        🗑️
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (!copilotDeviceFlowActive)
+            {
+                <div class="no-connections" style="padding: 1rem; text-align: left;">
+                    <p style="margin: 0; color: #888;">No GitHub Copilot connections yet. Click "Connect Copilot" to link your subscription.</p>
+                </div>
+            }
+        </div>
+
+        @* Legacy user-defined Microsoft 365 Section - Only show if no platform connectors OR user has legacy settings *@
+        @if ((platformConnectors == null || !platformConnectors.Any()) || hasLegacyM365Settings)
+        {
+            <div class="connections-section legacy-section">
+                <div class="section-header">
+                    <h2><span class="grayscale-icon">☁️</span> Microsoft 365 (Custom App)</h2>
+                    <button class="btn btn-primary btn-sm" @onclick="AddMicrosoft365Connection" disabled="@isLoading">
+                        <span class="grayscale-icon">➕</span> Add Connection
+                    </button>
+                </div>
+
+                @if (connections.Any(c => c.Provider == "Microsoft365" && c.PlatformConnectorId == null))
+                {
+                    <div class="connections-list">
+                        @foreach (var connection in connections.Where(c => c.Provider == "Microsoft365" && c.PlatformConnectorId == null))
+                        {
+                            <div class="connection-card">
+                                <div class="connection-info">
+                                    <div class="connection-name">@connection.ConnectionName</div>
+                                    <div class="connection-email">@connection.Email</div>
+                                    <div class="connection-meta">
+                                        <span>Created: @connection.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
+                                        @if (connection.LastUsedAt.HasValue)
+                                        {
+                                            <span>• Last used: @connection.LastUsedAt.Value.ToLocalTime().ToString("MMM dd HH:mm")</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="connection-actions">
+                                    <span class="connection-status @(connection.TokenExpiry > DateTime.UtcNow ? "valid" : "expired")">
+                                        @(connection.TokenExpiry > DateTime.UtcNow ? "✓ Connected" : "⚠ Expired")
+                                    </span>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteConnection(connection.Id)" disabled="@isLoading">
+                                        <span class="grayscale-icon">🗑️</span>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (platformConnectors == null || !platformConnectors.Any())
+                {
+                    <div class="no-connections">
+                        <p>No Microsoft 365 connections yet. Configure your credentials below to get started.</p>
+                    </div>
+                }
+
+                @* Settings Form - Only show if no platform connectors available *@
+                @if (platformConnectors == null || !platformConnectors.Any())
+                {
+                    <div class="settings-section">
+                        <h3><span class="grayscale-icon">⚙️</span> Microsoft 365 App Settings</h3>
+                        <p class="section-description">
+                            Configure your Azure AD app credentials. 
+                            <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank">
+                                Register an app in Azure Portal →
+                            </a>
+                        </p>
+                        
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label>Client ID (Application ID)</label>
+                                <input type="text" @bind="clientId" class="form-control" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                            </div>
+                            <div class="form-group">
+                                <label>Client Secret</label>
+                                <input type="password" @bind="clientSecret" class="form-control" placeholder="Enter client secret" />
+                            </div>
+                            <div class="form-group">
+                                <label>Tenant ID (or "common" for multi-tenant)</label>
+                                <input type="text" @bind="tenantId" class="form-control" placeholder="common" />
+                            </div>
+                            <button class="btn btn-primary" @onclick="SaveM365Settings" disabled="@isLoading">
+                                <span class="grayscale-icon">💾</span> Save Settings
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="setup-instructions">
+                        <h3><span class="grayscale-icon">📋</span> Azure AD App Setup Instructions</h3>
+                        
+                        <div class="instruction-steps">
+                            <div class="step">
+                                <span class="step-number">1</span>
+                                <div class="step-content">
+                                    <strong>Register an App</strong>
+                                    <p>Go to <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank">Azure Portal → App registrations</a> and click "New registration".</p>
+                                </div>
+                            </div>
+                            
+                            <div class="step">
+                                <span class="step-number">2</span>
+                                <div class="step-content">
+                                    <strong>Add Redirect URI</strong>
+                                    <p>Under "Authentication", add this redirect URI:</p>
+                                    <code class="uri-code">@(NavigationManager.BaseUri.TrimEnd('/'))/account/oauth-callback</code>
+                                </div>
+                            </div>
+                            
+                            <div class="step">
+                                <span class="step-number">3</span>
+                                <div class="step-content">
+                                    <strong>Create Client Secret</strong>
+                                    <p>Under "Certificates & secrets", create a new client secret and copy the value.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="step">
+                                <span class="step-number">4</span>
+                                <div class="step-content">
+                                    <strong>Grant API Permissions</strong>
+                                    <p>Under "API permissions", add the following <strong>Delegated</strong> Microsoft Graph permissions:</p>
+                                    <ul class="permissions-list">
+                                        <li><code>Files.Read.All</code> - Read all files user can access</li>
+                                        <li><code>Files.ReadWrite.All</code> - Read and write all files</li>
+                                        <li><code>User.Read</code> - Sign in and read user profile</li>
+                                        <li><code>offline_access</code> - Maintain access (for refresh tokens)</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="step">
+                                <span class="step-number">5</span>
+                                <div class="step-content">
+                                    <strong>Copy Credentials</strong>
+                                    <p>Copy the <strong>Application (client) ID</strong> and <strong>Directory (tenant) ID</strong> from the app overview page, then paste them above along with your client secret.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if ((platformConnectors == null || !platformConnectors.Any()) && !hasLegacyM365Settings && connections.Count == 0)
+        {
+            <div class="no-connectors-message">
+                <p>No connectors have been configured yet. Please contact your administrator to set up OAuth connectors.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string? userId;
+    private Guid? activeOrganizationId;
+    private string? activeOrganizationName;
+    private List<OAuthConnection> connections = new();
+    private List<OAuthConnection> copilotConnections = new();
+    private List<PlatformConnector>? platformConnectors;
+    private bool hasLegacyM365Settings;
+    private string statusMessage = "";
+    private bool isSuccess;
+    private bool isLoading;
+    
+    // Copilot device flow state
+    private bool copilotDeviceFlowActive;
+    private string? copilotDeviceCode;
+    private string? copilotUserCode;
+    private string? copilotVerificationUri;
+    private bool copilotPolling;
+    private int copilotPollCount;
+    private string? copilotFlowError;
+    private CancellationTokenSource? copilotPollCts;
+    private Guid? aiBuilderCopilotConnectionId; // Designated connection for AI Builder
+    
+    private string clientId = "";
+    private string clientSecret = "";
+    private string tenantId = "common";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        userId = UserManager.GetUserId(authState.User);
+        
+        if (userId != null)
+        {
+            // Get active organization context
+            activeOrganizationId = await OrganizationService.GetActiveOrganizationIdAsync(userId);
+            if (activeOrganizationId.HasValue)
+            {
+                var orgs = await OrganizationService.GetUserOrganizationsAsync(userId);
+                activeOrganizationName = orgs.FirstOrDefault(o => o.Id == activeOrganizationId)?.Name;
+            }
+            
+            await LoadConnections();
+            await LoadCopilotConnections();
+            await LoadAiBuilderConnection();
+            await LoadPlatformConnectors();
+            await LoadM365Settings();
+        }
+    }
+
+    private async Task LoadConnections()
+    {
+        if (userId == null) return;
+        connections = await OAuthService.GetConnectionsAsync(userId, activeOrganizationId);
+    }
+
+    private async Task LoadPlatformConnectors()
+    {
+        platformConnectors = await ConnectorService.GetEnabledConnectorsAsync();
+    }
+
+    private async Task LoadM365Settings()
+    {
+        if (userId == null) return;
+        var settings = await OAuthService.GetM365SettingsAsync(userId);
+        hasLegacyM365Settings = settings != null;
+        if (settings != null)
+        {
+            clientId = settings.ClientId;
+            clientSecret = ""; // Don't show existing secret
+            tenantId = settings.TenantId;
+        }
+    }
+
+    private async Task SaveM365Settings()
+    {
+        if (userId == null) return;
+        
+        isLoading = true;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "M365_ClientId", clientId);
+            if (!string.IsNullOrEmpty(clientSecret))
+            {
+                await SecretService.SetSecretAsync(userId, "M365_ClientSecret", clientSecret);
+            }
+            await SecretService.SetSecretAsync(userId, "M365_TenantId", tenantId);
+            
+            hasLegacyM365Settings = true;
+            statusMessage = "Microsoft 365 settings saved successfully!";
+            isSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error saving settings: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AddPlatformConnection(Guid connectorId, string connectorName)
+    {
+        if (userId == null) return;
+
+        isLoading = true;
+        try
+        {
+            var state = $"{userId}|connector|{connectorId}|{Guid.NewGuid()}";
+            var redirectUri = NavigationManager.BaseUri.TrimEnd('/') + "/account/oauth-callback";
+            var authUrl = await OAuthService.GetAuthorizationUrlForConnectorAsync(connectorId, redirectUri, state, ConnectorService);
+
+            if (authUrl != null)
+            {
+                NavigationManager.NavigateTo(authUrl, forceLoad: true);
+            }
+            else
+            {
+                statusMessage = "Failed to generate authorization URL. The connector may not be configured correctly.";
+                isSuccess = false;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AddMicrosoft365Connection()
+    {
+        if (userId == null) return;
+        
+        var settings = await OAuthService.GetM365SettingsAsync(userId);
+        if (settings == null)
+        {
+            statusMessage = "Please configure Microsoft 365 app settings first.";
+            isSuccess = false;
+            return;
+        }
+
+        // Generate state for CSRF protection
+        var state = Guid.NewGuid().ToString();
+        
+        // Store state in session for validation
+        // For simplicity, we'll pass userId in state (in production, use session/cache)
+        var stateWithUser = $"{userId}|{state}";
+        
+        var redirectUri = NavigationManager.BaseUri.TrimEnd('/') + "/account/oauth-callback";
+        var authUrl = await OAuthService.GetAuthorizationUrlAsync(userId, redirectUri, stateWithUser);
+        
+        if (authUrl != null)
+        {
+            NavigationManager.NavigateTo(authUrl, forceLoad: true);
+        }
+        else
+        {
+            statusMessage = "Failed to generate authorization URL.";
+            isSuccess = false;
+        }
+    }
+
+    private async Task DeleteConnection(Guid connectionId)
+    {
+        if (userId == null) return;
+        
+        isLoading = true;
+        try
+        {
+            var result = await OAuthService.DeleteConnectionAsync(connectionId, userId);
+            if (result)
+            {
+                await LoadConnections();
+                await LoadCopilotConnections();
+                statusMessage = "Connection deleted successfully.";
+                isSuccess = true;
+            }
+            else
+            {
+                statusMessage = "Failed to delete connection.";
+                isSuccess = false;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ===== GitHub Copilot Device Flow Methods =====
+    
+    private async Task LoadCopilotConnections()
+    {
+        if (userId == null) return;
+        // Service now handles filtering by org context
+        copilotConnections = await CopilotService.GetCopilotConnectionsAsync(userId, activeOrganizationId);
+    }
+    
+    private async Task LoadAiBuilderConnection()
+    {
+        if (userId == null) return;
+        aiBuilderCopilotConnectionId = await PreferenceService.GetAiBuilderCopilotConnectionAsync(userId);
+    }
+    
+    private async Task SetAiBuilderConnection(Guid connectionId)
+    {
+        if (userId == null) return;
+        
+        isLoading = true;
+        try
+        {
+            // Toggle: if already selected, clear it; otherwise set it
+            if (aiBuilderCopilotConnectionId == connectionId)
+            {
+                await PreferenceService.SetAiBuilderCopilotConnectionAsync(userId, null);
+                aiBuilderCopilotConnectionId = null;
+                statusMessage = "AI Builder Copilot connection cleared.";
+            }
+            else
+            {
+                await PreferenceService.SetAiBuilderCopilotConnectionAsync(userId, connectionId);
+                aiBuilderCopilotConnectionId = connectionId;
+                statusMessage = "AI Builder will now use this Copilot connection.";
+            }
+            isSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error setting AI Builder connection: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task StartCopilotDeviceFlow()
+    {
+        if (userId == null) return;
+        
+        isLoading = true;
+        copilotFlowError = null;
+        
+        try
+        {
+            var deviceCodeResponse = await CopilotService.StartDeviceFlowAsync();
+            if (deviceCodeResponse == null)
+            {
+                copilotFlowError = "Failed to start device flow. Check server logs.";
+                return;
+            }
+
+            copilotDeviceCode = deviceCodeResponse.DeviceCode;
+            copilotUserCode = deviceCodeResponse.UserCode;
+            copilotVerificationUri = deviceCodeResponse.VerificationUri;
+            copilotDeviceFlowActive = true;
+            copilotPollCount = 0;
+            
+            // Start polling for token
+            copilotPollCts = new CancellationTokenSource();
+            _ = PollForCopilotToken(deviceCodeResponse.DeviceCode, deviceCodeResponse.Interval, copilotPollCts.Token);
+        }
+        catch (Exception ex)
+        {
+            copilotFlowError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PollForCopilotToken(string deviceCode, int intervalSeconds, CancellationToken ct)
+    {
+        if (userId == null) return;
+        
+        copilotPolling = true;
+        StateHasChanged();
+        
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), ct);
+                copilotPollCount++;
+                StateHasChanged();
+
+                var result = await CopilotService.PollForTokenAsync(deviceCode);
+                
+                switch (result.Status)
+                {
+                    case TokenPollStatus.Success when !string.IsNullOrEmpty(result.AccessToken):
+                        // Success! Exchange GitHub token for Copilot token, then create connection
+                        var copilotToken = await CopilotService.GetCopilotTokenAsync(result.AccessToken);
+                        if (copilotToken == null)
+                        {
+                            copilotFlowError = "Failed to get Copilot API token. You may not have Copilot access.";
+                            copilotPolling = false;
+                            copilotDeviceFlowActive = false;
+                            StateHasChanged();
+                            return;
+                        }
+                        
+                        var connection = await CopilotService.CreateConnectionAsync(
+                            userId!, 
+                            "GitHub Copilot", 
+                            result.AccessToken,
+                            copilotToken);
+                            
+                        if (connection == null)
+                        {
+                            copilotFlowError = "Failed to save connection.";
+                            copilotPolling = false;
+                            copilotDeviceFlowActive = false;
+                            StateHasChanged();
+                            return;
+                        }
+                        
+                        copilotDeviceFlowActive = false;
+                        copilotPolling = false;
+                        await LoadCopilotConnections();
+                        statusMessage = "GitHub Copilot connected successfully!";
+                        isSuccess = true;
+                        StateHasChanged();
+                        return;
+                        
+                    case TokenPollStatus.Pending:
+                        // Still waiting, continue polling
+                        continue;
+                        
+                    case TokenPollStatus.SlowDown:
+                        // Increase interval
+                        intervalSeconds += 5;
+                        continue;
+                        
+                    case TokenPollStatus.Expired:
+                        copilotFlowError = "Device code expired. Please try again.";
+                        copilotPolling = false;
+                        copilotDeviceFlowActive = false;
+                        StateHasChanged();
+                        return;
+                        
+                    case TokenPollStatus.Denied:
+                        copilotFlowError = "Access denied. You may need a Copilot subscription.";
+                        copilotPolling = false;
+                        copilotDeviceFlowActive = false;
+                        StateHasChanged();
+                        return;
+                        
+                    default:
+                        copilotFlowError = result.Error ?? "Unknown error occurred.";
+                        copilotPolling = false;
+                        StateHasChanged();
+                        return;
+                }
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Cancelled by user
+        }
+        catch (Exception ex)
+        {
+            copilotFlowError = $"Polling error: {ex.Message}";
+        }
+        finally
+        {
+            copilotPolling = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelCopilotDeviceFlow()
+    {
+        copilotPollCts?.Cancel();
+        copilotDeviceFlowActive = false;
+        copilotPolling = false;
+        copilotDeviceCode = null;
+        copilotUserCode = null;
+        copilotFlowError = null;
+    }
+
+    private async Task CopyDeviceCode()
+    {
+        // This would require JS interop for clipboard, for now just show message
+        statusMessage = $"Code: {copilotUserCode} - Copy this code manually.";
+        isSuccess = true;
+        await Task.CompletedTask;
+    }
+}
+
+<style>
+    .grayscale-icon {
+        filter: grayscale(100%) brightness(1.3);
+    }
+
+    .connections-page {
+        padding: 2rem;
+        max-width: 1000px;
+        margin: 0 auto;
+        color: #e0e0e0;
+    }
+
+    .connections-header {
+        margin-bottom: 2rem;
+        border-bottom: 1px solid #333;
+        padding-bottom: 1rem;
+    }
+
+    .connections-header h1 {
+        color: #00f2fe;
+        margin: 0;
+    }
+
+    .connections-container {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+    }
+
+    .connections-section, .settings-section {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .legacy-section {
+        border: 1px dashed rgba(255, 255, 255, 0.15);
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .section-header h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #4facfe;
+    }
+
+    .connectors-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .connector-card {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem 1.25rem;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .connector-header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .connector-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .connector-name {
+        font-weight: 600;
+        font-size: 1.05rem;
+        color: #fff;
+    }
+
+    .consent-type-badge {
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .consent-type-badge.graph {
+        background: rgba(0, 120, 212, 0.2);
+        color: #0078d4;
+    }
+
+    .consent-type-badge.partnercenter {
+        background: rgba(243, 156, 18, 0.2);
+        color: #f39c12;
+    }
+
+    .consent-type-badge.azuremanagement {
+        background: rgba(0, 188, 212, 0.2);
+        color: #00bcd4;
+    }
+
+    .connector-description {
+        color: #999;
+        font-size: 0.9rem;
+        margin: 0.5rem 0;
+    }
+
+    .existing-connections {
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .existing-label {
+        font-size: 0.8rem;
+        color: #888;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .connections-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .connection-mini {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+    }
+
+    .connection-mini-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .connection-email {
+        color: #ccc;
+        font-size: 0.9rem;
+    }
+
+    .connection-actions-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .ai-builder-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.2);
+        transition: all 0.2s ease;
+    }
+
+    .ai-builder-toggle:hover {
+        background: rgba(79, 172, 254, 0.15);
+    }
+
+    .ai-builder-toggle input[type="radio"] {
+        accent-color: #4facfe;
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+    }
+
+    .ai-builder-toggle .toggle-label {
+        font-size: 0.75rem;
+        color: #888;
+        white-space: nowrap;
+    }
+
+    .ai-builder-toggle:has(input:checked) .toggle-label {
+        color: #4facfe;
+    }
+
+    .connection-mini.designated {
+        background: rgba(79, 172, 254, 0.1);
+        border: 1px solid rgba(79, 172, 254, 0.3);
+    }
+
+    .connection-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #333;
+    }
+
+    .connection-name {
+        font-weight: 600;
+        color: #fff;
+    }
+
+    .connection-meta {
+        font-size: 0.8rem;
+        color: #666;
+        margin-top: 0.25rem;
+    }
+
+    .connection-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .connection-status {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+    }
+
+    .connection-status.valid {
+        background: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+
+    .connection-status.expired {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+    }
+
+    .no-connections, .no-connectors-message {
+        text-align: center;
+        padding: 2rem;
+        color: #666;
+    }
+
+    .settings-section h3 {
+        font-size: 1rem;
+        color: #ccc;
+        margin-bottom: 0.5rem;
+    }
+
+    .section-description {
+        color: #888;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+    }
+
+    .section-description a {
+        color: #4facfe;
+    }
+
+    .settings-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .settings-form .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .settings-form label {
+        color: #aaa;
+        font-size: 0.85rem;
+    }
+
+    .settings-form .form-control {
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        color: white;
+    }
+
+    .settings-form .form-control:focus {
+        border-color: #4facfe;
+        outline: none;
+    }
+
+    .setup-instructions {
+        background: rgba(255, 255, 255, 0.03);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-top: 1.5rem;
+    }
+
+    .setup-instructions h3 {
+        font-size: 1rem;
+        color: #ccc;
+        margin-bottom: 1rem;
+    }
+
+    .instruction-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .step {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .step-number {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        background: linear-gradient(135deg, #4facfe, #00f2fe);
+        color: #000;
+        border-radius: 50%;
+        font-weight: 700;
+        font-size: 0.85rem;
+        flex-shrink: 0;
+    }
+
+    .step-content {
+        flex: 1;
+    }
+
+    .step-content strong {
+        color: #e0e0e0;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .step-content p {
+        color: #888;
+        font-size: 0.9rem;
+        margin: 0;
+    }
+
+    .uri-code {
+        display: block;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: #00f2fe;
+        margin-top: 0.5rem;
+        word-break: break-all;
+    }
+
+    .permissions-list {
+        margin: 0.5rem 0 0 0;
+        padding-left: 1.25rem;
+    }
+
+    .permissions-list li {
+        color: #888;
+        font-size: 0.85rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .permissions-list code {
+        background: rgba(79, 172, 254, 0.15);
+        color: #4facfe;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        font-size: 0.8rem;
+    }
+
+    .btn-xs {
+        padding: 0.2rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    .alert {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .alert-success {
+        background: rgba(46, 204, 113, 0.15);
+        color: #2ecc71;
+        border: 1px solid rgba(46, 204, 113, 0.3);
+    }
+
+    .alert-danger {
+        background: rgba(231, 76, 60, 0.15);
+        color: #e74c3c;
+        border: 1px solid rgba(231, 76, 60, 0.3);
+    }
+
+    /* GitHub Copilot Device Flow Styles */
+    .copilot-section {
+        border: 1px solid rgba(35, 134, 54, 0.3);
+    }
+
+    .device-flow-modal {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 2px solid #238636;
+        margin-top: 1rem;
+    }
+
+    .device-flow-content {
+        text-align: center;
+    }
+
+    .device-flow-content h3 {
+        color: #238636;
+        margin-bottom: 0.75rem;
+    }
+
+    .device-code-display {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 1rem;
+        margin: 1.5rem 0;
+    }
+
+    .device-code {
+        font-family: monospace;
+        font-size: 2rem;
+        font-weight: bold;
+        color: #238636;
+        background: rgba(35, 134, 54, 0.15);
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        letter-spacing: 0.2em;
+    }
+
+    .device-flow-link {
+        display: inline-block;
+        margin: 1rem 0;
+        background: #238636;
+        color: white !important;
+        text-decoration: none;
+    }
+
+    .device-flow-link:hover {
+        background: #2ea043;
+    }
+
+    .device-flow-status {
+        margin: 1rem 0;
+        min-height: 24px;
+    }
+
+    .polling-indicator {
+        color: #f0ad4e;
+        font-size: 0.9rem;
+    }
+
+    .error-text {
+        color: #e74c3c;
+        font-size: 0.9rem;
+    }
+
+    .copilot-connection {
+        border-left: 3px solid #238636;
+    }
+</style>

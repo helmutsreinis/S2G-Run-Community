@@ -1,0 +1,159 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T23:52:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_OAuthTokenRefresh",
+        "displayName": "OAuth Token Refresh",
+        "description": "Refreshes OAuth access tokens using a refresh token. Supports Microsoft Azure AD / Entra ID token endpoints for Partner Center, Graph API, Azure Management, and other Microsoft resources. Returns a fresh access token for API calls.",
+        "categoryName": "Integration",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 2L2 7L12 12L22 7L12 2Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/><path d=\"M2 17L12 22L22 17\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/><path d=\"M2 12L12 17L22 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "HttpRequest",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "var tenantId = input.get('tenantId');\nvar clientId = input.get('clientId');\nvar clientSecret = input.get('clientSecret');\nvar refreshToken = input.get('refreshToken');\nvar resource = input.get('resource') || 'https://api.partnercenter.microsoft.com';\nvar scope = input.get('scope') || 'openid';\n\nif (!tenantId || !clientId || !clientSecret || !refreshToken) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'TenantId, ClientId, ClientSecret, and RefreshToken are required');\n    output.set('AccessToken', '');\n    tags.trigger('error');\n} else {\n    try {\n        var tokenUrl = 'https://login.microsoftonline.com/' + tenantId + '/oauth2/token';\n        \n        var formData = {\n            resource: resource,\n            client_id: clientId,\n            client_secret: clientSecret,\n            grant_type: 'refresh_token',\n            refresh_token: refreshToken,\n            scope: scope\n        };\n        \n        log.info('Requesting token from: ' + tokenUrl);\n        log.debug('Resource: ' + resource);\n        \n        var response = http.postForm(tokenUrl, formData);\n        \n        if (response.isSuccess) {\n            var tokenResponse = json.parse(response.body);\n            \n            if (tokenResponse && tokenResponse.access_token) {\n                output.set('AccessToken', tokenResponse.access_token);\n                output.set('TokenType', tokenResponse.token_type || 'Bearer');\n                output.set('ExpiresIn', tokenResponse.expires_in || 0);\n                output.set('ExpiresOn', tokenResponse.expires_on || '');\n                output.set('Resource', tokenResponse.resource || resource);\n                output.set('Scope', tokenResponse.scope || scope);\n                \n                if (tokenResponse.refresh_token) {\n                    output.set('NewRefreshToken', tokenResponse.refresh_token);\n                } else {\n                    output.set('NewRefreshToken', refreshToken);\n                }\n                \n                output.set('HasErrors', false);\n                output.set('ErrorMessage', '');\n                output.set('StatusCode', response.statusCode);\n                \n                log.info('Token refreshed successfully, expires in ' + tokenResponse.expires_in + 's');\n                tags.trigger('success');\n            } else {\n                throw new Error('No access_token in response');\n            }\n        } else {\n            var errorBody = response.body;\n            var errorMsg = 'Token refresh failed: HTTP ' + response.statusCode;\n            \n            try {\n                var errorJson = json.parse(errorBody);\n                if (errorJson.error_description) {\n                    errorMsg = errorJson.error_description;\n                } else if (errorJson.error) {\n                    errorMsg = errorJson.error;\n                }\n            } catch (e) {}\n            \n            log.error(errorMsg, errorBody);\n            output.set('HasErrors', true);\n            output.set('ErrorMessage', errorMsg);\n            output.set('AccessToken', '');\n            output.set('StatusCode', response.statusCode);\n            tags.trigger('error');\n        }\n        \n    } catch (ex) {\n        log.error('Token refresh exception: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('AccessToken', '');\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "tenantId",
+                "displayLabel": "Tenant ID",
+                "placeholderText": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                "helpText": "Azure AD / Entra ID tenant ID (GUID). Found in Azure Portal > Azure Active Directory > Overview.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "clientId",
+                "displayLabel": "Client ID (App ID)",
+                "placeholderText": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                "helpText": "Application (client) ID from your Azure AD app registration.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "clientSecret",
+                "displayLabel": "Client Secret",
+                "placeholderText": "your-client-secret",
+                "helpText": "Client secret from your Azure AD app registration. Keep this secure!",
+                "fieldType": "Password",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "refreshToken",
+                "displayLabel": "Refresh Token",
+                "placeholderText": "AQA...",
+                "helpText": "The refresh token obtained from initial OAuth flow. Used to get new access tokens without user interaction.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 4
+            },
+            {
+                "fieldName": "resource",
+                "displayLabel": "Resource / Audience",
+                "placeholderText": "https://api.partnercenter.microsoft.com",
+                "helpText": "The resource/audience URL for the token. Common values: https://api.partnercenter.microsoft.com (Partner Center), https://graph.microsoft.com (Graph API), https://management.azure.com (Azure Management).",
+                "fieldType": "Text",
+                "defaultValue": "https://api.partnercenter.microsoft.com",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 5
+            },
+            {
+                "fieldName": "scope",
+                "displayLabel": "Scope",
+                "placeholderText": "openid",
+                "helpText": "OAuth scope(s) to request. Default is 'openid'. For Graph API you might use 'openid offline_access'.",
+                "fieldType": "Text",
+                "defaultValue": "openid",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 6
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "AccessToken",
+                "description": "The new access token to use for API calls. Empty if refresh failed.",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "TokenType",
+                "description": "Token type (usually 'Bearer').",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ExpiresIn",
+                "description": "Token validity in seconds.",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "ExpiresOn",
+                "description": "Unix timestamp when token expires.",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "NewRefreshToken",
+                "description": "New refresh token if rotated, otherwise the original.",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Resource",
+                "description": "The resource the token is valid for.",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from token endpoint.",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if token refresh failed.",
+                "dataType": "boolean",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if refresh failed.",
+                "dataType": "string",
+                "displayOrder": 9
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Token refreshed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Got access token",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Token refresh failed",
+                "color": "#ef4444",
+                "conditionDescription": "Refresh failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

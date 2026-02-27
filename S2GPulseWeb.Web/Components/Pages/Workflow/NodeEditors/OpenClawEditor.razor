@@ -1,0 +1,455 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+@inject IJSRuntime JS
+@inject OpenClawWsSessionManager SessionManager
+@implements IDisposable
+
+<div class="node-editor-fields">
+
+    <!-- ══════════════════════════════════════ INFO BANNER ══════════════════════════════════════ -->
+    <div class="alert alert-info py-2 px-3 mb-3" style="font-size:0.82em;">
+        🦾 <strong>OpenClaw Bridge</strong> — OpenClaw connects <em>to</em> S2G and drives execution.
+        Start this workflow, then point OpenClaw at the WebSocket URL below.
+    </div>
+
+    <!-- ══════════════════════════════════════ WS URL ═══════════════════════════════════════════ -->
+    <div class="form-group mb-3">
+        <div class="section-header d-flex align-items-center justify-content-between"
+             style="background: rgba(160, 100, 255, 0.12); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div class="d-flex align-items-center">
+                <span style="margin-right: 8px;">🔌</span>
+                <strong>WebSocket Endpoint</strong>
+                @if (ActiveConnections > 0)
+                {
+                    <span class="badge ms-2" style="background:#4ade80;color:#000;font-size:0.7em;">
+                        @ActiveConnections active
+                    </span>
+                }
+            </div>
+            <button class="btn btn-sm @(liveViewOpen ? "btn-danger" : "btn-outline-secondary")"
+                    style="font-size:0.75em; padding:2px 8px;"
+                    @onclick="ToggleLiveView">
+                @(liveViewOpen ? "✖ Close" : "🔴 Live View")
+            </button>
+        </div>
+        <div class="input-group input-group-sm">
+            <span class="input-group-text">ws://</span>
+            <input type="text" class="form-control font-monospace"
+                   value="@GetWsPath()" readonly />
+            <button class="btn btn-outline-secondary" type="button"
+                    @onclick="CopyWsUrl" title="Copy path">📋</button>
+        </div>
+        <small class="form-text text-muted">
+            Full URL: <code>ws://&lt;your-server&gt;@GetWsPath()</code><br />
+            Start the workflow first — the endpoint only accepts connections while Running.
+        </small>
+    </div>
+
+    <!-- ══════════════════════════════════════ LIVE VIEW PANEL ══════════════════════════════════ -->
+    @if (liveViewOpen)
+    {
+        <div class="mb-3" style="border: 1px solid rgba(160,100,255,0.3); border-radius:6px; overflow:hidden;">
+            <div class="d-flex align-items-center justify-content-between px-3 py-2"
+                 style="background:rgba(160,100,255,0.15); border-bottom:1px solid rgba(160,100,255,0.2);">
+                <span style="font-size:0.8em; font-weight:600; color:#c084fc;">
+                    📡 Live View
+                    @if (ActiveConnections > 0)
+                    {
+                        <span class="ms-1" style="color:#4ade80;">● @ActiveConnections connected</span>
+                    }
+                    else
+                    {
+                        <span class="ms-1" style="color:#94a3b8;">● no connections</span>
+                    }
+                </span>
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:0.7em; padding:1px 6px;"
+                        @onclick="ClearLogs">🗑 Clear</button>
+            </div>
+            <div id="oc-live-log"
+                 style="height:240px; overflow-y:auto; background:#0d0d1a; padding:8px; font-family:monospace; font-size:0.74em;">
+                @if (logEntries.Count == 0)
+                {
+                    <div style="color:#4a5568; text-align:center; margin-top:80px;">
+                        Waiting for activity…
+                    </div>
+                }
+                else
+                {
+                    @foreach (var entry in logEntries)
+                    {
+                        <div class="d-flex align-items-start mb-1">
+                            <span style="color:#4a5568; min-width:80px;">@entry.TimeLabel</span>
+                            <span style="min-width:18px; @(entry.Direction == "→" ? "color:#60a5fa" : "color:#94a3b8")">
+                                @entry.Direction
+                            </span>
+                            <span class="badge me-2" style="background:@entry.TypeColor;color:#000;font-size:0.85em;">
+                                @entry.MessageType
+                            </span>
+                            <span style="color:#cbd5e1; word-break:break-all;">@entry.Preview</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <!-- ══════════════════════════════════════ AUTH SECRET ══════════════════════════════════════ -->
+    <div class="form-group mb-3">
+        <div class="section-header d-flex align-items-center"
+             style="background: rgba(160, 100, 255, 0.12); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <span style="margin-right: 8px;">🔒</span>
+            <strong>Auth Secret</strong>
+        </div>
+        <input type="password" class="form-control form-control-sm"
+               placeholder="Leave blank for open (unauthenticated) access"
+               value="@config.TriggerSecret"
+               @onchange="@(async e => await UpdateConfig(c => c.TriggerSecret = e.Value?.ToString()))" />
+        <small class="form-text text-muted">
+            If set, OpenClaw must send <code>{"type":"auth","secret":"..."}</code> as its first message.
+        </small>
+    </div>
+
+    <!-- ══════════════════════════════════════ TIMEOUT ══════════════════════════════════════════ -->
+    <div class="form-group mb-3">
+        <div class="section-header d-flex align-items-center"
+             style="background: rgba(160, 100, 255, 0.12); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <span style="margin-right: 8px;">⏱️</span>
+            <strong>Per-Request Timeout</strong>
+        </div>
+        <div class="input-group input-group-sm">
+            <input type="number" class="form-control"
+                   min="10" max="3600"
+                   value="@config.TimeoutSeconds"
+                   @onchange="@(async e => await UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" />
+            <span class="input-group-text">seconds</span>
+        </div>
+        <small class="form-text text-muted">Maximum time per individual node execution request from OpenClaw.</small>
+    </div>
+
+    <!-- ══════════════════════════════════════ INPUT FORWARDING ═════════════════════════════════ -->
+    <div class="form-group mb-3">
+        <div class="section-header d-flex align-items-center justify-content-between"
+             style="background: rgba(160, 100, 255, 0.12); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div class="d-flex align-items-center">
+                <span style="margin-right: 8px;">📨</span>
+                <strong>Input Forwarding</strong>
+            </div>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="oc-forward-toggle"
+                       checked="@config.ForwardInput"
+                       @onchange="@(async e => await UpdateConfig(c => c.ForwardInput = e.Value is bool b ? b : bool.TryParse(e.Value?.ToString(), out var bv) && bv))" />
+            </div>
+        </div>
+
+        @if (config.ForwardInput)
+        {
+            <div class="mb-2">
+                <small class="form-text text-muted d-block mb-2">
+                    When this node is retriggered with upstream data, the mapped fields are pushed to all
+                    connected OpenClaw clients as <code>{"type":"data","data":{...}}</code>.
+                </small>
+
+                @if (config.InputMappings.Count == 0)
+                {
+                    <div class="text-muted" style="font-size:0.8em; font-style:italic; padding:6px 4px;">
+                        No mappings yet. Add a field below.
+                    </div>
+                }
+                else
+                {
+                    @for (int i = 0; i < config.InputMappings.Count; i++)
+                    {
+                        var idx = i;
+                        var mapping = config.InputMappings[idx];
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <input type="text" class="form-control form-control-sm"
+                                   placeholder="Key sent to OpenClaw"
+                                   style="flex:1;"
+                                   value="@mapping.Key"
+                                   @onchange="@(async e => await UpdateConfig(c => c.InputMappings[idx].Key = e.Value?.ToString() ?? ""))" />
+                            <span style="color:#94a3b8; font-size:0.8em;">←</span>
+                            <input type="text" class="form-control form-control-sm"
+                                   placeholder="Source input field"
+                                   style="flex:1.4;"
+                                   value="@mapping.SourceField"
+                                   @onchange="@(async e => await UpdateConfig(c => c.InputMappings[idx].SourceField = e.Value?.ToString() ?? ""))" />
+                            <button class="btn btn-sm btn-outline-danger" style="padding:2px 6px;"
+                                    @onclick="@(async () => await UpdateConfig(c => c.InputMappings.RemoveAt(idx)))">
+                                ✕
+                            </button>
+                        </div>
+                    }
+                }
+
+                <button class="btn btn-sm btn-outline-secondary mt-1" style="font-size:0.78em;"
+                        @onclick="@(async () => await UpdateConfig(c => c.InputMappings.Add(new InputMapping())))">
+                    + Add Mapping
+                </button>
+
+                @if (CanvasNodes.Count > 0)
+                {
+                    <div class="mt-2" style="font-size:0.75em; color:#94a3b8;">
+                        <strong>Available fields from upstream nodes:</strong>
+                        @foreach (var n in CanvasNodes.Where(n => n.NodeType != "OpenClaw"))
+                        {
+                            <span class="badge me-1 mt-1" style="background:rgba(255,255,255,0.08); color:#cbd5e1; cursor:pointer;"
+                                  title="@n.NodeType">
+                                @n.Name
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- ══════════════════════════════════════ MANUAL PAYLOAD ══════════════════════════════════ -->
+    <div class="form-group mb-3">
+        <div class="section-header d-flex align-items-center justify-content-between"
+             style="background: rgba(160, 100, 255, 0.12); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div class="d-flex align-items-center">
+                <span style="margin-right: 8px;">📤</span>
+                <strong>Manual Payload</strong>
+            </div>
+            @if (manualSendStatus != null)
+            {
+                <span style="font-size:0.75em; color:@(manualSendError ? "#f87171" : "#4ade80");">
+                    @manualSendStatus
+                </span>
+            }
+        </div>
+        <textarea class="form-control form-control-sm font-monospace"
+                  rows="4"
+                  placeholder="{&quot;key&quot;: &quot;value&quot;, &quot;answer&quot;: 42}"
+                  style="resize:vertical; font-size:0.8em; background:#0d0d1a; color:#c084fc; border-color:rgba(160,100,255,0.3);"
+                  value="@manualPayload"
+                  @oninput="@(e => { manualPayload = e.Value?.ToString() ?? ""; manualSendStatus = null; })"
+                  @onchange="@(async e => await UpdateConfig(c => c.StaticPayload = e.Value?.ToString()))">
+        </textarea>
+        <div class="d-flex justify-content-between align-items-center mt-1">
+            <small class="form-text text-muted">
+                Valid JSON object. Broadcast to all connected OpenClaw clients immediately as
+                <code>{"type":"data","data":{...}}</code>.
+            </small>
+            <button class="btn btn-sm btn-outline-secondary ms-2"
+                    style="font-size:0.78em; white-space:nowrap;"
+                    disabled="@(!NodeGuid.HasValue || ActiveConnections == 0)"
+                    @onclick="SendManualPayload">
+                📤 Send (@ActiveConnections)
+            </button>
+        </div>
+        @if (!NodeGuid.HasValue || ActiveConnections == 0)
+        {
+            <small class="form-text" style="color:#4a5568;">
+                No active connections. Start the workflow and connect OpenClaw first.
+            </small>
+        }
+    </div>
+
+    <!-- ══════════════════════════════════════ PROTOCOL REFERENCE ═══════════════════════════════ -->
+    <div class="form-group mb-2">
+        <div class="section-header d-flex align-items-center"
+             style="background: rgba(160, 100, 255, 0.12); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <span style="margin-right: 8px;">📜</span>
+            <strong>Protocol (Quick Reference)</strong>
+        </div>
+        <div style="background:#1a1a2e; border-radius:6px; padding:10px; font-size:0.75em; color:#a0c0ff; font-family:monospace; white-space:pre-wrap;">@ProtocolSnippet</div>
+    </div>
+
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public string? NodeId { get; set; }
+
+    public class CanvasNodeInfo
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string NodeType { get; set; } = "";
+    }
+
+    public class CanvasConnectionInfo
+    {
+        public string SourceId { get; set; } = "";
+        public string TargetId { get; set; } = "";
+        public string? Label { get; set; }
+    }
+
+    [Parameter] public List<CanvasNodeInfo> CanvasNodes { get; set; } = new();
+    [Parameter] public List<CanvasConnectionInfo> CanvasConnections { get; set; } = new();
+
+    private OpenClawConfig config = new();
+    private bool liveViewOpen = false;
+    private List<OpenClawWsLogEntry> logEntries = new();
+    private PeriodicTimer? _liveTimer;
+    private CancellationTokenSource? _liveCts;
+
+    // Manual Payload
+    private string manualPayload = "";
+    private string? manualSendStatus = null;
+    private bool manualSendError = false;
+
+    // ── Active connections count (refreshed by live timer) ────────────────────
+    private int ActiveConnections =>
+        NodeGuid.HasValue ? SessionManager.ConnectionCount(NodeGuid.Value) : 0;
+
+    private Guid? NodeGuid =>
+        Guid.TryParse(NodeId, out var g) ? g : null;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        try { config = JsonSerializer.Deserialize<OpenClawConfig>(Configuration ?? "{}") ?? new(); }
+        catch { config = new(); }
+        // Restore saved payload template
+        if (!string.IsNullOrEmpty(config.StaticPayload) && string.IsNullOrEmpty(manualPayload))
+            manualPayload = config.StaticPayload;
+    }
+
+    public void Dispose()
+    {
+        _liveCts?.Cancel();
+        _liveTimer?.Dispose();
+    }
+
+    // ── Live View ─────────────────────────────────────────────────────────────
+
+    private async Task ToggleLiveView()
+    {
+        liveViewOpen = !liveViewOpen;
+        if (liveViewOpen)
+            StartLivePolling();
+        else
+            StopLivePolling();
+    }
+
+    private void StartLivePolling()
+    {
+        StopLivePolling();
+        _liveCts = new CancellationTokenSource();
+        _liveTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+        _ = PollLogsAsync(_liveCts.Token);
+    }
+
+    private void StopLivePolling()
+    {
+        _liveCts?.Cancel();
+        _liveTimer?.Dispose();
+        _liveTimer = null;
+    }
+
+    private async Task PollLogsAsync(CancellationToken ct)
+    {
+        if (_liveTimer == null || !NodeGuid.HasValue) return;
+        try
+        {
+            while (await _liveTimer.WaitForNextTickAsync(ct))
+            {
+                logEntries = SessionManager.GetRecentLogs(NodeGuid.Value);
+                await InvokeAsync(StateHasChanged);
+                // Auto-scroll the log container
+                try { await JS.InvokeVoidAsync("eval",
+                    "var el=document.getElementById('oc-live-log');if(el)el.scrollTop=el.scrollHeight;", ct); }
+                catch { /* non-critical */ }
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task ClearLogs()
+    {
+        if (NodeGuid.HasValue) SessionManager.ClearLogs(NodeGuid.Value);
+        logEntries.Clear();
+        await Task.CompletedTask;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private string GetWsPath() => $"/api/openclaw/ws/{NodeId ?? "<nodeId>"}";
+
+    private async Task CopyWsUrl()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", GetWsPath()); }
+        catch { /* clipboard not available in all envs */ }
+    }
+
+    private async Task UpdateConfig(Action<OpenClawConfig> action)
+    {
+        action(config);
+        var json = JsonSerializer.Serialize(config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    private async Task SendManualPayload()
+    {
+        if (!NodeGuid.HasValue) return;
+
+        manualSendStatus = null;
+        manualSendError = false;
+
+        var raw = manualPayload?.Trim();
+        if (string.IsNullOrEmpty(raw))
+        {
+            manualSendStatus = "⚠ Payload is empty";
+            manualSendError = true;
+            return;
+        }
+
+        Dictionary<string, object?> data;
+        try
+        {
+            var doc = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(raw);
+            if (doc == null) throw new Exception("Null result");
+            data = doc.ToDictionary(
+                kv => kv.Key,
+                kv => (object?)(kv.Value.ValueKind == JsonValueKind.String
+                    ? kv.Value.GetString()
+                    : kv.Value.GetRawText()));
+        }
+        catch (Exception ex)
+        {
+            manualSendStatus = $"⚠ Invalid JSON: {ex.Message[..Math.Min(40, ex.Message.Length)]}";
+            manualSendError = true;
+            return;
+        }
+
+        var count = SessionManager.ConnectionCount(NodeGuid.Value);
+        await SessionManager.BroadcastInputDataAsync(NodeGuid.Value, data);
+        manualSendStatus = $"✓ Sent to {count} client(s)";
+        manualSendError = false;
+
+        // Save template
+        await UpdateConfig(c => c.StaticPayload = manualPayload);
+
+        // Auto-clear status after 3 s
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            manualSendStatus = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+
+    private static readonly string ProtocolSnippet = @"// 1. Connect
+ws.connect(""ws://host/api/openclaw/ws/{nodeId}"")
+
+// 2. Auth (if secret configured)
+ws.send({""type"":""auth"",""secret"":""...""})
+// <- {""type"":""connected"",""availableNodes"":[{""nodeId"":""..."",""name"":""..."",""nodeType"":""..."",""outputParams"":[...]}]}
+
+// 3. Execute a node
+ws.send({""type"":""execute"",""requestId"":""r1"",""nodeId"":""uuid"",""params"":{""query"":""SELECT 1""}})
+// <- {""type"":""result"",""requestId"":""r1"",""success"":true,""output"":{""Rows"":[...],""Count"":1}}
+
+// 4. Receive forwarded upstream data (if Input Forwarding is enabled)
+// <- {""type"":""data"",""data"":{""orderId"":""123"",""customer"":""Acme""}}
+
+// 5. Keepalive
+ws.send({""type"":""ping""})
+// <- {""type"":""pong""}";
+}

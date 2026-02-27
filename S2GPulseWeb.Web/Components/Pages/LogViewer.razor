@@ -1,0 +1,541 @@
+@page "/logs"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@attribute [Authorize]
+@inject NodeLogService LogService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<PageTitle>Node Logs</PageTitle>
+
+@* Newsletter popup for targeted announcements *@
+<S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@currentUserId" CurrentPage="Logs" />
+
+<div class="logs-page">
+    <div class="page-header">
+        <h2>📋 Node Execution Logs</h2>
+        <div class="header-actions">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleRetentionSettings">
+                ⚙️ Retention Settings
+            </button>
+            <button class="btn btn-danger btn-sm" @onclick="ShowClearConfirmation" disabled="@(logs.Count == 0)">
+                🗑️ Clear Logs (@totalCount)
+            </button>
+        </div>
+    </div>
+
+    @if (showRetentionSettings)
+    {
+        <div class="retention-settings card mb-3">
+            <div class="card-body">
+                <h5 style="color: var(--text-primary, #e0e0e0);">Log Retention Settings</h5>
+                <p class="small" style="color: var(--text-secondary, #b0b0b0);">Logs older than the retention period will be automatically deleted every 5 minutes.</p>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <input type="number" class="form-control" style="width: 100px;" min="1" @bind="retentionValue" />
+                    <select class="form-control" style="width: 120px;" @bind="retentionUnit">
+                        <option value="@RetentionUnit.Minutes">Minutes</option>
+                        <option value="@RetentionUnit.Hours">Hours</option>
+                        <option value="@RetentionUnit.Days">Days</option>
+                    </select>
+                    <button class="btn btn-primary btn-sm" @onclick="SaveRetentionSettings">Save</button>
+                    <button class="btn btn-warning btn-sm" @onclick="ApplyRetentionNow" disabled="@isApplyingRetention" title="Delete expired logs now">
+                        @if (isApplyingRetention)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        }
+                        else
+                        {
+                            <span>🧹 Apply Now</span>
+                        }
+                    </button>
+                </div>
+                @if (!string.IsNullOrEmpty(retentionMessage))
+                {
+                    <div class="mt-2 small @(retentionMessageIsError ? "text-danger" : "text-success")">@retentionMessage</div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="filters-bar card mb-3">
+        <div class="card-body d-flex gap-3 flex-wrap align-items-end">
+            <div class="filter-group">
+                <label class="small filter-label">From</label>
+                <input type="datetime-local" class="form-control form-control-sm" @bind="dateFrom" />
+            </div>
+            <div class="filter-group">
+                <label class="small filter-label">To</label>
+                <input type="datetime-local" class="form-control form-control-sm" @bind="dateTo" />
+            </div>
+            <div class="filter-group">
+                <label class="small filter-label">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search in message or detail..." 
+                       @bind="searchText" @bind:event="oninput" @onkeydown="HandleSearchKeyDown" style="width: 250px;" />
+            </div>
+            <div class="filter-group">
+                <label class="small filter-label">Level</label>
+                <select class="form-control form-control-sm" @bind="selectedLevel" style="width: 100px;">
+                    <option value="">All</option>
+                    <option value="@NodeLogLevel.Info">Info</option>
+                    <option value="@NodeLogLevel.Warning">Warning</option>
+                    <option value="@NodeLogLevel.Error">Error</option>
+                    <option value="@NodeLogLevel.Debug">Debug</option>
+                </select>
+            </div>
+            <button class="btn btn-primary btn-sm" @onclick="LoadLogs">🔍 Search</button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ClearFilters">Clear Filters</button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading logs...</p>
+        </div>
+    }
+    else if (logs.Count == 0)
+    {
+        <div class="empty-state text-center py-5">
+            <div class="empty-icon">📭</div>
+            <h4>No logs found</h4>
+            <p class="text-muted">Execute some nodes to generate logs, or adjust your search filters.</p>
+        </div>
+    }
+    else
+    {
+        <div class="logs-table-container">
+            <table class="table table-dark table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th style="width: 160px;">Timestamp</th>
+                        <th style="width: 80px;">Level</th>
+                        <th style="width: 150px;">Node</th>
+                        <th>Message</th>
+                        <th style="width: 60px;">Detail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in logs)
+                    {
+                        <tr class="@log.Level.ToString().ToLower()">
+                            <td class="text-nowrap small">@log.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td><span class="badge @GetBadgeClass(log.Level)">@log.Level</span></td>
+                            <td class="text-truncate" style="max-width: 150px;" title="@log.NodeName (@log.NodeType)">
+                                @log.NodeName
+                            </td>
+                            <td class="text-truncate" style="max-width: 400px;" title="@log.Message">@log.Message</td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(log.Detail))
+                                {
+                                    <button class="btn btn-sm btn-outline-info" @onclick="@(() => ShowDetail(log))">🔍</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination-bar d-flex justify-content-between align-items-center mt-3">
+            <span class="text-muted small">Showing @((currentPage - 1) * pageSize + 1) - @Math.Min(currentPage * pageSize, totalCount) of @totalCount logs</span>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" disabled="@(currentPage == 1)" @onclick="PreviousPage">← Previous</button>
+                <span class="px-2 py-1">Page @currentPage of @totalPages</span>
+                <button class="btn btn-outline-secondary btn-sm" disabled="@(currentPage >= totalPages)" @onclick="NextPage">Next →</button>
+            </div>
+        </div>
+    }
+
+    @if (showDetailModal && selectedLog != null)
+    {
+        <div class="modal-overlay" @onclick="CloseDetailModal">
+            <div class="detail-modal" @onclick:stopPropagation>
+                <div class="modal-header">
+                    <h4>Log Detail</h4>
+                    <button class="btn-close" @onclick="CloseDetailModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <strong>Node:</strong> @selectedLog.NodeName (@selectedLog.NodeType)
+                    </div>
+                    <div class="mb-2">
+                        <strong>Timestamp:</strong> @selectedLog.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff")
+                    </div>
+                    <div class="mb-2">
+                        <strong>Level:</strong> <span class="badge @GetBadgeClass(selectedLog.Level)">@selectedLog.Level</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong>Message:</strong> @selectedLog.Message
+                    </div>
+                    @if (!string.IsNullOrEmpty(selectedLog.Detail))
+                    {
+                        <div>
+                            <strong>Detail:</strong>
+                            <pre class="detail-pre mt-2">@selectedLog.Detail</pre>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (showClearConfirmation)
+    {
+        <div class="modal-overlay" @onclick="@(() => showClearConfirmation = false)">
+            <div class="confirm-modal" @onclick:stopPropagation>
+                <h4>⚠️ Clear All Logs?</h4>
+                <p>This will permanently delete <strong>@totalCount</strong> log entries. This action cannot be undone.</p>
+                <div class="d-flex gap-2 justify-content-end">
+                    <button class="btn btn-secondary" @onclick="@(() => showClearConfirmation = false)">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ClearAllLogs">Yes, Clear All</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .logs-page {
+        padding: 1.5rem;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .page-header h2 {
+        margin: 0;
+        color: var(--accent-color);
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .retention-settings {
+        background: var(--background-medium);
+        border-color: var(--border-color);
+    }
+
+    .filters-bar {
+        background: var(--background-medium);
+        border-color: var(--border-color);
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .filter-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .logs-table-container {
+        overflow-x: auto;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+    }
+
+    .table {
+        margin-bottom: 0;
+    }
+
+    .table tbody tr.error {
+        background: rgba(244, 67, 54, 0.1) !important;
+    }
+
+    .table tbody tr.warning {
+        background: rgba(255, 152, 0, 0.1) !important;
+    }
+
+    .badge.bg-info { background: #17a2b8 !important; }
+    .badge.bg-warning { background: #ffc107 !important; color: #000; }
+    .badge.bg-danger { background: #dc3545 !important; }
+    .badge.bg-secondary { background: #6c757d !important; }
+
+    .empty-state .empty-icon {
+        font-size: 4rem;
+        opacity: 0.5;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .detail-modal, .confirm-modal {
+        background: var(--background-medium);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 700px;
+        width: 90%;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+
+    .detail-modal .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .detail-modal .modal-header h4 {
+        margin: 0;
+    }
+
+    .btn-close {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .detail-pre {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 1rem;
+        overflow-x: auto;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+</style>
+
+@code {
+    private string? currentUserId;
+    private List<NodeLog> logs = new();
+    private int totalCount = 0;
+    private int currentPage = 1;
+    private int pageSize = 50;
+    private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+    private bool isLoading = true;
+
+    // Filters
+    private DateTime? dateFrom;
+    private DateTime? dateTo;
+    private string? searchText;
+    private NodeLogLevel? selectedLevel;
+
+    // UI State
+    private bool showRetentionSettings = false;
+    private bool showDetailModal = false;
+    private bool showClearConfirmation = false;
+    private NodeLog? selectedLog;
+
+    // Retention settings
+    private int retentionValue = 7;
+    private RetentionUnit retentionUnit = RetentionUnit.Days;
+    private bool isApplyingRetention = false;
+    private string? retentionMessage;
+    private bool retentionMessageIsError = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+
+        if (currentUserId != null)
+        {
+            await LoadRetentionSettings();
+            await LoadLogs();
+        }
+    }
+
+    private async Task LoadLogs()
+    {
+        if (currentUserId == null) return;
+
+        isLoading = true;
+        StateHasChanged();
+
+        var (loadedLogs, count) = await LogService.GetLogsAsync(
+            currentUserId,
+            dateFrom: dateFrom?.ToUniversalTime(),
+            dateTo: dateTo?.ToUniversalTime(),
+            searchText: searchText,
+            level: selectedLevel,
+            page: currentPage,
+            pageSize: pageSize
+        );
+
+        logs = loadedLogs;
+        totalCount = count;
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task LoadRetentionSettings()
+    {
+        if (currentUserId == null) return;
+
+        var setting = await LogService.GetRetentionSettingAsync(currentUserId);
+        if (setting != null)
+        {
+            retentionValue = setting.RetentionValue;
+            retentionUnit = setting.RetentionUnit;
+        }
+    }
+
+    private async Task SaveRetentionSettings()
+    {
+        if (currentUserId == null) return;
+        var (clampedValue, clampedUnit, wasClamped) = await LogService.SetRetentionSettingAsync(currentUserId, retentionValue, retentionUnit);
+        
+        if (wasClamped)
+        {
+            retentionValue = clampedValue;
+            retentionUnit = clampedUnit;
+            retentionMessage = $"Settings saved. Value clamped to {clampedValue} hours (max for your plan). Logs will be cleaned up within 5 minutes.";
+            retentionMessageIsError = false;
+        }
+        else
+        {
+            retentionMessage = "Settings saved. Logs will be cleaned up within 5 minutes.";
+            retentionMessageIsError = false;
+        }
+    }
+
+    private async Task ApplyRetentionNow()
+    {
+        if (currentUserId == null) return;
+        
+        isApplyingRetention = true;
+        retentionMessage = null;
+        StateHasChanged();
+        
+        try
+        {
+            // Save settings first (and get clamped values)
+            var (clampedValue, clampedUnit, wasClamped) = await LogService.SetRetentionSettingAsync(currentUserId, retentionValue, retentionUnit);
+            
+            if (wasClamped)
+            {
+                retentionValue = clampedValue;
+                retentionUnit = clampedUnit;
+            }
+            
+            // Calculate cutoff and delete
+            var setting = new LogRetentionSetting 
+            { 
+                UserId = currentUserId, 
+                RetentionValue = clampedValue, 
+                RetentionUnit = clampedUnit 
+            };
+            var cutoffDate = NodeLogService.CalculateCutoffDate(setting);
+            var deletedCount = await LogService.DeleteLogsOlderThanAsync(currentUserId, cutoffDate);
+            
+            retentionMessage = $"Deleted {deletedCount} expired log(s). Logs older than {retentionValue} {retentionUnit.ToString().ToLower()} removed.";
+            retentionMessageIsError = false;
+            
+            // Reload the logs to reflect changes
+            await LoadLogs();
+        }
+        catch (Exception ex)
+        {
+            retentionMessage = $"Error: {ex.Message}";
+            retentionMessageIsError = true;
+        }
+        finally
+        {
+            isApplyingRetention = false;
+        }
+    }
+
+    private void ToggleRetentionSettings() => showRetentionSettings = !showRetentionSettings;
+
+    private void ClearFilters()
+    {
+        dateFrom = null;
+        dateTo = null;
+        searchText = null;
+        selectedLevel = null;
+        currentPage = 1;
+    }
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            currentPage = 1;
+            await LoadLogs();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadLogs();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (currentPage < totalPages)
+        {
+            currentPage++;
+            await LoadLogs();
+        }
+    }
+
+    private void ShowDetail(NodeLog log)
+    {
+        selectedLog = log;
+        showDetailModal = true;
+    }
+
+    private void CloseDetailModal()
+    {
+        showDetailModal = false;
+        selectedLog = null;
+    }
+
+    private void ShowClearConfirmation() => showClearConfirmation = true;
+
+    private async Task ClearAllLogs()
+    {
+        if (currentUserId == null) return;
+        await LogService.ClearLogsAsync(currentUserId);
+        showClearConfirmation = false;
+        currentPage = 1;
+        await LoadLogs();
+    }
+
+    private string GetBadgeClass(NodeLogLevel level) => level switch
+    {
+        NodeLogLevel.Info => "bg-info",
+        NodeLogLevel.Warning => "bg-warning",
+        NodeLogLevel.Error => "bg-danger",
+        NodeLogLevel.Debug => "bg-secondary",
+        _ => "bg-secondary"
+    };
+}

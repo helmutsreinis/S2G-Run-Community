@@ -1,0 +1,203 @@
+{
+  "Name": "Aggregator Test",
+  "ExportedAt": "2026-02-12T20:32:37.0407023Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "000d4a7c-9495-42bc-839c-9808ed0f093d",
+      "NodeType": "StorageTable",
+      "Name": "TableTest1",
+      "X": 1380,
+      "Y": 480,
+      "Width": 280,
+      "Height": 220,
+      "Configuration": "{\u0022Columns\u0022:[{\u0022Name\u0022:\u0022JsonData\u0022,\u0022Type\u0022:\u0022String\u0022}],\u0022EnableRetention\u0022:false,\u0022RetentionDays\u0022:30}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Records Count: {{TableTest1.RecordCount}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "09f0acbd-851c-4a25-a1e8-a6d04a916684",
+      "NodeType": "Loop",
+      "Name": "Loop",
+      "X": 480,
+      "Y": 80,
+      "Width": 180,
+      "Height": 340,
+      "Configuration": "{\u0022InputArray\u0022:\u0022{{Listener.Body.lineItems}}\u0022,\u0022BatchSize\u0022:1,\u0022DelayBetweenBatches\u0022:2000,\u0022LastExecutedAt\u0022:null,\u0022LastItemCount\u0022:null,\u0022LastExecutionSample\u0022:null,\u0022LastInputArraySample\u0022:\u0022{\\r\\n      \\u0022subscriptionId\\u0022: \\u0022dc7bd983-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:0034:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1M\\u0022\\r\\n    }\u0022,\u0022DetectedNestedArrays\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "Loop Array"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Total Count: {{Loop.TotalCount}}",
+        "Processed: {{Loop.ProcessedCount}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "1a5de484-55f6-4a15-96e5-0f05ee1149ee",
+      "NodeType": "HttpResponse",
+      "Name": "Response",
+      "X": 780,
+      "Y": 500,
+      "Width": 200,
+      "Height": 160,
+      "Configuration": "{\u0022StatusCode\u0022:400,\u0022Body\u0022:\u0022{{Aggregator.InvalidItem}}\u0022,\u0022ContentType\u0022:\u0022application/json\u0022,\u0022Headers\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "Invalid response"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "{{Aggregator.InvalidItem}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "53e6cb79-5e9f-461b-b5ad-8678aee24249",
+      "NodeType": "HttpListener",
+      "Name": "Listener",
+      "X": 160,
+      "Y": 80,
+      "Width": 200,
+      "Height": 340,
+      "Configuration": "{\u0022Method\u0022:\u0022GET\u0022,\u0022Path\u0022:\u0022/api\u0022,\u0022Port\u0022:8080,\u0022DefaultResponse\u0022:\u0022OK\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022,\u0022DefaultStatusCode\u0022:200,\u0022LastBodySample\u0022:\u0022{\\r\\n  \\u0022status\\u0022: \\u0022Accept\\u0022,\\r\\n  \\u0022lineItems\\u0022: [\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022dc7bd983-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:0034:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1M\\u0022\\r\\n    },\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022ac7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\r\\n    },\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022sf7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022FFCFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\r\\n    },\\r\\n    {\\r\\n      \\u0022subscriptionId\\u0022: \\u0022sf7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\r\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\r\\n      \\u0022offerId\\u0022: \\u0022FFCFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\r\\n      \\u0022quantity\\u0022: 1,\\r\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\r\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\r\\n    }\\r\\n  ]\\r\\n}\u0022,\u0022LastQueryParams\u0022:\u00221\u0022}",
+      "IsTrigger": true,
+      "Tags": [
+        "Listener"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Param 1: {{Listener.1}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "7df23cba-4399-4c9d-accc-ca9c6deaa6e7",
+      "NodeType": "Aggregator",
+      "Name": "Aggregator",
+      "X": 840,
+      "Y": 180,
+      "Width": 160,
+      "Height": 140,
+      "Configuration": "{\u0022InputItem\u0022:\u0022{{Loop.CurrentItem}}\u0022,\u0022ThresholdCount\u0022:4,\u0022SchemaJson\u0022:\u0022[{\\u0022Name\\u0022:\\u0022subscriptionId\\u0022,\\u0022Type\\u0022:\\u0022string\\u0022,\\u0022Required\\u0022:true},{\\u0022Name\\u0022:\\u0022productType\\u0022,\\u0022Type\\u0022:\\u0022string\\u0022,\\u0022Required\\u0022:true},{\\u0022Name\\u0022:\\u0022offerId\\u0022,\\u0022Type\\u0022:\\u0022string\\u0022,\\u0022Required\\u0022:true},{\\u0022Name\\u0022:\\u0022quantity\\u0022,\\u0022Type\\u0022:\\u0022number\\u0022,\\u0022Required\\u0022:true},{\\u0022Name\\u0022:\\u0022billingCycle\\u0022,\\u0022Type\\u0022:\\u0022string\\u0022,\\u0022Required\\u0022:true},{\\u0022Name\\u0022:\\u0022termDuration\\u0022,\\u0022Type\\u0022:\\u0022string\\u0022,\\u0022Required\\u0022:true}]\u0022,\u0022KeepInvalidItems\u0022:true,\u0022SampleJson\u0022:\u0022[\\n    {\\n      \\u0022subscriptionId\\u0022: \\u0022dc7bd983-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:0034:CFQ7TTC0W303\\u0022,\\n      \\u0022quantity\\u0022: 1,\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\n      \\u0022termDuration\\u0022: \\u0022P1M\\u0022\\n    },\\n    {\\n      \\u0022subscriptionId\\u0022: \\u0022ac7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\n      \\u0022offerId\\u0022: \\u0022CFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\n      \\u0022quantity\\u0022: 1,\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\n    },\\n    {\\n      \\u0022subscriptionId\\u0022: \\u0022sf7bd9d3-3ad5-4f2c-c069-58f585d5fdb3\\u0022,\\n      \\u0022productType\\u0022: \\u0022OnlineServicesNCE\\u0022,\\n      \\u0022offerId\\u0022: \\u0022FFCFQ7TTC0LH16:00111:CFQ7TTC0W303\\u0022,\\n      \\u0022quantity\\u0022: 1,\\n      \\u0022billingCycle\\u0022: \\u0022monthly\\u0022,\\n      \\u0022termDuration\\u0022: \\u0022P1Y\\u0022\\n    }\\n  ]\u0022}",
+      "IsTrigger": false,
+      "Tags": [
+        "Aggregate Line Items"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Item Count: {{Aggregator.ItemCount}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "94dcbe6c-b656-4d1f-ad73-3d76a9352583",
+      "NodeType": "HttpResponse",
+      "Name": "Response",
+      "X": 1160,
+      "Y": 160,
+      "Width": 160,
+      "Height": 180,
+      "Configuration": "{\u0022StatusCode\u0022:200,\u0022Body\u0022:\u0022{{Aggregator.AggregatedItems}}\u0022,\u0022ContentType\u0022:\u0022application/json\u0022,\u0022Headers\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "Valid HTTP Response"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "{{Aggregator.AggregatedItems}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "bece03fd-71a4-418b-b4d3-7ec5f09631c7",
+      "NodeType": "StorageClient",
+      "Name": "Client",
+      "X": 1020,
+      "Y": 520,
+      "Width": 200,
+      "Height": 140,
+      "Configuration": "{\u0022Operation\u0022:\u0022Insert\u0022,\u0022RecordId\u0022:null,\u0022FilterColumn\u0022:null,\u0022FilterOperator\u0022:\u0022==\u0022,\u0022FilterValue\u0022:null,\u0022DataJson\u0022:\u0022{\\n  \\u0022JsonData\\u0022: \\u0022{{Aggregator.InvalidItem}}\\u0022\\n}\u0022,\u0022MaxResults\u0022:100}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "604dc012-cb94-4b62-b28c-14d9b4a14113",
+      "SourceId": "09f0acbd-851c-4a25-a1e8-a6d04a916684",
+      "TargetId": "7df23cba-4399-4c9d-accc-ca9c6deaa6e7",
+      "Label": null
+    },
+    {
+      "Id": "13f7c143-814d-40d4-9b4a-e0109a5ca838",
+      "SourceId": "53e6cb79-5e9f-461b-b5ad-8678aee24249",
+      "TargetId": "09f0acbd-851c-4a25-a1e8-a6d04a916684",
+      "Label": null
+    },
+    {
+      "Id": "fd4c69d4-a6e8-4b15-b3a5-325e9e06f678",
+      "SourceId": "7df23cba-4399-4c9d-accc-ca9c6deaa6e7",
+      "TargetId": "94dcbe6c-b656-4d1f-ad73-3d76a9352583",
+      "Label": "valid"
+    },
+    {
+      "Id": "e47fc1bd-6e12-4a23-8c67-21814f09e8e8",
+      "SourceId": "bece03fd-71a4-418b-b4d3-7ec5f09631c7",
+      "TargetId": "000d4a7c-9495-42bc-839c-9808ed0f093d",
+      "Label": "storage"
+    }
+  ]
+}

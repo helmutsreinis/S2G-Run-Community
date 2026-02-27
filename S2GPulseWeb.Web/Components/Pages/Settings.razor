@@ -1,0 +1,530 @@
+@page "/settings"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserSecretService SecretService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Settings - @PlatformSettings.SiteName</PageTitle>
+
+@* Newsletter popup for targeted announcements *@
+<S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@userId" CurrentPage="Settings" />
+
+<div class="settings-page">
+    <div class="settings-header">
+        <h1>Settings</h1>
+        <p>Manage your user-specific API keys and preferences. These are stored securely in the database and bound to your account.</p>
+    </div>
+
+    <div class="settings-tabs">
+        <button class="tab-button @(activeTab == "ai" ? "active" : "")" @onclick="@(() => activeTab = "ai")">
+            🤖 AI API Keys
+        </button>
+        <button class="tab-button @(activeTab == "storage" ? "active" : "")" @onclick="@(() => activeTab = "storage")">
+            📚 Knowledge Base
+        </button>
+        <button class="tab-button @(activeTab == "other" ? "active" : "")" @onclick="@(() => activeTab = "other")">
+            ⚙️ General
+        </button>
+    </div>
+
+    <div class="settings-container">
+        @if (activeTab == "ai")
+        {
+            <div class="settings-section">
+                <h2>AI Provider API Keys</h2>
+                <p class="section-description">Configure API keys for AI nodes. Each key is specific to its provider and used when the node doesn't have an override key set.</p>
+                
+                <div class="secret-item">
+                    <label>🤖 OpenAI API Key</label>
+                    <div class="secret-input-group">
+                        <input type="@(showOpenAI ? "text" : "password")" @bind="openAiKey" placeholder="sk-..." />
+                        <button class="btn-icon" @onclick="() => showOpenAI = !showOpenAI" title="@(showOpenAI ? "Hide" : "Show")">
+                            @if (showOpenAI)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveOpenAiKey">Save</button>
+                    </div>
+                    <small>Used for the AI Assistant and the OpenAI node.</small>
+                </div>
+
+                <div class="secret-item">
+                    <label>🧠 DeepSeek API Key</label>
+                    <div class="secret-input-group">
+                        <input type="@(showDeepSeek ? "text" : "password")" @bind="deepSeekKey" placeholder="sk-..." />
+                        <button class="btn-icon" @onclick="() => showDeepSeek = !showDeepSeek" title="@(showDeepSeek ? "Hide" : "Show")">
+                            @if (showDeepSeek)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveDeepSeekKey">Save</button>
+                    </div>
+                    <small>Used for the DeepSeek node.</small>
+                </div>
+
+                <div class="secret-item">
+                    <label>🅰️ Anthropic API Key</label>
+                    <div class="secret-input-group">
+                        <input type="@(showAnthropic ? "text" : "password")" @bind="anthropicKey" placeholder="sk-ant-..." />
+                        <button class="btn-icon" @onclick="() => showAnthropic = !showAnthropic" title="@(showAnthropic ? "Hide" : "Show")">
+                            @if (showAnthropic)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveAnthropicKey">Save</button>
+                    </div>
+                    <small>Used for the Anthropic node (Claude models).</small>
+                </div>
+
+                <div class="secret-item">
+                    <label>✨ Google Gemini API Key</label>
+                    <div class="secret-input-group">
+                        <input type="@(showGemini ? "text" : "password")" @bind="geminiKey" placeholder="AIza..." />
+                        <button class="btn-icon" @onclick="() => showGemini = !showGemini" title="@(showGemini ? "Hide" : "Show")">
+                            @if (showGemini)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveGeminiKey">Save</button>
+                    </div>
+                    <small>Used for the Gemini node (Google AI models).</small>
+                </div>
+
+                <div class="secret-item">
+                    <label>🌀 Mistral API Key</label>
+                    <div class="secret-input-group">
+                        <input type="@(showMistral ? "text" : "password")" @bind="mistralKey" placeholder="..." />
+                        <button class="btn-icon" @onclick="() => showMistral = !showMistral" title="@(showMistral ? "Hide" : "Show")">
+                            @if (showMistral)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveMistralKey">Save</button>
+                    </div>
+                    <small>Used for the Mistral node (Mistral AI models).</small>
+                </div>
+
+                <div class="secret-item">
+                    <label>⚡ Groq API Key</label>
+                    <div class="secret-input-group">
+                        <input type="@(showGroq ? "text" : "password")" @bind="groqKey" placeholder="..." />
+                        <button class="btn-icon" @onclick="() => showGroq = !showGroq" title="@(showGroq ? "Hide" : "Show")">
+                            @if (showGroq)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveGroqKey">Save</button>
+                    </div>
+                    <small>Used for the Groq node (Ultra-fast LPU inference).</small>
+                </div>
+            </div>
+        }
+        else if (activeTab == "storage")
+        {
+            <div class="settings-section">
+                <h2>Storage</h2>
+                <p class="section-description">Configure Azure Storage connections used by platform features like the Knowledge Base. Paste an Azure Storage Account connection string below.</p>
+
+                <div class="secret-item">
+                    <label>📚 Knowledge Account</label>
+                    <div class="secret-input-group">
+                        <input type="@(showKnowledgeConn ? "text" : "password")" @bind="knowledgeConnStr" placeholder="DefaultEndpointsProtocol=https;AccountName=..." />
+                        <button class="btn-icon" @onclick="() => showKnowledgeConn = !showKnowledgeConn" title="@(showKnowledgeConn ? "Hide" : "Show")">
+                            @if (showKnowledgeConn)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            }
+                        </button>
+                        <button class="btn btn-primary" @onclick="SaveKnowledgeAccount">Save</button>
+                    </div>
+                    <small>Azure Storage connection string used by the Knowledge Base feature (entities, relations, search index &amp; content blobs).</small>
+                </div>
+            </div>
+        }
+        else if (activeTab == "other")
+        {
+            <div class="settings-section">
+                <h2>General Settings</h2>
+                <p class="section-description">Additional settings and preferences will appear here as they become available.</p>
+                <div class="empty-state">
+                    <span>🚧</span>
+                    <p>More settings coming soon...</p>
+                </div>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <div class="status-message @statusClass">
+                @statusMessage
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .settings-page {
+        padding: 2rem;
+        max-width: 800px;
+        margin: 0 auto;
+        color: #e0e0e0;
+    }
+
+    .settings-header {
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+        padding-bottom: 1rem;
+    }
+
+    .settings-header h1 {
+        color: #00f2fe;
+        margin: 0;
+    }
+
+    .settings-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+        padding-bottom: 0;
+    }
+
+    .tab-button {
+        background: transparent;
+        border: none;
+        color: #888;
+        padding: 0.75rem 1.25rem;
+        cursor: pointer;
+        font-size: 0.95rem;
+        font-weight: 500;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+        margin-bottom: -1px;
+    }
+
+    .tab-button:hover {
+        color: #ccc;
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tab-button.active {
+        color: #00f2fe;
+        border-bottom-color: #00f2fe;
+    }
+
+    .settings-container {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+    }
+
+    .settings-section {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+
+    .settings-section h2 {
+        font-size: 1.25rem;
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        color: #4facfe;
+    }
+
+    .section-description {
+        color: #888;
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .secret-item {
+        margin-bottom: 1.5rem;
+    }
+
+    .secret-item:last-of-type {
+        margin-bottom: 0;
+    }
+
+    .secret-item label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #ccc;
+    }
+
+    .secret-input-group {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .secret-input-group input {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        color: white;
+        transition: border-color 0.2s;
+    }
+
+    .secret-input-group input:focus {
+        border-color: #4facfe;
+        outline: none;
+    }
+
+    .btn-icon {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid #444;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem;
+        color: #888;
+        transition: all 0.2s;
+    }
+
+    .btn-icon:hover {
+        color: #00f2fe;
+        border-color: #00f2fe;
+        background: rgba(0, 242, 254, 0.1);
+    }
+
+    .btn-icon svg {
+        display: block;
+    }
+
+    .status-message {
+        padding: 1rem;
+        border-radius: 6px;
+        text-align: center;
+        margin-top: 1rem;
+    }
+
+    .status-success {
+        background: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+        border: 1px solid #28a745;
+    }
+
+    .status-error {
+        background: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        border: 1px solid #dc3545;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: #666;
+    }
+
+    .empty-state span {
+        font-size: 2rem;
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+@code {
+    private string? userId;
+    private string activeTab = "ai";
+    
+    // API Keys
+    private string openAiKey = "";
+    private string deepSeekKey = "";
+    private string anthropicKey = "";
+    private string geminiKey = "";
+    private string mistralKey = "";
+    private string groqKey = "";
+    
+    // Storage
+    private string knowledgeConnStr = "";
+    private bool showKnowledgeConn = false;
+
+    // Show/hide toggles
+    private bool showOpenAI = false;
+    private bool showDeepSeek = false;
+    private bool showAnthropic = false;
+    private bool showGemini = false;
+    private bool showMistral = false;
+    private bool showGroq = false;
+    
+    private string statusMessage = "";
+    private string statusClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = UserManager.GetUserId(user);
+            if (userId != null)
+            {
+                openAiKey = await SecretService.GetSecretAsync(userId, "OpenAI_ApiKey") ?? "";
+                deepSeekKey = await SecretService.GetSecretAsync(userId, "DeepSeek_ApiKey") ?? "";
+                anthropicKey = await SecretService.GetSecretAsync(userId, "Anthropic_ApiKey") ?? "";
+                geminiKey = await SecretService.GetSecretAsync(userId, "Gemini_ApiKey") ?? "";
+                mistralKey = await SecretService.GetSecretAsync(userId, "Mistral_ApiKey") ?? "";
+                groqKey = await SecretService.GetSecretAsync(userId, "Groq_ApiKey") ?? "";
+                knowledgeConnStr = await SecretService.GetSecretAsync(userId, "Knowledge_Account") ?? "";
+            }
+        }
+    }
+
+    private async Task SaveOpenAiKey()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "OpenAI_ApiKey", openAiKey);
+            ShowStatus("OpenAI API Key saved successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving key: {ex.Message}", false);
+        }
+    }
+
+    private async Task SaveDeepSeekKey()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "DeepSeek_ApiKey", deepSeekKey);
+            ShowStatus("DeepSeek API Key saved successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving key: {ex.Message}", false);
+        }
+    }
+
+    private async Task SaveAnthropicKey()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "Anthropic_ApiKey", anthropicKey);
+            ShowStatus("Anthropic API Key saved successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving key: {ex.Message}", false);
+        }
+    }
+
+    private async Task SaveGeminiKey()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "Gemini_ApiKey", geminiKey);
+            ShowStatus("Gemini API Key saved successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving key: {ex.Message}", false);
+        }
+    }
+
+    private async Task SaveMistralKey()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "Mistral_ApiKey", mistralKey);
+            ShowStatus("Mistral API Key saved successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving key: {ex.Message}", false);
+        }
+    }
+
+    private async Task SaveGroqKey()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "Groq_ApiKey", groqKey);
+            ShowStatus("Groq API Key saved successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving key: {ex.Message}", false);
+        }
+    }
+
+    private async Task SaveKnowledgeAccount()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "Knowledge_Account", knowledgeConnStr);
+            ShowStatus("Knowledge Account connection string saved!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving connection: {ex.Message}", false);
+        }
+    }
+
+    private void ShowStatus(string message, bool success)
+    {
+        statusMessage = message;
+        statusClass = success ? "status-success" : "status-error";
+        StateHasChanged();
+        
+        // Clear message after 3 seconds
+        Task.Delay(3000).ContinueWith(_ => 
+        {
+            statusMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

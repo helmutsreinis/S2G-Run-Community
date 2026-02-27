@@ -1,0 +1,139 @@
+{
+  "exportVersion": 1,
+  "exportedAt": "2026-01-15T16:35:54.3319497Z",
+  "definition": {
+    "nodeTypeKey": "Custom_PartnerCenterSubscriptions",
+    "displayName": "Partner Center Subscriptions",
+    "description": "Fetches subscriptions for a customer from Microsoft Partner Center API. Optionally fetch a single subscription by ID.",
+    "iconSvg": "\u003Csvg viewBox=\u00220 0 24 24\u0022 fill=\u0022currentColor\u0022\u003E\u003Cpath d=\u0022M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5\u0022/\u003E\u003C/svg\u003E",
+    "iconFallbackEmoji": "\uD83D\uDCCB",
+    "categoryName": "Partner Center Integrations",
+    "executionType": "HttpRequest",
+    "executionDelayMs": 0,
+    "timeoutSeconds": 30,
+    "script": "var customerId = input.get(\u0027customerId\u0027);\nvar subscriptionId = input.get(\u0027subscriptionId\u0027);\nvar accessToken = input.get(\u0027accessToken\u0027);\n\nif (customerId) customerId = customerId.trim();\nif (subscriptionId) subscriptionId = subscriptionId.trim();\nif (accessToken) accessToken = accessToken.trim();\n\nif (!customerId) {\n    log.error(\u0027Customer ID is required\u0027);\n    output.set(\u0027Error\u0027, \u0027Customer ID is required\u0027);\n    tags.trigger(\u0027Error\u0027);\n    return;\n}\n\nif (!accessToken) {\n    log.error(\u0027Access Token is required\u0027);\n    output.set(\u0027Error\u0027, \u0027Access Token is required\u0027);\n    tags.trigger(\u0027Error\u0027);\n    return;\n}\n\nvar url = \u0027https://api.partnercenter.microsoft.com/v1/customers/\u0027 \u002B customerId \u002B \u0027/subscriptions\u0027;\nvar isSingleFetch = subscriptionId \u0026\u0026 subscriptionId.length \u003E 0;\n\nif (isSingleFetch) {\n    url = url \u002B \u0027/\u0027 \u002B subscriptionId;\n    log.info(\u0027Fetching single subscription: \u0027 \u002B subscriptionId);\n} else {\n    log.info(\u0027Fetching all subscriptions for customer: \u0027 \u002B customerId);\n}\n\nvar response = http.get(url, {\n    \u0027Authorization\u0027: \u0027Bearer \u0027 \u002B accessToken,\n    \u0027Accept\u0027: \u0027*/*\u0027\n});\n\nif (response.statusCode \u003E= 200 \u0026\u0026 response.statusCode \u003C 300) {\n    var data = json.parse(response.body);\n    \n    if (data.items) {\n        // List response - multiple subscriptions\n        output.set(\u0027TotalCount\u0027, data.totalCount || 0);\n        output.set(\u0027Subscriptions\u0027, data.items);\n        output.set(\u0027Subscription\u0027, null);\n        log.info(\u0027Found \u0027 \u002B (data.totalCount || 0) \u002B \u0027 subscriptions\u0027);\n    } else {\n        // Single subscription response - flat object\n        output.set(\u0027TotalCount\u0027, 1);\n        output.set(\u0027Subscriptions\u0027, [data]);\n        output.set(\u0027Subscription\u0027, data);  // Flat object!\n        output.set(\u0027SubscriptionId\u0027, data.id);\n        output.set(\u0027OfferName\u0027, data.offerName);\n        output.set(\u0027FriendlyName\u0027, data.friendlyName);\n        output.set(\u0027Status\u0027, data.status);\n        output.set(\u0027BillingCycle\u0027, data.billingCycle);\n        output.set(\u0027BillingType\u0027, data.billingType);\n        log.info(\u0027Fetched: \u0027 \u002B data.friendlyName \u002B \u0027 (\u0027 \u002B data.status \u002B \u0027)\u0027);\n    }\n    \n    output.set(\u0027RawResponse\u0027, response.body);\n    tags.trigger(\u0027Success\u0027);\n} else {\n    log.error(\u0027API call failed with status \u0027 \u002B response.statusCode);\n    output.set(\u0027Error\u0027, \u0027HTTP \u0027 \u002B response.statusCode \u002B \u0027: \u0027 \u002B response.body);\n    tags.trigger(\u0027Error\u0027);\n}",
+    "initializationScript": null,
+    "inputSchemaJson": null,
+    "defaultConfigurationJson": null,
+    "inputFields": [
+      {
+        "fieldName": "customerId",
+        "displayLabel": "Customer ID",
+        "placeholderText": "8bef57ba-dc7b-431e-9ba9-c8f908fa59e3",
+        "helpText": "The Partner Center Customer GUID",
+        "fieldType": "Text",
+        "defaultValue": "",
+        "isRequired": true,
+        "allowPlaceholders": true,
+        "validationRegex": null,
+        "expectedDataType": null,
+        "jsonSchemaValidation": null,
+        "selectOptionsJson": null,
+        "displayOrder": 1
+      },
+      {
+        "fieldName": "subscriptionId",
+        "displayLabel": "Subscription ID (optional)",
+        "placeholderText": "051d8ef0-3ee3-4bb2-c3ec-658b878e0ccf",
+        "helpText": "Leave empty to fetch all subscriptions, or provide a specific subscription GUID",
+        "fieldType": "Text",
+        "defaultValue": "",
+        "isRequired": false,
+        "allowPlaceholders": true,
+        "validationRegex": null,
+        "expectedDataType": null,
+        "jsonSchemaValidation": null,
+        "selectOptionsJson": null,
+        "displayOrder": 2
+      },
+      {
+        "fieldName": "accessToken",
+        "displayLabel": "Access Token",
+        "placeholderText": "Bearer token from Partner Center authentication",
+        "helpText": "OAuth access token for Partner Center API (without \u0027Bearer\u0027 prefix)",
+        "fieldType": "TextArea",
+        "defaultValue": "",
+        "isRequired": true,
+        "allowPlaceholders": true,
+        "validationRegex": null,
+        "expectedDataType": null,
+        "jsonSchemaValidation": null,
+        "selectOptionsJson": null,
+        "displayOrder": 3
+      }
+    ],
+    "outputParameters": [
+      {
+        "parameterName": "TotalCount",
+        "description": "Total number of subscriptions",
+        "dataType": "int",
+        "displayOrder": 1
+      },
+      {
+        "parameterName": "Subscriptions",
+        "description": "Array of subscription objects",
+        "dataType": "array",
+        "displayOrder": 2
+      },
+      {
+        "parameterName": "SubscriptionId",
+        "description": "Subscription ID (single fetch only)",
+        "dataType": "string",
+        "displayOrder": 3
+      },
+      {
+        "parameterName": "OfferName",
+        "description": "Offer name (single fetch only)",
+        "dataType": "string",
+        "displayOrder": 4
+      },
+      {
+        "parameterName": "Status",
+        "description": "Subscription status (single fetch only)",
+        "dataType": "string",
+        "displayOrder": 5
+      },
+      {
+        "parameterName": "BillingCycle",
+        "description": "Billing cycle (single fetch only)",
+        "dataType": "string",
+        "displayOrder": 6
+      },
+      {
+        "parameterName": "RawResponse",
+        "description": "Raw JSON response from the API",
+        "dataType": "string",
+        "displayOrder": 7
+      },
+      {
+        "parameterName": "Subscription",
+        "description": "Single Subscription Object",
+        "dataType": "object",
+        "displayOrder": 8
+      },
+      {
+        "parameterName": "Error",
+        "description": "Error message if the request fails",
+        "dataType": "string",
+        "displayOrder": 8
+      }
+    ],
+    "connectionTags": [
+      {
+        "tagName": "Success",
+        "description": "Triggered when subscriptions are fetched successfully",
+        "color": "#22c55e",
+        "conditionDescription": "",
+        "displayOrder": 1
+      },
+      {
+        "tagName": "Error",
+        "description": "Triggered when the API call fails",
+        "color": "#ef4444",
+        "conditionDescription": "",
+        "displayOrder": 2
+      }
+    ],
+    "logConfigs": []
+  }
+}

@@ -1,0 +1,151 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>Queue Name</label>
+        <input type="text" value="@config.QueueName" 
+               @onchange="@(e => UpdateConfig(c => c.QueueName = e.Value?.ToString() ?? "default"))" 
+               class="form-control" placeholder="default" />
+    </div>
+
+    <div class="form-group">
+        <label>Max Size (0 = unlimited)</label>
+        <input type="number" value="@config.MaxSize" 
+               @onchange="@(e => UpdateConfig(c => c.MaxSize = int.TryParse(e.Value?.ToString(), out var v) ? v : 0))" 
+               class="form-control" min="0" />
+    </div>
+
+    <div class="form-group">
+        <label>Expiration (minutes, 0 = never)</label>
+        <input type="number" value="@config.ExpirationMinutes" 
+               @onchange="@(e => UpdateConfig(c => c.ExpirationMinutes = int.TryParse(e.Value?.ToString(), out var v) ? v : 0))" 
+               class="form-control" min="0" />
+    </div>
+
+    <div class="form-group">
+        <label>Delay (ms, before forwarding)</label>
+        <input type="number" value="@config.DelayMs" 
+               @onchange="@(e => UpdateConfig(c => c.DelayMs = int.TryParse(e.Value?.ToString(), out var v) ? v : 0))" 
+               class="form-control" min="0" step="100" />
+    </div>
+
+    <div class="form-group">
+        <label>Input Properties (comma-separated)</label>
+        <input type="text" value="@config.InputProperties" 
+               @onchange="@(e => UpdateConfig(c => c.InputProperties = e.Value?.ToString()))" 
+               class="form-control" placeholder="Auto-detect" />
+        <small class="form-text text-muted">Leave empty to auto-detect. Use {PropertyName} format.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(config.Statistics))
+    {
+        <div class="queue-stats">
+            <label>Statistics</label>
+            <div class="stats-display">@config.Statistics</div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(config.LastError))
+    {
+        <div class="queue-error">
+            <small>Last Error: @config.LastError</small>
+        </div>
+    }
+</div>
+
+<style>
+    .queue-stats {
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .stats-display {
+        color: var(--accent-color);
+        font-family: monospace;
+        font-size: 0.7rem;
+        word-break: break-all;
+    }
+
+    .queue-error {
+        margin-top: 0.5rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(244, 67, 54, 0.1);
+        border-radius: 4px;
+        color: #f44336;
+        font-size: 0.7rem;
+    }
+
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    private QueueConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<QueueConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<QueueConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        var current = config.InputProperties ?? "";
+        if (!string.IsNullOrEmpty(current) && !current.EndsWith(","))
+        {
+            current += ", ";
+        }
+        config.InputProperties = current + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+}

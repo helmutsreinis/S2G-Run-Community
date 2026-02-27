@@ -1,0 +1,95 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code directories
+.vscode/
+
+# Rider
+.idea/
+
+# JetBrains
+*.sln.iml
+
+# Visual Studio cache/options directory
+.vs/
+
+# NuGet Packages
+packages/
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+
+# Build results of an ideated project might be stored here
+publish/
+
+# .NET
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# User secrets
+secrets.json
+
+# Aspire
+aspire-manifest.json
+
+# Entity Framework
+*.dacpac
+
+# Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+# Local development
+launchSettings.local.json
+appsettings.local.json
+appsettings.*.local.json
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# === Self-Hosted / Public Repo Additions ===
+
+# Environment files (secrets)
+.env
+!.env.example
+
+# Development settings with credentials
+appsettings.Development.json
+appsettings.*.local.json
+
+# Private notes
+LISTENER_PROXY_INVESTIGATION.md
+
+# Agent configs
+.agent/
+.agents/

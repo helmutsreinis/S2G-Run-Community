@@ -1,0 +1,110 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T17:40:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_JsonToXml",
+        "displayName": "JSON to XML",
+        "description": "Converts JSON data to XML format. Supports nested objects, arrays, and primitive values.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M13 3H8.2C7.0799 3 6.51984 3 6.09202 3.21799C5.71569 3.40973 5.40973 3.71569 5.21799 4.09202C5 4.51984 5 5.0799 5 6.2V17.8C5 18.9201 5 19.4802 5.21799 19.908C5.40973 20.2843 5.71569 20.5903 6.09202 20.782C6.51984 21 7.0799 21 8.2 21H15.8C16.9201 21 17.4802 21 17.908 20.782C18.2843 20.5903 18.5903 20.2843 18.782 19.908C19 19.4802 19 18.9201 19 17.8V9M13 3L19 9M13 3V7.4C13 7.96005 13 8.24008 13.109 8.45399C13.2049 8.64215 13.3578 8.79513 13.546 8.89101C13.7599 9 14.0399 9 14.6 9H19\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M9 15L11 12L9 9\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M15 15L13 12L15 9\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// JSON to XML Converter\n// Converts JSON input to well-formed XML output\n\nvar jsonInput = input.get(\"jsonInput\");\nvar rootElement = (input.get(\"rootElement\") || \"root\").trim();\nvar indent = input.get(\"indent\") === \"true\";\nvar includeDeclaration = input.get(\"includeDeclaration\") !== \"false\";\nvar arrayItemName = (input.get(\"arrayItemName\") || \"item\").trim();\n\n// Validate input\nif (!jsonInput || jsonInput.trim() === \"\") {\n    log.error(\"JSON input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"JSON input is required\");\n    output.set(\"Xml\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var data = json.parse(jsonInput);\n        \n        // XML escape function\n        function escapeXml(str) {\n            if (str === null || str === undefined) return \"\";\n            var s = String(str);\n            return s.replace(/&/g, \"&amp;\")\n                    .replace(/</g, \"&lt;\")\n                    .replace(/>/g, \"&gt;\")\n                    .replace(/\"/g, \"&quot;\")\n                    .replace(/'/g, \"&apos;\");\n        }\n        \n        // Make valid XML tag name\n        function sanitizeTagName(name) {\n            if (!name) return \"element\";\n            var n = String(name);\n            // Replace invalid chars with underscore\n            n = n.replace(/[^a-zA-Z0-9_.-]/g, \"_\");\n            // Ensure starts with letter or underscore\n            if (!/^[a-zA-Z_]/.test(n)) {\n                n = \"_\" + n;\n            }\n            return n;\n        }\n        \n        // Convert value to XML\n        function toXml(value, tagName, depth) {\n            var indentStr = indent ? new Array(depth + 1).join(\"  \") : \"\";\n            var newline = indent ? \"\\n\" : \"\";\n            var tag = sanitizeTagName(tagName);\n            \n            if (value === null || value === undefined) {\n                return indentStr + \"<\" + tag + \" />\" + newline;\n            }\n            \n            if (typeof value === \"boolean\" || typeof value === \"number\") {\n                return indentStr + \"<\" + tag + \">\" + String(value) + \"</\" + tag + \">\" + newline;\n            }\n            \n            if (typeof value === \"string\") {\n                return indentStr + \"<\" + tag + \">\" + escapeXml(value) + \"</\" + tag + \">\" + newline;\n            }\n            \n            if (Array.isArray(value)) {\n                var arrXml = \"\";\n                for (var i = 0; i < value.length; i++) {\n                    arrXml = arrXml + toXml(value[i], arrayItemName, depth);\n                }\n                return arrXml;\n            }\n            \n            if (typeof value === \"object\") {\n                var objXml = indentStr + \"<\" + tag + \">\" + newline;\n                var keys = Object.keys(value);\n                for (var j = 0; j < keys.length; j++) {\n                    var k = keys[j];\n                    var v = value[k];\n                    if (Array.isArray(v)) {\n                        // Wrap arrays in container element\n                        objXml = objXml + indentStr + (indent ? \"  \" : \"\") + \"<\" + sanitizeTagName(k) + \">\" + newline;\n                        for (var m = 0; m < v.length; m++) {\n                            objXml = objXml + toXml(v[m], arrayItemName, depth + 2);\n                        }\n                        objXml = objXml + indentStr + (indent ? \"  \" : \"\") + \"</\" + sanitizeTagName(k) + \">\" + newline;\n                    } else {\n                        objXml = objXml + toXml(v, k, depth + 1);\n                    }\n                }\n                objXml = objXml + indentStr + \"</\" + tag + \">\" + newline;\n                return objXml;\n            }\n            \n            return indentStr + \"<\" + tag + \">\" + escapeXml(String(value)) + \"</\" + tag + \">\" + newline;\n        }\n        \n        // Build XML\n        var xml = \"\";\n        if (includeDeclaration) {\n            xml = \"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?>\" + (indent ? \"\\n\" : \"\");\n        }\n        \n        // Handle array at root level\n        if (Array.isArray(data)) {\n            xml = xml + \"<\" + rootElement + \">\" + (indent ? \"\\n\" : \"\");\n            for (var x = 0; x < data.length; x++) {\n                xml = xml + toXml(data[x], arrayItemName, 1);\n            }\n            xml = xml + \"</\" + rootElement + \">\";\n        } else {\n            xml = xml + toXml(data, rootElement, 0);\n        }\n        \n        output.set(\"Xml\", xml);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        log.info(\"Successfully converted JSON to XML (\" + xml.length + \" chars)\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Failed to convert JSON: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"JSON parse error: \" + ex.message);\n        output.set(\"Xml\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "jsonInput",
+                "displayLabel": "JSON Input",
+                "placeholderText": "Enter JSON string or use {{Placeholder}}",
+                "helpText": "The JSON string to convert to XML. Can be an object, array, or primitive value.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "rootElement",
+                "displayLabel": "Root Element Name",
+                "placeholderText": "root",
+                "helpText": "The name of the XML root element. Default is 'root'.",
+                "fieldType": "Text",
+                "defaultValue": "root",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "arrayItemName",
+                "displayLabel": "Array Item Element Name",
+                "placeholderText": "item",
+                "helpText": "The element name to use for array items. Default is 'item'.",
+                "fieldType": "Text",
+                "defaultValue": "item",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "indent",
+                "displayLabel": "Pretty Print (Indent)",
+                "helpText": "Whether to format the output XML with indentation and newlines.",
+                "fieldType": "Boolean",
+                "defaultValue": "true",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4
+            },
+            {
+                "fieldName": "includeDeclaration",
+                "displayLabel": "Include XML Declaration",
+                "helpText": "Whether to include the <?xml version=\"1.0\"?> declaration at the top.",
+                "fieldType": "Boolean",
+                "defaultValue": "true",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 5
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Xml",
+                "description": "The converted XML string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during conversion",
+                "dataType": "boolean",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if conversion failed",
+                "dataType": "string",
+                "displayOrder": 3
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when JSON was successfully converted to XML",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion successful",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when conversion fails (invalid JSON or processing error)",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

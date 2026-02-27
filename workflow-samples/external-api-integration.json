@@ -1,0 +1,50 @@
+{
+    "Name": "External API Integration",
+    "Description": "Fetches data from an external API and transforms it",
+    "Version": "1.0",
+    "Nodes": [
+        {
+            "NodeType": "HttpListener",
+            "Name": "TriggerListener",
+            "X": 100,
+            "Y": 100,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"ListenerPath\":\"/api/weather\",\"Methods\":[\"GET\"],\"Authentication\":\"None\"}",
+            "IsTrigger": true,
+            "Tags": []
+        },
+        {
+            "NodeType": "HttpRequest",
+            "Name": "FetchWeather",
+            "X": 100,
+            "Y": 220,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"Url\":\"https://api.openweathermap.org/data/2.5/weather?q={{TriggerListener.QueryString.city}}&appid={{Secrets.WeatherApiKey}}\",\"Method\":\"GET\",\"Headers\":{},\"Body\":\"\"}",
+            "Tags": []
+        },
+        {
+            "NodeType": "HttpResponse",
+            "Name": "ReturnWeather",
+            "X": 100,
+            "Y": 340,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"StatusCode\":\"200\",\"ContentType\":\"application/json\",\"Body\":\"{{FetchWeather.ResponseBody}}\"}",
+            "Tags": []
+        }
+    ],
+    "Connections": [
+        {
+            "SourceId": "TriggerListener",
+            "TargetId": "FetchWeather",
+            "Label": null
+        },
+        {
+            "SourceId": "FetchWeather",
+            "TargetId": "ReturnWeather",
+            "Label": null
+        }
+    ]
+}

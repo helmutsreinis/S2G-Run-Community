@@ -1,0 +1,170 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T19:09:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_PartnerOrganizationProfile",
+        "displayName": "Partner Organization Profile",
+        "description": "Retrieves the partner's organization profile from Microsoft Partner Center API. Returns company information, tenant details, default address, contact info, and culture settings.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 21H21M6 18V9.99998M10 18V9.99998M14 18V9.99998M18 18V9.99998M20 6.99998L12.424 2.26498C12.2702 2.16884 12.1933 2.12077 12.1108 2.10203C12.0379 2.08546 11.9621 2.08546 11.8892 2.10203C11.8067 2.12077 11.7298 2.16884 11.576 2.26498L4 6.99998H20Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "// Partner Organization Profile Retrieval\n// Fetches the partner's organization profile from Partner Center API\n\nvar accessToken = input.get(\"accessToken\");\n\nif (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/profiles/organization\";\n        \n        log.info(\"Fetching partner organization profile\");\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var profile = json.parse(response.body);\n            \n            // Organization identifiers\n            output.set(\"OrganizationId\", profile.id || \"\");\n            output.set(\"TenantId\", profile.tenantId || \"\");\n            output.set(\"Domain\", profile.domain || \"\");\n            \n            // Company info\n            output.set(\"CompanyName\", profile.companyName || \"\");\n            output.set(\"Email\", profile.email || \"\");\n            output.set(\"Language\", profile.language || \"\");\n            output.set(\"Culture\", profile.culture || \"\");\n            output.set(\"ProfileType\", profile.profileType || \"\");\n            \n            // Default address\n            var addr = profile.defaultAddress || {};\n            output.set(\"Country\", addr.country || \"\");\n            output.set(\"City\", addr.city || \"\");\n            output.set(\"PostalCode\", addr.postalCode || \"\");\n            output.set(\"AddressLine1\", addr.addressLine1 || \"\");\n            \n            // Contact from address\n            output.set(\"ContactFirstName\", addr.firstName || \"\");\n            output.set(\"ContactLastName\", addr.lastName || \"\");\n            output.set(\"ContactPhone\", addr.phoneNumber || \"\");\n            \n            // ETag for caching/updates\n            var attrs = profile.attributes || {};\n            output.set(\"ETag\", attrs.etag || \"\");\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved organization profile for: \" + (profile.companyName || \"Partner\"));\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve organization profile: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "OrganizationId",
+                "description": "The organization's unique identifier (GUID)",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "TenantId",
+                "description": "The Azure AD tenant ID",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Domain",
+                "description": "The organization's primary domain (e.g., company.onmicrosoft.com)",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "CompanyName",
+                "description": "The organization's company name",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Email",
+                "description": "The organization's contact email address",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Language",
+                "description": "The organization's language setting (e.g., en)",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "Culture",
+                "description": "The organization's culture setting (e.g., sv-SE)",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "Country",
+                "description": "Country code from default address (e.g., SE)",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "City",
+                "description": "City from default address",
+                "dataType": "string",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "PostalCode",
+                "description": "Postal code from default address",
+                "dataType": "string",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "AddressLine1",
+                "description": "Street address from default address",
+                "dataType": "string",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "ContactFirstName",
+                "description": "Contact first name from default address",
+                "dataType": "string",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "ContactLastName",
+                "description": "Contact last name from default address",
+                "dataType": "string",
+                "displayOrder": 13
+            },
+            {
+                "parameterName": "ContactPhone",
+                "description": "Contact phone number from default address",
+                "dataType": "string",
+                "displayOrder": 14
+            },
+            {
+                "parameterName": "ProfileType",
+                "description": "The profile type (e.g., 'OrganizationProfile')",
+                "dataType": "string",
+                "displayOrder": 15
+            },
+            {
+                "parameterName": "ETag",
+                "description": "Entity tag for caching and update operations",
+                "dataType": "string",
+                "displayOrder": 16
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 17
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 18
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 19
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 20
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when organization profile was successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

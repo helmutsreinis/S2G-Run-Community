@@ -1,0 +1,1257 @@
+@page "/"
+@page "/{Tab?}"
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject WorkflowExecutionService WorkflowExecutionService
+@inject WorkflowService WorkflowService
+@inject OrganizationService OrganizationService
+@inject NavigationManager NavigationManager
+
+<PageTitle>@PlatformSettings.SiteName - Just Run It | Workflow Automation Platform</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        @* Newsletter popup for new announcements *@
+        <S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@currentUserId" CurrentPage="Home" />
+        
+        @* Dashboard for authorized users *@
+        <div class="home-container">
+            <div class="hero-section">
+                <div class="hero-eyebrow">WORKFLOW ORCHESTRATION</div>
+                <h1>Welcome back to <span class="accent">@PlatformSettings.SiteName</span></h1>
+                <p class="tagline">Your automation engine is ready</p>
+                <div class="cta-buttons">
+                    <a href="/workflow" class="btn btn-primary btn-lg">
+                        <span class="btn-icon">▶</span> Open Designer
+                    </a>
+                </div>
+            </div>
+
+            <div class="dashboard-section">
+                <div class="section-header">
+                    <div class="section-label">
+                        <span class="pulse-dot @(runningWorkflows.Any() ? "active" : "")"></span>
+                        Running Workflows
+                    </div>
+                    <span class="section-count">@runningWorkflows.Count active</span>
+                </div>
+                @if (runningWorkflows.Any())
+                {
+                    <div class="workflows-table">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Workflow</th>
+                                    <th>Started</th>
+                                    <th>Executions</th>
+                                    <th>Last Run</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var wf in runningWorkflows)
+                                {
+                                    <tr>
+                                        <td><a href="/workflow">@wf.WorkflowName</a></td>
+                                        <td>@wf.StartedAt.ToString("g")</td>
+                                        <td><span class="badge bg-info">@wf.ExecutionCount</span></td>
+                                        <td>@(wf.LastExecutedAt?.ToString("g") ?? "-")</td>
+                                        <td><a href="/workflow" class="btn btn-sm btn-outline-primary">Open</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="no-workflows">
+                        <div class="no-workflows-icon">◎</div>
+                        <p>No workflows are currently running</p>
+                        <a href="/workflow" class="btn btn-outline-primary btn-sm">Create a Workflow</a>
+                    </div>
+                }
+            </div>
+
+            <div class="my-workflows-section">
+                <div class="section-header">
+                    <div class="section-label">
+                        <span class="section-icon">⬡</span>
+                        @(activeOrganizationName != null ? $"{activeOrganizationName} Workflows" : "My Workflows")
+                    </div>
+                    @if (userWorkflows.Count > 6)
+                    {
+                        <a href="/workflow" class="section-link">View all →</a>
+                    }
+                </div>
+                @if (userWorkflows.Any())
+                {
+                    <div class="workflow-cards">
+                        @foreach (var wf in userWorkflows.Take(6))
+                        {
+                            var isRunning = runningWorkflows.Any(r => r.WorkflowId == wf.Id);
+                            <div class="workflow-card @(isRunning ? "running" : "")">
+                                <div class="card-glow"></div>
+                                <div class="workflow-card-header">
+                                    <h4>@wf.Name</h4>
+                                    @if (isRunning)
+                                    {
+                                        <span class="status-badge running">⚡ Live</span>
+                                    }
+                                </div>
+                                <div class="workflow-card-body">
+                                    <span class="node-count">@wf.Nodes.Count <em>nodes</em></span>
+                                    <span class="updated-text">@wf.UpdatedAt.ToString("d")</span>
+                                </div>
+                                <div class="workflow-card-actions">
+                                    <a href="/workflow" class="btn btn-sm btn-primary">Open</a>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="no-workflows">
+                        <div class="no-workflows-icon">⬡</div>
+                        <p>No workflows created yet</p>
+                        <a href="/workflow" class="btn btn-primary btn-sm">Build Your First Workflow</a>
+                    </div>
+                }
+            </div>
+        </div>
+    </Authorized>
+
+    <NotAuthorized>
+        @* Landing page for visitors - tabs via URL routing *@
+        <div class="landing-page">
+
+            <!-- Animated background elements -->
+            <div class="bg-grid" aria-hidden="true"></div>
+            <div class="bg-orb bg-orb-1" aria-hidden="true"></div>
+            <div class="bg-orb bg-orb-2" aria-hidden="true"></div>
+            <div class="scan-line" aria-hidden="true"></div>
+
+            <!-- Floating particles -->
+            <div class="particles" aria-hidden="true">
+                <span class="particle" style="--x:8%;  --y:15%; --s:3px; --d:0s;   --dur:12s"></span>
+                <span class="particle" style="--x:92%; --y:22%; --s:2px; --d:1.5s; --dur:14s"></span>
+                <span class="particle" style="--x:20%; --y:72%; --s:4px; --d:0.8s; --dur:11s"></span>
+                <span class="particle" style="--x:78%; --y:68%; --s:2px; --d:2.2s; --dur:16s"></span>
+                <span class="particle" style="--x:50%; --y:88%; --s:3px; --d:0.3s; --dur:13s"></span>
+                <span class="particle" style="--x:35%; --y:10%; --s:2px; --d:3.1s; --dur:10s"></span>
+                <span class="particle" style="--x:65%; --y:40%; --s:2px; --d:1.8s; --dur:15s"></span>
+                <span class="particle" style="--x:12%; --y:50%; --s:3px; --d:2.6s; --dur:12s"></span>
+                <span class="particle" style="--x:85%; --y:82%; --s:2px; --d:0.5s; --dur:18s"></span>
+                <span class="particle" style="--x:55%; --y:5%;  --s:4px; --d:4s;   --dur:9s"></span>
+            </div>
+
+            <div class="landing-hero">
+                <!-- Hero card -->
+                <div class="hero-card" aria-label="Hero section">
+                    <div class="hero-card-inner">
+                        <!-- Left: branding -->
+                        <div class="hero-brand">
+                            <div class="hero-eyebrow">
+                                <span class="eyebrow-line"></span>
+                                @(PlatformSettings.Branding.LandingSubtitle ?? "INTELLIGENT AUTOMATION")
+                            </div>
+                            <h1>
+                                <span class="accent hero-name">@PlatformSettings.SiteName</span>
+                                <span class="brand-sub">@(PlatformSettings.Branding.LandingHeadline ?? "Just Run It")</span>
+                            </h1>
+                            <p class="hero-description">@(PlatformSettings.Branding.LandingDescription ?? "Build, deploy, and manage intelligent automation workflows with a powerful drag-and-drop designer.")</p>
+                        </div>
+
+                        <!-- Right: animated orb -->
+                        <div class="hero-orb-container" aria-hidden="true">
+                            <div class="orb-ring orb-ring-outer"></div>
+                            <div class="orb-ring orb-ring-mid"></div>
+                            <div class="orb-ring orb-ring-inner"></div>
+                            <div class="orb-core">
+                                <div class="orb-core-dot"></div>
+                            </div>
+                            <div class="orb-pulse"></div>
+                            <div class="orb-pulse orb-pulse-2"></div>
+                        </div>
+                    </div>
+
+                    <!-- CTA row inside card bottom -->
+                    <div class="hero-cta">
+                        <a href="/account/register" class="btn btn-primary btn-hero">Get Started Free</a>
+                        <span class="cta-dot" aria-hidden="true">·</span>
+                        <a href="/account/login" class="btn btn-ghost-hero">Sign In</a>
+                        <span class="cta-dot" aria-hidden="true">·</span>
+                        <a href="/" class="btn btn-ghost-hero">Features</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="landing-tabs-container">
+                <div class="landing-tabs">
+                    <a href="/" class="landing-tab @(ActiveTab == "capabilities" ? "active" : "")">Capabilities</a>
+                    <a href="/howitworks" class="landing-tab @(ActiveTab == "howitworks" ? "active" : "")">How It Works</a>
+                    <a href="/devnotes" class="landing-tab @(ActiveTab == "devnotes" ? "active" : "")">Developer Notes</a>
+                </div>
+
+                <div class="landing-tab-content">
+                    @if (ActiveTab == "capabilities")
+                    {
+                        <div class="tab-panel active">
+                            <div class="capabilities-grid">
+                                @{var delay = 0;}
+                                @foreach (var card in PlatformSettings.Branding.CapabilityCards)
+                                {
+                                    var d = delay++;
+                                    <div class="capability-badge" style="--delay: @d">
+                                        <div class="badge-accent-line"></div>
+                                        <div class="badge-icon">@card.Icon</div>
+                                        <h3>@card.Header</h3>
+                                        <p>@card.Description</p>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (ActiveTab == "howitworks")
+                    {
+                        <div class="tab-panel active">
+                            <div class="workflow-steps">
+                                <div class="workflow-step">
+                                    <div class="step-connector step-connector-right"></div>
+                                    <div class="step-number">01</div>
+                                    <h3>Design</h3>
+                                    <p>Drag nodes onto the canvas and connect them visually to create your automation flow</p>
+                                </div>
+                                <div class="workflow-step">
+                                    <div class="step-connector step-connector-left"></div>
+                                    <div class="step-connector step-connector-right"></div>
+                                    <div class="step-number">02</div>
+                                    <h3>Configure</h3>
+                                    <p>Set up each node with your data, APIs, AI prompts, and business logic</p>
+                                </div>
+                                <div class="workflow-step">
+                                    <div class="step-connector step-connector-left"></div>
+                                    <div class="step-number">03</div>
+                                    <h3>Deploy</h3>
+                                    <p>Run workflows on-demand, schedule triggers, or expose them as HTTP endpoints</p>
+                                </div>
+                            </div>
+                            <div class="how-it-works-cta">
+                                <a href="/account/register" class="btn btn-primary">Start Building Now</a>
+                            </div>
+                        </div>
+                    }
+                    else if (ActiveTab == "devnotes")
+                    {
+                        <div class="tab-panel active">
+                            <S2GPulseWeb.Web.Components.Shared.DeveloperNotesSection />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <footer class="landing-footer">
+                <a href="/termsofservice">Terms of Service</a>
+                <span class="footer-divider">·</span>
+                <a href="/privacystatement">Privacy Statement</a>
+            </footer>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [Parameter]
+    public string? Tab { get; set; }
+
+    private string? currentUserId;
+    private Guid? activeOrganizationId;
+    private string? activeOrganizationName;
+    private List<RunningWorkflowInfo> runningWorkflows = new();
+    private List<S2GPulseWeb.Web.Data.Workflow> userWorkflows = new();
+
+    private string ActiveTab => Tab?.ToLowerInvariant() switch
+    {
+        "howitworks" => "howitworks",
+        "devnotes" => "devnotes",
+        _ => "capabilities"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+        
+        // Get active organization context
+        activeOrganizationId = await OrganizationService.GetActiveOrganizationIdAsync(currentUserId);
+        if (activeOrganizationId.HasValue)
+        {
+            var orgs = await OrganizationService.GetUserOrganizationsAsync(currentUserId);
+            activeOrganizationName = orgs.FirstOrDefault(o => o.Id == activeOrganizationId)?.Name;
+        }
+        else
+        {
+            activeOrganizationName = null;
+        }
+        
+        // Get running workflows filtered by org context
+        runningWorkflows = WorkflowExecutionService.GetRunningWorkflows(currentUserId)
+            .Where(w => w.OrganizationId == activeOrganizationId)
+            .ToList();
+        
+        // Get user workflows filtered by org context
+        userWorkflows = await WorkflowService.GetUserWorkflowsAsync(currentUserId, activeOrganizationId);
+    }
+}
+
+<style>
+    /* ================================================================
+       AUTHORIZED DASHBOARD STYLES
+       ================================================================ */
+    .home-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem;
+        position: relative;
+        z-index: 1;
+    }
+
+    .hero-section {
+        text-align: center;
+        padding: 2.5rem 1rem 3rem;
+    }
+
+    .hero-eyebrow {
+        font-size: 0.65rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        color: var(--accent-color);
+        opacity: 0.7;
+        text-transform: uppercase;
+        margin-bottom: 0.75rem;
+    }
+
+    .hero-section h1 {
+        font-size: 2rem;
+        font-weight: 200;
+        margin-bottom: 0.5rem;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+    }
+
+    .hero-section .accent {
+        color: var(--accent-color);
+        font-weight: 500;
+    }
+
+    .tagline {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin-bottom: 1.5rem;
+        opacity: 0.6;
+        letter-spacing: 0.04em;
+    }
+
+    .cta-buttons {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+    }
+
+    .btn-lg {
+        padding: 0.55rem 1.4rem;
+        font-size: 0.85rem;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-icon {
+        font-size: 0.75em;
+        opacity: 0.8;
+    }
+
+    /* Section headers */
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .section-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .section-icon {
+        color: var(--accent-color);
+        opacity: 0.7;
+    }
+
+    .section-count {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        opacity: 0.5;
+    }
+
+    .section-link {
+        font-size: 0.75rem;
+        color: var(--accent-color);
+        text-decoration: none;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    }
+
+    .section-link:hover { opacity: 1; }
+
+    /* Pulse dot for running indicator */
+    .pulse-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--border-color);
+        display: inline-block;
+        flex-shrink: 0;
+    }
+
+    .pulse-dot.active {
+        background: var(--accent-color);
+        animation: pulseDot 1.8s ease-in-out infinite;
+        box-shadow: 0 0 0 0 rgba(0, 168, 168, 0.5);
+    }
+
+    @@keyframes pulseDot {
+        0%   { box-shadow: 0 0 0 0 rgba(0, 168, 168, 0.5); }
+        70%  { box-shadow: 0 0 0 6px rgba(0, 168, 168, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(0, 168, 168, 0); }
+    }
+
+    .dashboard-section, .my-workflows-section {
+        background: rgba(255,255,255,0.015);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.25rem;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        transition: border-color 0.3s;
+    }
+
+    .dashboard-section:hover, .my-workflows-section:hover {
+        border-color: rgba(0, 168, 168, 0.2);
+    }
+
+    /* Workflow table */
+    .workflows-table {
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .workflows-table .table {
+        color: var(--text-primary);
+        margin-bottom: 0;
+        font-size: 0.83rem;
+        background: transparent;
+    }
+
+    .workflows-table .table th {
+        background: rgba(0, 168, 168, 0.06);
+        border: none;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-weight: 400;
+        padding: 0.6rem 1rem;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .workflows-table .table td {
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid rgba(26, 64, 64, 0.5);
+        vertical-align: middle;
+        padding: 0.7rem 1rem;
+        color: rgba(255, 255, 255, 0.85);
+    }
+
+    .workflows-table .table tbody tr:last-child td { border-bottom: none; }
+    .workflows-table .table tbody tr:hover td { background: rgba(0, 168, 168, 0.04); }
+    .workflows-table .table td a { color: var(--accent-color); text-decoration: none; }
+
+    /* No workflows */
+    .no-workflows {
+        text-align: center;
+        padding: 2rem 1.5rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .no-workflows-icon {
+        font-size: 2rem;
+        color: var(--border-color);
+        margin-bottom: 0.75rem;
+        opacity: 0.6;
+    }
+
+    .no-workflows p { margin: 0 0 1rem; opacity: 0.6; }
+
+    /* Workflow cards */
+    .workflow-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .workflow-card {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        transition: all 0.25s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .card-glow {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        background: radial-gradient(ellipse at top left, rgba(0, 168, 168, 0.08) 0%, transparent 60%);
+        pointer-events: none;
+    }
+
+    .workflow-card:hover { border-color: rgba(0, 168, 168, 0.35); }
+    .workflow-card:hover .card-glow { opacity: 1; }
+    .workflow-card.running { border-color: rgba(0, 168, 168, 0.5); }
+    .workflow-card.running .card-glow { opacity: 1; }
+
+    .workflow-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 0.6rem;
+    }
+
+    .workflow-card-header h4 {
+        margin: 0;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        line-height: 1.3;
+    }
+
+    .status-badge {
+        font-size: 0.6rem;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-weight: 500;
+        flex-shrink: 0;
+        margin-left: 0.4rem;
+    }
+
+    .status-badge.running {
+        background: rgba(0, 168, 168, 0.12);
+        color: var(--accent-color);
+        border: 1px solid rgba(0, 168, 168, 0.25);
+    }
+
+    .workflow-card-body {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+        color: rgba(160, 192, 192, 0.6);
+        margin-bottom: 0.75rem;
+    }
+
+    .node-count em { font-style: normal; opacity: 0.7; }
+    .workflow-card-actions { display: flex; }
+
+    .workflow-card-actions .btn-sm {
+        padding: 0.2rem 0.6rem;
+        font-size: 0.72rem;
+        border-radius: 4px;
+    }
+
+
+    /* ================================================================
+       LANDING PAGE STYLES
+       ================================================================ */
+    .landing-page {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+        padding-bottom: 60px;
+    }
+
+    /* Animated dot-grid background */
+    .bg-grid {
+        position: fixed;
+        inset: 0;
+        background-image:
+            radial-gradient(circle, rgba(0, 168, 168, 0.12) 1px, transparent 1px);
+        background-size: 32px 32px;
+        animation: gridDrift 25s ease-in-out infinite alternate;
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    @@keyframes gridDrift {
+        from { background-position: 0 0; }
+        to   { background-position: 16px 16px; }
+    }
+
+    /* Ambient orbs */
+    .bg-orb {
+        position: fixed;
+        border-radius: 50%;
+        filter: blur(80px);
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .bg-orb-1 {
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(circle, rgba(0, 168, 168, 0.08) 0%, transparent 70%);
+        top: -100px;
+        right: -100px;
+        animation: orbFloat1 18s ease-in-out infinite;
+    }
+
+    .bg-orb-2 {
+        width: 400px;
+        height: 400px;
+        background: radial-gradient(circle, rgba(1, 77, 78, 0.12) 0%, transparent 70%);
+        bottom: 10%;
+        left: -80px;
+        animation: orbFloat2 22s ease-in-out infinite;
+    }
+
+    @@keyframes orbFloat1 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        33%       { transform: translate(-30px, 40px) scale(1.05); }
+        66%       { transform: translate(20px, -20px) scale(0.95); }
+    }
+
+    @@keyframes orbFloat2 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50%       { transform: translate(40px, -30px) scale(1.08); }
+    }
+
+    /* Scan line sweep */
+    .scan-line {
+        position: fixed;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent 0%, rgba(0, 168, 168, 0.15) 30%, rgba(0, 168, 168, 0.3) 50%, rgba(0, 168, 168, 0.15) 70%, transparent 100%);
+        animation: scanSweep 8s ease-in-out infinite;
+        z-index: 1;
+        pointer-events: none;
+    }
+
+    @@keyframes scanSweep {
+        0%   { top: -2px; opacity: 0; }
+        5%   { opacity: 1; }
+        95%  { opacity: 1; }
+        100% { top: 100vh; opacity: 0; }
+    }
+
+    /* ===== Particles ===== */
+    .particles {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .particle {
+        position: absolute;
+        left: var(--x);
+        top: var(--y);
+        width: var(--s);
+        height: var(--s);
+        border-radius: 50%;
+        background: rgba(0, 168, 168, 0.45);
+        animation: particleFloat var(--dur) ease-in-out var(--d) infinite alternate;
+    }
+
+    @@keyframes particleFloat {
+        from { transform: translate(0, 0); opacity: 0.2; }
+        to   { transform: translate(12px, -18px); opacity: 0.7; }
+    }
+
+    /* ===== Hero section ===== */
+    .landing-hero,
+    .landing-tabs-container,
+    .landing-footer {
+        position: relative;
+        z-index: 2;
+    }
+
+    .landing-hero {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4rem 2rem 2rem;
+        flex: 1;
+    }
+
+    /* ===== Hero Card ===== */
+    .hero-card {
+        position: relative;
+        max-width: 740px;
+        width: 100%;
+        background: linear-gradient(135deg,
+            rgba(10, 24, 24, 0.82) 0%,
+            rgba(8, 20, 20, 0.88) 100%);
+        border: 1px solid rgba(0, 168, 168, 0.22);
+        border-radius: 18px;
+        padding: 2.5rem 2.5rem 1.75rem;
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        box-shadow:
+            0 0 0 1px rgba(0, 168, 168, 0.06) inset,
+            0 30px 80px rgba(0, 0, 0, 0.5),
+            0 0 60px rgba(0, 168, 168, 0.06);
+        animation: cardReveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+        overflow: hidden;
+    }
+
+    /* Corner accent lines */
+    .hero-card::before,
+    .hero-card::after {
+        content: '';
+        position: absolute;
+        width: 28px;
+        height: 28px;
+        border-color: rgba(0, 168, 168, 0.55);
+        border-style: solid;
+    }
+    .hero-card::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; border-radius: 18px 0 0 0; }
+    .hero-card::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; border-radius: 0 0 18px 0; }
+
+    @@keyframes cardReveal {
+        from { opacity: 0; transform: scale(0.96) translateY(20px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .hero-card-inner {
+        display: flex;
+        align-items: center;
+        gap: 2.5rem;
+        margin-bottom: 1.75rem;
+    }
+
+    /* Brand / text side */
+    .hero-brand {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .hero-eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        color: var(--accent-color);
+        opacity: 0.6;
+        text-transform: uppercase;
+        margin-bottom: 0.8rem;
+        animation: fadeUp 0.7s ease-out 0.1s both;
+    }
+
+    .eyebrow-line {
+        display: inline-block;
+        width: 18px;
+        height: 1px;
+        background: var(--accent-color);
+        opacity: 0.5;
+        flex-shrink: 0;
+    }
+
+    .hero-brand h1 {
+        font-size: 2.6rem;
+        font-weight: 200;
+        margin: 0 0 0.6rem;
+        color: var(--text-primary);
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        animation: fadeUp 0.7s ease-out 0.2s both;
+    }
+
+    .hero-name {
+        display: block;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        color: var(--accent-color);
+    }
+
+    .hero-brand .brand-sub {
+        display: block;
+        font-weight: 200;
+        color: var(--text-secondary);
+        font-size: 0.42em;
+        letter-spacing: 0.16em;
+        margin-top: 0.2rem;
+        opacity: 0.55;
+        text-transform: uppercase;
+    }
+
+    .hero-description {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.65;
+        opacity: 0.5;
+        margin: 0;
+        max-width: 360px;
+        animation: fadeUp 0.7s ease-out 0.3s both;
+    }
+
+    /* CTA row at bottom of card */
+    .hero-cta {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid rgba(0, 168, 168, 0.1);
+        animation: fadeUp 0.7s ease-out 0.5s both;
+    }
+
+    .cta-dot {
+        color: rgba(0, 168, 168, 0.3);
+        font-size: 1.2rem;
+        line-height: 1;
+        user-select: none;
+    }
+
+    @@keyframes fadeUp {
+        from { opacity: 0; transform: translateY(14px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .btn-hero {
+        padding: 0.5rem 1.25rem;
+        font-size: 0.82rem;
+        border-radius: 6px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+    }
+
+    .btn-hero.btn-primary {
+        background: linear-gradient(135deg,
+            rgba(0, 168, 168, 0.85) 0%,
+            rgba(0, 120, 120, 0.8) 100%);
+        border: 1px solid rgba(0, 200, 200, 0.35);
+        box-shadow: 0 4px 16px rgba(0, 168, 168, 0.22);
+        color: #fff;
+    }
+
+    .btn-hero.btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 24px rgba(0, 168, 168, 0.38);
+    }
+
+    .btn-ghost-hero {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        letter-spacing: 0.03em;
+        text-decoration: none;
+        opacity: 0.55;
+        transition: opacity 0.2s, color 0.2s;
+        padding: 0.5rem 0.25rem;
+    }
+
+    .btn-ghost-hero:hover {
+        opacity: 1;
+        color: var(--accent-color);
+    }
+
+    /* ===== Animated orb (right side of card) ===== */
+    .hero-orb-container {
+        position: relative;
+        width: 160px;
+        height: 160px;
+        flex-shrink: 0;
+        animation: fadeUp 0.9s ease-out 0.4s both;
+    }
+
+    .orb-ring {
+        position: absolute;
+        border-radius: 50%;
+    }
+
+    .orb-ring-outer {
+        inset: 0;
+        border: 1px dashed rgba(0, 168, 168, 0.18);
+        animation: ringRotate 16s linear infinite;
+    }
+
+    .orb-ring-mid {
+        inset: 20px;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        animation: ringRotate 10s linear infinite reverse;
+    }
+
+    .orb-ring-inner {
+        inset: 40px;
+        border: 1px solid rgba(0, 168, 168, 0.5);
+        animation: ringRotate 6s linear infinite;
+    }
+
+    .orb-core {
+        position: absolute;
+        inset: 55px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 40% 35%,
+            rgba(0, 220, 220, 0.9) 0%,
+            rgba(0, 168, 168, 0.6) 40%,
+            rgba(0, 60, 80, 0.8) 100%);
+        box-shadow:
+            0 0 24px rgba(0, 168, 168, 0.5),
+            0 0 48px rgba(0, 168, 168, 0.15),
+            inset 0 0 14px rgba(0, 200, 200, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .orb-core-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 0 8px rgba(255,255,255,0.6);
+        animation: coreDot 2s ease-in-out infinite alternate;
+    }
+
+    @@keyframes coreDot {
+        from { opacity: 0.4; transform: scale(0.8); }
+        to   { opacity: 1; transform: scale(1.2); }
+    }
+
+    .orb-pulse {
+        position: absolute;
+        inset: 47px;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 168, 168, 0.45);
+        animation: orbPulse 3s ease-out infinite;
+    }
+
+    .orb-pulse-2 {
+        animation-delay: 1.5s;
+    }
+
+    @@keyframes ringRotate {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
+    }
+
+    @@keyframes orbPulse {
+        0%   { transform: scale(1); opacity: 0.7; }
+        100% { transform: scale(2.2); opacity: 0; }
+    }
+
+
+    /* ===== Landing Tabs ===== */
+    .landing-tabs-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        max-width: 980px;
+        margin: 0 auto;
+        width: 100%;
+        padding: 0 1.5rem;
+    }
+
+    .landing-tabs {
+        display: flex;
+        justify-content: center;
+        gap: 0.25rem;
+        margin-bottom: 2rem;
+        padding: 0.3rem;
+        background: rgba(10, 26, 26, 0.7);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 168, 168, 0.12);
+        border-radius: 10px;
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .landing-tab {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        padding: 0.5rem 1.1rem;
+        font-size: 0.82rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border-radius: 7px;
+        text-decoration: none;
+        letter-spacing: 0.02em;
+        opacity: 0.65;
+    }
+
+    .landing-tab:hover {
+        color: var(--text-primary);
+        opacity: 0.9;
+        background: rgba(0, 168, 168, 0.06);
+    }
+
+    .landing-tab.active {
+        color: var(--accent-color);
+        background: rgba(0, 168, 168, 0.1);
+        border: 1px solid rgba(0, 168, 168, 0.2);
+        opacity: 1;
+    }
+
+    .landing-tab-content { flex: 1; }
+
+    .tab-panel { animation: tabFadeIn 0.35s ease both; }
+    .tab-panel.active { display: block; }
+
+    @@keyframes tabFadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+
+    /* ===== Capabilities Grid ===== */
+    .capabilities-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+        gap: 1px;
+        background: var(--border-color);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .capability-badge {
+        background: rgba(10, 26, 26, 0.9);
+        padding: 1.5rem 1.25rem;
+        position: relative;
+        overflow: hidden;
+        transition: background 0.3s ease;
+        animation: fadeSlideIn 0.5s ease-out forwards;
+        animation-delay: calc(var(--delay) * 0.07s);
+        opacity: 0;
+    }
+
+    .capability-badge:hover {
+        background: rgba(0, 168, 168, 0.05);
+    }
+
+    .badge-accent-line {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(0, 168, 168, 0.5), transparent);
+        transform: scaleX(0);
+        transform-origin: left;
+        transition: transform 0.4s ease;
+    }
+
+    .capability-badge:hover .badge-accent-line {
+        transform: scaleX(1);
+    }
+
+    @@keyframes fadeSlideIn {
+        to { opacity: 1; }
+    }
+
+    .badge-icon {
+        font-size: 1.4rem;
+        color: var(--accent-color);
+        opacity: 0.6;
+        margin-bottom: 0.75rem;
+        display: block;
+        line-height: 1;
+    }
+
+    .capability-badge h3 {
+        color: var(--text-primary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.4rem;
+        letter-spacing: 0.01em;
+    }
+
+    .capability-badge p {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.5;
+        margin: 0;
+        opacity: 0.65;
+    }
+
+
+    /* ===== How It Works ===== */
+    .workflow-steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0;
+        margin-bottom: 2.5rem;
+        position: relative;
+    }
+
+    .workflow-step {
+        text-align: center;
+        padding: 2rem 1.5rem;
+        position: relative;
+        background: rgba(10, 26, 26, 0.6);
+        border: 1px solid var(--border-color);
+        border-right: none;
+        transition: background 0.3s ease;
+    }
+
+    .workflow-step:last-child { border-right: 1px solid var(--border-color); }
+    .workflow-step:first-child { border-radius: 10px 0 0 10px; }
+    .workflow-step:last-child { border-radius: 0 10px 10px 0; }
+
+    .workflow-step:hover { background: rgba(0, 168, 168, 0.04); }
+
+    .step-connector {
+        position: absolute;
+        top: 50%;
+        width: 24px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(0, 168, 168, 0.4), rgba(0, 168, 168, 0.1));
+        z-index: 1;
+    }
+
+    .step-connector-right { right: -12px; }
+    .step-connector-left {
+        left: -12px;
+        background: linear-gradient(90deg, rgba(0, 168, 168, 0.1), rgba(0, 168, 168, 0.4));
+    }
+
+    .step-number {
+        font-size: 2rem;
+        font-weight: 100;
+        color: var(--accent-color);
+        opacity: 0.3;
+        line-height: 1;
+        margin-bottom: 0.75rem;
+        font-family: 'Courier New', monospace;
+        letter-spacing: -0.05em;
+    }
+
+    .workflow-step h3 {
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        letter-spacing: 0.03em;
+    }
+
+    .workflow-step p {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        margin: 0;
+        line-height: 1.5;
+        opacity: 0.6;
+    }
+
+    .how-it-works-cta { text-align: center; margin-top: 1.5rem; }
+
+
+    /* ===== Footer ===== */
+    .landing-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        text-align: center;
+        padding: 0.875rem 2rem;
+        border-top: 1px solid rgba(26, 64, 64, 0.5);
+        background: linear-gradient(180deg,
+            rgba(10, 26, 26, 0.0) 0%,
+            rgba(10, 26, 26, 0.95) 100%);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        z-index: 100;
+    }
+
+    .landing-footer a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.78rem;
+        transition: color 0.2s;
+        opacity: 0.45;
+        letter-spacing: 0.03em;
+    }
+
+    .landing-footer a:hover {
+        color: var(--accent-color);
+        opacity: 1;
+    }
+
+    .footer-divider {
+        color: var(--border-color);
+        margin: 0 0.6rem;
+        opacity: 0.5;
+    }
+
+
+    /* ===== Responsive ===== */
+    @@media (max-width: 768px) {
+        .hero-card { padding: 1.75rem 1.25rem 1.5rem; }
+        .hero-card-inner { flex-direction: column; gap: 1.5rem; text-align: center; }
+        .hero-brand h1 { font-size: 2rem; }
+        .hero-description { margin: 0 auto; }
+        .hero-eyebrow { justify-content: center; }
+        .hero-orb-container { width: 120px; height: 120px; }
+        .orb-core { inset: 42px; }
+        .orb-ring-inner { inset: 30px; }
+        .orb-ring-mid { inset: 15px; }
+        .orb-pulse { inset: 36px; }
+        .hero-cta { flex-wrap: wrap; gap: 0.5rem; }
+        .capabilities-grid { grid-template-columns: 1fr; }
+        .workflow-steps { grid-template-columns: 1fr; }
+        .workflow-step { border-right: 1px solid var(--border-color); border-bottom: none; }
+        .workflow-step:first-child { border-radius: 10px 10px 0 0; }
+        .workflow-step:last-child { border-radius: 0 0 10px 10px; border-bottom: 1px solid var(--border-color); }
+        .step-connector { display: none; }
+        .landing-tabs { flex-wrap: wrap; }
+    }
+</style>

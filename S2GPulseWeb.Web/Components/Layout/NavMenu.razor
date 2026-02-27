@@ -1,0 +1,269 @@
+﻿@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject SignInManager<ApplicationUser> SignInManager
+@inject SubscriptionService SubscriptionService
+@inject OrganizationService OrganizationService
+@inject NavigationManager NavigationManager
+@inject IConfiguration Configuration
+
+<nav class="nav-tabs-container">
+    <div class="nav-tabs">
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                        <span class="nav-icon">🏠</span> Home
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="workflow">
+                        <span class="nav-icon">⚡</span> Workflow
+                    </NavLink>
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="logs">
+                        <span class="nav-icon">📋</span> Logs
+                    </NavLink>
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="knowledge">
+                        <span class="nav-icon">📚</span> Knowledge
+                    </NavLink>
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="settings">
+                        <span class="nav-icon">⚙️</span> Settings
+                    </NavLink>
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="api-keys">
+                        <span class="nav-icon">🔐</span> API Keys
+                    </NavLink>
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="connections">
+                        <span class="nav-icon">🔗</span> Connections
+                    </NavLink>
+                </div>
+                @if (hasOrganizationsAccess)
+                {
+                    <div class="nav-item">
+                        <NavLink class="nav-link" href="organizations">
+                            <span class="nav-icon">🏢</span> Organizations
+                            @if (activeOrganization != null)
+                            {
+                                <span class="org-indicator">@activeOrganization</span>
+                            }
+                        </NavLink>
+                    </div>
+                }
+                @if (isAdmin)
+                {
+                    <div class="nav-item">
+                        <NavLink class="nav-link admin-link" href="admin">
+                            <span class="nav-icon">🔑</span> Admin
+                        </NavLink>
+                    </div>
+                }
+            </Authorized>
+        </AuthorizeView>
+    </div>
+    
+    <div class="nav-auth">
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item profile-item">
+                    <NavLink class="nav-link" href="account/profile">
+                        <span class="nav-icon">👤</span> Profile
+                    </NavLink>
+                    @if (currentPlan != null)
+                    {
+                        <span class="tier-badge" style="@GetBadgeStyle(currentPlan)">
+                            @if (!string.IsNullOrEmpty(currentPlan.SvgIcon))
+                            {
+                                @((MarkupString)currentPlan.SvgIcon)
+                            }
+                            <span>@currentPlan.Name</span>
+                        </span>
+                    }
+                    else if (currentTier != null)
+                    {
+                        <span class="tier-badge tier-@(currentTier.ToString()!.ToLower())">@currentTier</span>
+                    }
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link logout-link" href="account/logout">
+                        <span class="nav-icon">🚪</span> Logout
+                    </NavLink>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                @if (!isSelfHosted)
+                {
+                    <div class="nav-item">
+                        <NavLink class="nav-link" href="pricing">
+                            <span class="nav-icon">💳</span> Pricing
+                        </NavLink>
+                    </div>
+                }
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="account/login">
+                        <span class="nav-icon">👤</span> Login
+                    </NavLink>
+                </div>
+                <div class="nav-item">
+                    <NavLink class="nav-link" href="account/register">
+                        <span class="nav-icon">➕</span> Register
+                    </NavLink>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+</nav>
+
+@code {
+    private bool isAdmin = false;
+    private bool isSelfHosted = false;
+    private bool hasOrganizationsAccess = false;
+    private SubscriptionTier? currentTier;
+    private MembershipPlan? currentPlan;
+    private string? activeOrganization;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        isSelfHosted = Configuration.GetValue<bool>("SelfHosted");
+        
+        if (AuthStateTask != null)
+        {
+            var authState = await AuthStateTask;
+            if (authState.User.Identity?.IsAuthenticated == true)
+            {
+                // Get user's subscription tier using claims-based user ID (avoids DbContext concurrency)
+                var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    // Use IsAdminAsync for proper self-hosted first-user-admin detection
+                    isAdmin = await SubscriptionService.IsAdminAsync(userId);
+                    
+                    // Try to get the membership plan first (new system)
+                    currentPlan = await SubscriptionService.GetUserPlanAsync(userId);
+                    
+                    // Fallback to tier-based display
+                    if (currentPlan == null)
+                    {
+                        #pragma warning disable CS0618
+                        currentTier = await SubscriptionService.GetTierAsync(userId);
+                        #pragma warning restore CS0618
+                    }
+                    
+                    // Check organizations access: self-hosted gets full access, otherwise check plan
+                    if (isSelfHosted)
+                    {
+                        hasOrganizationsAccess = true;
+                    }
+                    else
+                    {
+                        var userOrgs = await OrganizationService.GetUserOrganizationsAsync(userId);
+                        
+                        // Show tab if user can create orgs OR is member of any org (invited by others)
+                        if (currentPlan?.MaxOrganizations > 0 || userOrgs.Any())
+                        {
+                            hasOrganizationsAccess = true;
+                            var activeOrgId = await OrganizationService.GetActiveOrganizationIdAsync(userId);
+                            if (activeOrgId.HasValue)
+                            {
+                                activeOrganization = userOrgs.FirstOrDefault(o => o.Id == activeOrgId)?.Name;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private string GetBadgeStyle(MembershipPlan plan)
+    {
+        return $"background: linear-gradient(135deg, {plan.BadgeColorGradientStart ?? "#667eea"}, {plan.BadgeColorGradientEnd ?? "#764ba2"}); " +
+               $"color: {plan.BadgeTextColor ?? "#fff"}; " +
+               $"border: 1px solid {plan.BadgeBorderColor ?? "#667eea"};";
+    }
+}
+
+<style>
+    .profile-item {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .tier-badge {
+        font-size: 0.65rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        line-height: 1;
+    }
+    
+    .tier-badge.tier-free {
+        background: linear-gradient(135deg, #4a5568, #2d3748);
+        color: #a0aec0;
+        border: 1px solid #4a5568;
+    }
+    
+    .tier-badge.tier-starter {
+        background: linear-gradient(135deg, #38a169, #276749);
+        color: #c6f6d5;
+        border: 1px solid #48bb78;
+    }
+    
+    .tier-badge.tier-pro {
+        background: linear-gradient(135deg, #4299e1, #2b6cb0);
+        color: #bee3f8;
+        border: 1px solid #63b3ed;
+    }
+    
+    .tier-badge.tier-business {
+        background: linear-gradient(135deg, #9f7aea, #6b46c1);
+        color: #e9d8fd;
+        border: 1px solid #b794f4;
+    }
+    
+    .tier-badge :deep(svg) {
+        width: 14px;
+        height: 14px;
+        min-width: 14px;
+        min-height: 14px;
+        max-width: 14px;
+        max-height: 14px;
+        flex-shrink: 0;
+    }
+    
+    .org-indicator {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.3rem;
+        border-radius: 4px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        margin-left: 0.25rem;
+        max-width: 60px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+</style>

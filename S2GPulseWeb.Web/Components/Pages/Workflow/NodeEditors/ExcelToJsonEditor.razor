@@ -1,0 +1,137 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>Content (Base64):</label>
+        <textarea rows="2" value="@Config.ContentBase64" @onchange="OnContentChanged" class="form-control" 
+                  placeholder="{{FileDownload.ContentBase64}} or {{S2GStorage.Content}}"></textarea>
+        <small class="text-muted">Base64-encoded Excel file from FileDownload, S2GStorage, or AzureBlob node.</small>
+    </div>
+
+    <div class="node-property mt-2">
+        <label>Sheet Name (optional):</label>
+        <input type="text" value="@Config.SheetName" @onchange="OnSheetNameChanged" class="form-control" 
+               placeholder="Leave empty to process all sheets" />
+        <small class="text-muted">Process a specific sheet only. If empty, all sheets are processed and output separately.</small>
+    </div>
+
+    <details style="margin-top: 12px;">
+        <summary style="cursor: pointer; color: #9b59b6; font-size: 0.85rem; user-select: none;">
+            🔧 Advanced Options
+        </summary>
+        <div style="padding: 8px; background: #1a1a2e; border-radius: 0 0 6px 6px; margin-top: 4px;">
+            <div class="node-property">
+                <label>Header Detection Rows:</label>
+                <input type="number" value="@Config.HeaderDetectionRows" @onchange="OnHeaderRowsChanged" 
+                       class="form-control" min="1" max="100" />
+                <small class="text-muted">Number of rows to scan to find the header row (default: 10).</small>
+            </div>
+
+            <div class="node-property mt-2">
+                <label>Type Inference Rows:</label>
+                <input type="number" value="@Config.TypeInferenceRows" @onchange="OnTypeRowsChanged" 
+                       class="form-control" min="1" max="20" />
+                <small class="text-muted">Number of data rows to sample for determining column types (default: 4).</small>
+            </div>
+
+            <div class="node-property mt-2" style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="includeEmpty" checked="@Config.IncludeEmptyRows" 
+                       @onchange="OnIncludeEmptyChanged" style="accent-color: #9b59b6;" />
+                <label for="includeEmpty" style="margin-bottom: 0; cursor: pointer;">Include Empty Rows</label>
+            </div>
+            <small class="text-muted">If checked, empty rows are included in output as objects with null values.</small>
+        </div>
+    </details>
+
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+
+    <div class="output-info mt-3" style="background: #0a1a1a; border: 1px solid #00a8a8; border-radius: 6px; padding: 10px;">
+        <div style="color: #00d4d4; font-weight: bold; font-size: 0.85rem; margin-bottom: 6px;">📤 Output Parameters</div>
+        <div style="font-size: 0.8rem; color: #aaa;">
+            <div><code style="color: #00d4d4;">Json</code> - JSON string of all data arrays</div>
+            <div><code style="color: #00d4d4;">Schema</code> - Detected column schema (name, type, index)</div>
+            <div><code style="color: #00d4d4;">SheetNames</code> - List of processed sheet names</div>
+            <div><code style="color: #00d4d4;">RowCount</code> - Total rows across all sheets</div>
+            <div><code style="color: #00d4d4;">Success</code> - Boolean indicating success</div>
+            <div><code style="color: #00d4d4;">ErrorMessage</code> - Error description if failed</div>
+        </div>
+    </div>
+
+    <details style="margin-top: 12px;">
+        <summary style="cursor: pointer; color: #3498db; font-size: 0.85rem; user-select: none;">
+            💡 Usage Tips
+        </summary>
+        <div style="padding: 8px; background: #0d1a2d; border: 1px solid #3498db; border-radius: 0 0 6px 6px; font-size: 0.8rem; color: #aaa;">
+            <p><strong>Input Sources:</strong> Connect to FileDownload, S2GStorage (Read), or AzureBlob (Read) nodes.</p>
+            <p><strong>Header Detection:</strong> The node scans up to N rows to find the first non-empty row as the header row.</p>
+            <p><strong>Type Inference:</strong> String, Number, Boolean, Date types are detected from sample rows.</p>
+            <p><strong>Multi-Sheet:</strong> When processing all sheets, output contains sheet names as keys.</p>
+        </div>
+    </details>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private ExcelToJsonConfig Config { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Configuration))
+        {
+            try
+            {
+                Config = JsonSerializer.Deserialize<ExcelToJsonConfig>(Configuration) ?? new();
+            }
+            catch
+            {
+                Config = new ExcelToJsonConfig();
+            }
+        }
+    }
+
+    private void OnContentChanged(ChangeEventArgs e)
+    {
+        Config.ContentBase64 = e.Value?.ToString() ?? "";
+        NotifyChanged();
+    }
+
+    private void OnSheetNameChanged(ChangeEventArgs e)
+    {
+        Config.SheetName = e.Value?.ToString() ?? "";
+        NotifyChanged();
+    }
+
+    private void OnHeaderRowsChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val))
+        {
+            Config.HeaderDetectionRows = Math.Max(1, Math.Min(100, val));
+            NotifyChanged();
+        }
+    }
+
+    private void OnTypeRowsChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val))
+        {
+            Config.TypeInferenceRows = Math.Max(1, Math.Min(20, val));
+            NotifyChanged();
+        }
+    }
+
+    private void OnIncludeEmptyChanged(ChangeEventArgs e)
+    {
+        Config.IncludeEmptyRows = (bool)(e.Value ?? false);
+        NotifyChanged();
+    }
+
+    private void NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        OnConfigurationChanged.InvokeAsync(json);
+    }
+}

@@ -1,0 +1,2443 @@
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@using System.Text.Json
+@using System.Net.Http
+@inject CustomNodeService CustomNodeService
+@inject BuiltInNodeCatalogService BuiltInNodeCatalogService
+@inject IHttpClientFactory HttpClientFactory
+
+<div class="node-designer">
+    <div class="designer-header">
+        <h2>🧩 Custom Node Designer</h2>
+        <p class="subtitle">Create and manage custom workflow nodes with JavaScript logic</p>
+    </div>
+
+    <div class="designer-tabs">
+        <button class="designer-tab @(activeSection == "categories" ? "active" : "")" 
+                @onclick="SetCategoriesTab">
+            📁 Categories
+        </button>
+        <button class="designer-tab @(activeSection == "nodes" ? "active" : "")" 
+                @onclick="SetNodesTab">
+            🔧 Node Definitions
+        </button>
+        @if (editingNode != null)
+        {
+            <button class="designer-tab @(activeSection == "editor" ? "active" : "")" 
+                    @onclick="SetEditorTab">
+                ✏️ Editor
+            </button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading-state">Loading...</div>
+    }
+    else
+    {
+        @if (activeSection == "categories")
+        {
+            <div class="section-content">
+                <div class="section-toolbar">
+                    <button class="btn btn-primary" @onclick="CreateNewCategory">
+                        ➕ New Category
+                    </button>
+                </div>
+
+                <div class="items-grid">
+                    @foreach (var category in categories)
+                    {
+                        <div class="item-card">
+                            <div class="item-icon">
+                                @if (!string.IsNullOrWhiteSpace(category.IconSvg))
+                                {
+                                    <div class="category-svg-icon">@((MarkupString)category.IconSvg)</div>
+                                }
+                                else
+                                {
+                                    @category.IconEmoji
+                                }
+                            </div>
+                            <div class="item-details">
+                                <h4>@category.Name</h4>
+                                <p>@(category.Description ?? "No description")</p>
+                                <span class="item-meta">
+                                    Order: @category.DisplayOrder
+                                </span>
+                            </div>
+                            <div class="item-actions">
+                                <button class="btn btn-sm btn-edit" @onclick="() => EditCategory(category)">✏️</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteCategory(category.Id)">🗑️</button>
+                            </div>
+                        </div>
+                    }
+                    @if (!categories.Any())
+                    {
+                        <div class="empty-state">No categories yet. Create one to organize your custom nodes.</div>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (activeSection == "nodes")
+        {
+            <div class="section-content">
+                <div class="section-toolbar">
+                    <button class="btn btn-primary" @onclick="CreateNewNode">
+                        ➕ New Node
+                    </button>
+                    <button class="btn btn-secondary" @onclick="ShowImportModal">
+                        📥 Import Node
+                    </button>
+                    <div class="toolbar-spacer"></div>
+                    <select class="filter-select" @onchange="OnCategoryFilterChanged" value="@categoryFilter">
+                        <option value="all">All Categories</option>
+                        <option value="none">⚠️ No Category</option>
+                        @foreach (var cat in categories)
+                        {
+                            <option value="@cat.Id">@cat.IconEmoji @cat.Name</option>
+                        }
+                    </select>
+                    <input type="text" class="search-input" placeholder="Search nodes..." 
+                           value="@nodeSearchQuery" @oninput="OnSearchChanged" />
+                </div>
+
+                <div class="items-grid">
+                    @foreach (var node in FilteredNodes)
+                    {
+                        <div class="item-card @(node.IsEnabled ? "" : "disabled")">
+                            <div class="item-icon">
+                                @if (!string.IsNullOrWhiteSpace(node.IconSvg))
+                                {
+                                    <div class="node-svg-icon">@((MarkupString)node.IconSvg)</div>
+                                }
+                            </div>
+                            <div class="item-details">
+                                <h4>@node.DisplayName</h4>
+                                <p class="node-type-key">@node.NodeTypeKey</p>
+                                <span class="item-meta">
+                                    @if (!string.IsNullOrEmpty(node.CategoryName))
+                                    {
+                                        <span class="category-badge">@node.CategoryEmoji @node.CategoryName</span>
+                                        <span class="meta-sep">•</span>
+                                    }
+                                    @node.ExecutionType • v@(node.Version)
+                                    @if (!node.IsEnabled)
+                                    {
+                                        <span class="badge badge-disabled">Disabled</span>
+                                    }
+                                </span>
+                            </div>
+                            <div class="item-actions">
+                                <button class="btn btn-sm btn-edit" @onclick="() => EditNodeAsync(node.Id)" disabled="@isLoadingNode">✏️</button>
+                                <button class="btn btn-sm btn-secondary" @onclick="() => ExportNode(node.Id)">📤</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteNode(node.Id)">🗑️</button>
+                            </div>
+                        </div>
+                    }
+                    @if (!FilteredNodes.Any())
+                    {
+                        <div class="empty-state">
+                            @if (categoryFilter == "none")
+                            {
+                                <text>All nodes have categories assigned. ✅</text>
+                            }
+                            else if (!string.IsNullOrEmpty(nodeSearchQuery))
+                            {
+                                <text>No nodes match your search.</text>
+                            }
+                            else
+                            {
+                                <text>No custom nodes defined yet. Create your first node!</text>
+                            }
+                        </div>
+                    }
+                </div>
+                
+                @if (TotalPages > 1)
+                {
+                    <div class="pagination-controls">
+                        <button class="btn btn-sm btn-secondary" @onclick="() => GoToPage(1)" disabled="@(currentPage == 1)">
+                            ⏮️
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage == 1)">
+                            ◀️
+                        </button>
+                        <span class="pagination-info">
+                            Page @currentPage of @TotalPages (@TotalFilteredCount nodes)
+                        </span>
+                        <button class="btn btn-sm btn-secondary" @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage >= TotalPages)">
+                            ▶️
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="() => GoToPage(TotalPages)" disabled="@(currentPage >= TotalPages)">
+                            ⏭️
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (activeSection == "editor" && editingNode != null)
+        {
+            <div class="section-content editor-section">
+                <div class="editor-header">
+                    <h3>@(isNewNode ? "Create New Node" : $"Edit: {editingNode.DisplayName}")</h3>
+                    <div class="editor-actions">
+                        <button class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
+                        <button class="btn btn-primary" @onclick="SaveNode" disabled="@isSaving">
+                            @(isSaving ? "Saving..." : "Save Node")
+                        </button>
+                    </div>
+                </div>
+
+                <div class="editor-tabs">
+                    <button class="editor-tab @(editorTab == "general" ? "active" : "")" 
+                            @onclick="SetEditorTabGeneral">General</button>
+                    <button class="editor-tab @(editorTab == "inputs" ? "active" : "")" 
+                            @onclick="SetEditorTabInputs">Inputs (@editingNode.InputFields.Count)</button>
+                    <button class="editor-tab @(editorTab == "outputs" ? "active" : "")" 
+                            @onclick="SetEditorTabOutputs">Outputs (@editingNode.OutputParameters.Count)</button>
+                    <button class="editor-tab @(editorTab == "script" ? "active" : "")" 
+                            @onclick="SetEditorTabScript">Script</button>
+                    <button class="editor-tab @(editorTab == "tags" ? "active" : "")" 
+                            @onclick="SetEditorTabTags">Tags (@editingNode.ConnectionTags.Count)</button>
+                    <button class="editor-tab @(editorTab == "test" ? "active" : "")" 
+                            @onclick="SetEditorTabTest">🧪 Test</button>
+                </div>
+
+                <div class="editor-content">
+                    @if (editorTab == "general")
+                    {
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Node Type Key *</label>
+                                <input type="text" class="form-control" @bind="editingNode.NodeTypeKey" 
+                                       placeholder="e.g., Custom_JsonTransformer" />
+                                <span class="form-hint">Must start with "Custom_"</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Display Name *</label>
+                                <input type="text" class="form-control" @bind="editingNode.DisplayName" 
+                                       placeholder="e.g., JSON Transformer" />
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Description</label>
+                                <textarea class="form-control" @bind="editingNode.Description" rows="2"
+                                          placeholder="Describe what this node does..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Category</label>
+                                <select class="form-control" @bind="editingNode.CategoryId">
+                                    <option value="">-- No Category --</option>
+                                    @foreach (var cat in categories)
+                                    {
+                                        <option value="@cat.Id">@cat.IconEmoji @cat.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Execution Type</label>
+                                <select class="form-control" @bind="editingNode.ExecutionType">
+                                    @foreach (var type in Enum.GetValues<CustomNodeExecutionType>())
+                                    {
+                                        <option value="@type">@type</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Timeout (seconds)</label>
+                                <input type="number" class="form-control" @bind="editingNode.TimeoutSeconds" min="1" max="300" />
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Icon SVG</label>
+                                <div class="svg-editor-row">
+                                    <textarea class="form-control code-input" @bind="editingNode.IconSvg" @bind:event="oninput" rows="4"
+                                              placeholder="<svg viewBox='0 0 24 24'>...</svg>"></textarea>
+                                    <div class="svg-preview-box">
+                                        <span class="preview-label">Preview</span>
+                                        <div class="svg-preview">
+                                            @if (!string.IsNullOrWhiteSpace(editingNode.IconSvg))
+                                            {
+                                                @((MarkupString)editingNode.IconSvg)
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" @bind="editingNode.IsEnabled" />
+                                    <span>Enabled</span>
+                                </label>
+                            </div>
+                        </div>
+                    }
+
+                    @if (editorTab == "inputs")
+                    {
+                        <div class="list-editor">
+                            <button class="btn btn-sm btn-primary" @onclick="AddInputField">➕ Add Input Field</button>
+                            <div class="list-items">
+                                @foreach (var field in editingNode.InputFields.OrderBy(f => f.DisplayOrder))
+                                {
+                                    <div class="list-item">
+                                        <div class="list-item-header">
+                                            <span class="field-name">@field.FieldName</span>
+                                            <span class="field-type">@field.FieldType</span>
+                                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveInputField(field)">✕</button>
+                                        </div>
+                                        <div class="list-item-body">
+                                            <input type="text" placeholder="Field Name" @bind="field.FieldName" class="form-control-sm" />
+                                            <input type="text" placeholder="Display Label" @bind="field.DisplayLabel" class="form-control-sm" />
+                                            <select @bind="field.FieldType" class="form-control-sm">
+                                                @foreach (var type in Enum.GetValues<CustomFieldType>())
+                                                {
+                                                    <option value="@type">@type</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="list-item-body">
+                                            <input type="text" placeholder="Default Value" @bind="field.DefaultValue" class="form-control-sm" title="Default Value" />
+                                            <input type="text" placeholder="Placeholder Text" @bind="field.PlaceholderText" class="form-control-sm" title="Placeholder Text" />
+                                            <input type="text" placeholder="Help Text" @bind="field.HelpText" class="form-control-sm" title="Help Text" />
+                                        </div>
+                                        <div class="list-item-body">
+                                            <label class="checkbox-label-sm">
+                                                <input type="checkbox" @bind="field.IsRequired" /> Required
+                                            </label>
+                                            <label class="checkbox-label-sm">
+                                                <input type="checkbox" @bind="field.AllowPlaceholders" /> Allow Placeholders
+                                            </label>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (editorTab == "outputs")
+                    {
+                        <div class="list-editor">
+                            <button class="btn btn-sm btn-primary" @onclick="AddOutputParam">➕ Add Output Parameter</button>
+                            <div class="list-items">
+                                @foreach (var param in editingNode.OutputParameters.OrderBy(p => p.DisplayOrder))
+                                {
+                                    <div class="list-item">
+                                        <div class="list-item-header">
+                                            <span class="field-name">@param.ParameterName</span>
+                                            <span class="field-type">@param.DataType</span>
+                                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveOutputParam(param)">✕</button>
+                                        </div>
+                                        <div class="list-item-body">
+                                            <input type="text" placeholder="Parameter Name" @bind="param.ParameterName" class="form-control-sm" />
+                                            <input type="text" placeholder="Description" @bind="param.Description" class="form-control-sm" />
+                                            <select @bind="param.DataType" class="form-control-sm">
+                                                <option value="string">string</option>
+                                                <option value="int">int</option>
+                                                <option value="bool">bool</option>
+                                                <option value="object">object</option>
+                                                <option value="array">array</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (editorTab == "script")
+                    {
+                        <div class="script-editor">
+                            <div class="script-help">
+                                <details>
+                                    <summary>📚 Available APIs</summary>
+                                    <ul>
+                                        <li><code>input.get("fieldName")</code> - Get input field value</li>
+                                        <li><code>upstream.get("NodeName.Param")</code> - Get upstream data</li>
+                                        <li><code>output.set("name", value)</code> - Set output</li>
+                                        <li><code>tags.trigger("tagName")</code> - Trigger connection tag</li>
+                                        <li><code>log.info/warn/error/debug("msg")</code> - Logging</li>
+                                        <li><code>json.parse(str)</code> / <code>json.stringify(obj)</code></li>
+                                    </ul>
+                                </details>
+                            </div>
+                            <label>JavaScript Code</label>
+                            <textarea class="form-control code-input" @bind="editingNode.Script" rows="20"
+                                      placeholder="// Your JavaScript code here..."></textarea>
+                        </div>
+                    }
+
+                    @if (editorTab == "tags")
+                    {
+                        <div class="list-editor">
+                            <button class="btn btn-sm btn-primary" @onclick="AddConnectionTag">➕ Add Connection Tag</button>
+                            <p class="help-text">Connection tags allow conditional routing. Use <code>tags.trigger("tagName")</code> in your script.</p>
+                            <div class="list-items">
+                                @foreach (var tag in editingNode.ConnectionTags.OrderBy(t => t.DisplayOrder))
+                                {
+                                    <div class="list-item">
+                                        <div class="list-item-header">
+                                            <span class="field-name" style="@(string.IsNullOrEmpty(tag.Color) ? "" : $"color: {tag.Color}")">
+                                                @tag.TagName
+                                            </span>
+                                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveConnectionTag(tag)">✕</button>
+                                        </div>
+                                        <div class="list-item-body">
+                                            <input type="text" placeholder="Tag Name" @bind="tag.TagName" class="form-control-sm" />
+                                            <input type="text" placeholder="Description" @bind="tag.Description" class="form-control-sm" />
+                                            <input type="color" @bind="tag.Color" class="color-input" title="Tag Color" />
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (editorTab == "test")
+                    {
+                        <div class="test-panel">
+                            <div class="test-layout">
+                                @* Left: Node Preview Card *@
+                                <div class="node-preview-card">
+                                    <div class="node-preview-header">
+                                        <div class="node-preview-icon">
+                                            @if (!string.IsNullOrWhiteSpace(editingNode.IconSvg))
+                                            {
+                                                @((MarkupString)editingNode.IconSvg)
+                                            }
+                                        </div>
+                                        <div class="node-preview-title">
+                                            <h4>@editingNode.DisplayName</h4>
+                                            <span class="node-preview-type">@editingNode.NodeTypeKey</span>
+                                        </div>
+                                    </div>
+
+                                    @* Input Fields Preview *@
+                                    <div class="node-preview-section">
+                                        <h5>📥 Inputs</h5>
+                                        @if (editingNode.InputFields.Any())
+                                        {
+                                            @foreach (var field in editingNode.InputFields.OrderBy(f => f.DisplayOrder))
+                                            {
+                                                <div class="preview-field">
+                                                    <label>
+                                                        @field.DisplayLabel
+                                                        @if (field.IsRequired) { <span class="required">*</span> }
+                                                    </label>
+                                                    @switch (field.FieldType)
+                                                    {
+                                                        case CustomFieldType.Text:
+                                                            <input type="text" class="form-control-sm" 
+                                                                   placeholder="@(field.PlaceholderText ?? field.FieldName)"
+                                                                   @bind="testInputValues[field.FieldName]" />
+                                                            break;
+                                                        case CustomFieldType.TextArea:
+                                                            <textarea class="form-control-sm" rows="2"
+                                                                      placeholder="@(field.PlaceholderText ?? field.FieldName)"
+                                                                      @bind="testInputValues[field.FieldName]"></textarea>
+                                                            break;
+                                                        case CustomFieldType.Number:
+                                                            <input type="number" class="form-control-sm"
+                                                                   placeholder="@(field.PlaceholderText ?? "0")"
+                                                                   @bind="testInputValues[field.FieldName]" />
+                                                            break;
+                                                        case CustomFieldType.Boolean:
+                                                            <label class="checkbox-label">
+                                                                <input type="checkbox" @bind="testCheckboxValues[field.FieldName]" />
+                                                                <span>@field.DisplayLabel</span>
+                                                            </label>
+                                                            break;
+                                                        default:
+                                                            <input type="text" class="form-control-sm"
+                                                                   placeholder="@(field.PlaceholderText ?? field.FieldName)"
+                                                                   @bind="testInputValues[field.FieldName]" />
+                                                            break;
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(field.HelpText))
+                                                    {
+                                                        <span class="field-help">@field.HelpText</span>
+                                                    }
+                                                </div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="no-items">No input fields defined</span>
+                                        }
+                                    </div>
+
+                                    @* Output Parameters Preview *@
+                                    <div class="node-preview-section">
+                                        <h5>📤 Outputs</h5>
+                                        @if (editingNode.OutputParameters.Any())
+                                        {
+                                            <div class="output-params-list">
+                                                @foreach (var param in editingNode.OutputParameters.OrderBy(p => p.DisplayOrder))
+                                                {
+                                                    <span class="output-param" title="@param.Description">
+                                                        @("{{")<span>@editingNode.NodeTypeKey.Replace("Custom_", "").@param.ParameterName</span>@("}}")
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="no-items">No output parameters defined</span>
+                                        }
+                                    </div>
+
+                                    @* Connection Tags *@
+                                    @if (editingNode.ConnectionTags.Any())
+                                    {
+                                        <div class="node-preview-section">
+                                            <h5>🏷️ Tags</h5>
+                                            <div class="tag-list">
+                                                @foreach (var tag in editingNode.ConnectionTags)
+                                                {
+                                                    <span class="connection-tag" style="@(string.IsNullOrEmpty(tag.Color) ? "" : $"border-color: {tag.Color}; color: {tag.Color}")">
+                                                        @tag.TagName
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+
+                                @* Right: Test Execution *@
+                                <div class="test-execution-panel">
+                                    <h5>🧪 Test Execution</h5>
+                                    
+                                    <div class="test-actions">
+                                        <button class="btn btn-primary" @onclick="RunTestExecution" disabled="@isTestRunning">
+                                            @(isTestRunning ? "Running..." : "▶️ Run Test")
+                                        </button>
+                                    </div>
+
+                                    @if (!string.IsNullOrEmpty(testError))
+                                    {
+                                        <div class="test-error">⚠️ @testError</div>
+                                    }
+
+                                    @if (!string.IsNullOrEmpty(testResultJson))
+                                    {
+                                        <div class="test-section">
+                                            <label>📤 Result</label>
+                                            <textarea class="form-control code-input" rows="15" readonly>@testResultJson</textarea>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@* Category Editor Modal *@
+@if (showCategoryModal)
+{
+    <div class="modal-overlay" @onclick="CloseCategoryModal">
+        <div class="modal-content modal-wide" @onclick:stopPropagation="true">
+            <h3>@(isNewCategory ? "Create Category" : "Edit Category")</h3>
+            
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" class="form-control" @bind="editingCategory.Name" />
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea class="form-control" @bind="editingCategory.Description" rows="2"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Icon SVG</label>
+                <div class="svg-editor-row">
+                    <textarea class="form-control code-input" @bind="editingCategory.IconSvg" @bind:event="oninput" rows="4"
+                              placeholder="<svg viewBox='0 0 24 24'>...</svg>"></textarea>
+                    <div class="svg-preview-box">
+                        <span class="preview-label">Preview</span>
+                        <div class="svg-preview">
+                            @if (!string.IsNullOrWhiteSpace(editingCategory.IconSvg))
+                            {
+                                @((MarkupString)editingCategory.IconSvg)
+                            }
+                            else if (!string.IsNullOrWhiteSpace(editingCategory.IconEmoji))
+                            {
+                                <span style="font-size: 24px;">@editingCategory.IconEmoji</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <span class="form-hint">Paste SVG code for the icon. Falls back to emoji if empty.</span>
+            </div>
+            <div class="form-group">
+                <label>Fallback Emoji</label>
+                <input type="text" class="form-control" @bind="editingCategory.IconEmoji" maxlength="4" style="width: 80px;" />
+            </div>
+            <div class="form-group">
+                <label>Display Order</label>
+                <input type="number" class="form-control" @bind="editingCategory.DisplayOrder" />
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="editingCategory.IsEnabled" />
+                    <span>Enabled</span>
+                </label>
+            </div>
+            
+            @* Built-in Node Assignment Section - Two Column Layout *@
+            <div class="form-group builtin-nodes-section">
+                <label>📦 Assign Built-in Nodes</label>
+                <p class="form-hint" style="margin-top: 0.25rem;">Select built-in nodes to include in this catalog category.</p>
+                <div class="builtin-nodes-layout">
+                    @* Left: Compact Table *@
+                    <div class="builtin-nodes-table-container">
+                        <table class="builtin-nodes-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30px;"></th>
+                                    <th>Category</th>
+                                    <th>Node</th>
+                                    <th style="width: 30px;">Icon</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var group in BuiltInNodeCatalogService.GetAllBuiltInNodeTypes().GroupBy(n => n.Category).OrderBy(g => g.Key))
+                                {
+                                    @foreach (var node in group.OrderBy(n => n.DisplayName))
+                                    {
+                                        var currentOverride = builtInIconOverrides.TryGetValue(node.NodeTypeKey, out var ov) ? ov : null;
+                                        var hasOverride = !string.IsNullOrWhiteSpace(currentOverride);
+                                        var isEditing = editingIconNodeType == node.NodeTypeKey;
+                                        var isSelected = selectedBuiltInNodes.Contains(node.NodeTypeKey);
+                                        
+                                        <tr class="@(isSelected ? "selected" : "") @(isEditing ? "editing" : "")">
+                                            <td class="checkbox-cell">
+                                                <input type="checkbox" 
+                                                       checked="@isSelected"
+                                                       @onchange="@(e => ToggleBuiltInNode(node.NodeTypeKey, (bool)(e.Value ?? false)))" />
+                                            </td>
+                                            <td class="category-cell">@group.Key</td>
+                                            <td class="name-cell">@node.DisplayName</td>
+                                            <td class="icon-cell">
+                                                <button class="btn-icon-edit @(hasOverride ? "has-override" : "") @(isEditing ? "active" : "")" 
+                                                        title="@(hasOverride ? "Edit custom icon" : "Add custom icon")"
+                                                        @onclick="@(() => ToggleIconEditor(node.NodeTypeKey))">
+                                                    @if (hasOverride)
+                                                    {
+                                                        <div class="builtin-svg-icon">@((MarkupString)currentOverride!)</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@node.Icon</span>
+                                                    }
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    @* Right: SVG Editor Panel *@
+                    <div class="builtin-svg-editor-panel @(editingIconNodeType != null ? "active" : "")">
+                        @if (editingIconNodeType != null)
+                        {
+                            var editNode = BuiltInNodeCatalogService.GetAllBuiltInNodeTypes().FirstOrDefault(n => n.NodeTypeKey == editingIconNodeType);
+                            if (editNode != null)
+                            {
+                                <div class="svg-editor-header">
+                                    <h5>🎨 Custom Icon: @editNode.DisplayName</h5>
+                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => editingIconNodeType = null)">✕</button>
+                                </div>
+                                <div class="svg-editor-content">
+                                    <label>SVG Code</label>
+                                    <textarea class="form-control code-input" rows="10" 
+                                              placeholder="<svg viewBox='0 0 24 24'>...</svg>"
+                                              @bind="tempIconSvg" @bind:event="oninput"></textarea>
+                                </div>
+                                <div class="svg-editor-preview">
+                                    <label>Preview</label>
+                                    <div class="svg-preview-large">
+                                        @if (!string.IsNullOrWhiteSpace(tempIconSvg))
+                                        {
+                                            @((MarkupString)tempIconSvg)
+                                        }
+                                        else
+                                        {
+                                            <span class="default-icon">@editNode.Icon</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="svg-editor-actions">
+                                    <button class="btn btn-primary" @onclick="@(() => SaveIconOverride(editingIconNodeType))">💾 Save</button>
+                                    <button class="btn btn-danger" @onclick="@(() => ClearIconOverride(editingIconNodeType))">🗑️ Clear</button>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="svg-editor-empty">
+                                <span>✏️</span>
+                                <p>Click a node's icon to customize it</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseCategoryModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveCategory">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Export Modal *@
+@if (showExportModal)
+{
+    <div class="modal-overlay" @onclick="CloseExportModal">
+        <div class="modal-content modal-wide" @onclick:stopPropagation="true">
+            <h3>📤 Export Node Definition</h3>
+            <textarea class="form-control code-input" rows="15" readonly>@exportJson</textarea>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseExportModal">Close</button>
+                <button class="btn btn-primary" @onclick="CopyExportToClipboard">📋 Copy to Clipboard</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Import Modal *@
+@if (showImportModal)
+{
+    <div class="modal-overlay" @onclick="CloseImportModal">
+        <div class="modal-content modal-wide" @onclick:stopPropagation="true">
+            <h3>📥 Import Node Definition</h3>
+            <p class="modal-hint">Paste the exported JSON below:</p>
+            <textarea class="form-control code-input" rows="15" @bind="importJson" 
+                      placeholder='{"exportVersion": 1, "definition": {...}}'></textarea>
+            @if (!string.IsNullOrEmpty(importError))
+            {
+                <div class="import-error">⚠️ @importError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseImportModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="ImportNode" disabled="@isImporting">
+                    @(isImporting ? "Importing..." : "📥 Import")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .node-designer {
+        padding: 1rem;
+    }
+
+    .designer-header {
+        margin-bottom: 1.5rem;
+    }
+
+    .designer-header h2 {
+        margin: 0;
+        color: #fff;
+    }
+
+    .subtitle {
+        color: #888;
+        margin: 0.25rem 0 0;
+    }
+
+    .designer-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 0.5rem;
+    }
+
+    .designer-tab {
+        background: transparent;
+        border: none;
+        color: #888;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: all 0.2s;
+    }
+
+    .designer-tab:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #ddd;
+    }
+
+    .designer-tab.active {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+    }
+
+    .section-toolbar {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        align-items: center;
+    }
+
+    .toolbar-spacer {
+        flex: 1;
+    }
+
+    .search-input {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        width: 250px;
+    }
+
+    .filter-select {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        min-width: 200px;
+        cursor: pointer;
+    }
+
+    .filter-select option {
+        background: #1a1a2e;
+        color: #fff;
+    }
+
+    .pagination-controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .pagination-info {
+        color: #888;
+        font-size: 0.9rem;
+        padding: 0 1rem;
+    }
+
+    .items-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .item-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+    }
+
+    .item-card.disabled {
+        opacity: 0.5;
+    }
+
+    .item-icon {
+        font-size: 2rem;
+        min-width: 48px;
+        text-align: center;
+    }
+
+    .item-icon .category-svg-icon,
+    .item-icon .node-svg-icon {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+    }
+
+    .item-icon .category-svg-icon :deep(svg),
+    .item-icon .node-svg-icon :deep(svg) {
+        width: 100%;
+        height: 100%;
+        fill: #667eea;
+    }
+
+    .item-details {
+        flex: 1;
+    }
+
+    .item-details h4 {
+        margin: 0;
+        color: #fff;
+    }
+
+    .item-details p {
+        margin: 0.25rem 0;
+        color: #888;
+        font-size: 0.85rem;
+    }
+
+    .node-type-key {
+        font-family: monospace;
+        color: #667eea !important;
+    }
+
+    .item-meta {
+        font-size: 0.75rem;
+        color: #666;
+    }
+
+    .node-svg-icon {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .node-svg-icon :deep(svg) {
+        width: 32px;
+        height: 32px;
+        fill: #667eea;
+    }
+
+    .item-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .empty-state, .loading-state {
+        text-align: center;
+        color: #888;
+        padding: 3rem;
+    }
+
+    .editor-section {
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 10px;
+        padding: 1rem;
+    }
+
+    .editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .editor-header h3 {
+        margin: 0;
+        color: #fff;
+    }
+
+    .editor-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .editor-tabs {
+        display: flex;
+        gap: 0.25rem;
+        margin-bottom: 1rem;
+    }
+
+    .editor-tab {
+        background: rgba(255, 255, 255, 0.05);
+        border: none;
+        color: #888;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-radius: 6px 6px 0 0;
+        font-size: 0.85rem;
+    }
+
+    .editor-tab.active {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+    }
+
+    .editor-content {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 0 10px 10px 10px;
+        padding: 1.5rem;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .form-group.full-width {
+        grid-column: 1 / -1;
+    }
+
+    .form-group label {
+        display: block;
+        color: #aaa;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+    }
+
+    .form-control-sm {
+        padding: 0.35rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 0.85rem;
+    }
+
+    .code-input {
+        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        letter-spacing: normal;
+        word-spacing: normal;
+        text-align: left;
+        background: #1e1e1e;
+        color: #d4d4d4;
+        border: 1px solid #3c3c3c;
+        border-radius: 4px;
+        padding: 12px;
+        tab-size: 4;
+        white-space: pre;
+        overflow-x: auto;
+        resize: vertical;
+    }
+
+    .code-input::placeholder {
+        color: #6a6a6a;
+    }
+
+    .code-input:focus {
+        outline: none;
+        border-color: #007acc;
+        box-shadow: 0 0 0 1px #007acc;
+    }
+
+    .form-hint {
+        font-size: 0.75rem;
+        color: #666;
+        margin-top: 0.25rem;
+    }
+
+    .list-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .list-items {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .list-item {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 0.75rem;
+    }
+
+    .list-item-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .field-name {
+        font-weight: 600;
+        color: #fff;
+    }
+
+    .field-type {
+        font-size: 0.75rem;
+        color: #667eea;
+        background: rgba(102, 126, 234, 0.1);
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+    }
+
+    .list-item-body {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .checkbox-label, .checkbox-label-sm {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: #aaa;
+    }
+
+    .checkbox-label-sm {
+        font-size: 0.85rem;
+    }
+
+    .script-help {
+        margin-bottom: 1rem;
+    }
+
+    .script-help details {
+        background: rgba(102, 126, 234, 0.1);
+        border-radius: 8px;
+        padding: 0.75rem;
+    }
+
+    .script-help summary {
+        cursor: pointer;
+        color: #667eea;
+    }
+
+    .script-help ul {
+        margin: 0.5rem 0 0;
+        padding-left: 1.5rem;
+        color: #aaa;
+        font-size: 0.85rem;
+    }
+
+    .script-help code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+        color: #667eea;
+    }
+
+    .help-text {
+        color: #888;
+        font-size: 0.85rem;
+        margin: 0.5rem 0;
+    }
+
+    .color-input {
+        width: 40px;
+        height: 30px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .badge-disabled {
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        margin-left: 0.5rem;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: #1a1a2e;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 1.5rem;
+        max-width: 400px;
+        width: 90%;
+    }
+
+    .modal-content.modal-wide {
+        max-width: 1400px;
+        width: 95%;
+        max-height: 85vh;
+        overflow-y: auto;
+    }
+
+    .modal-content h3 {
+        margin: 0 0 1rem;
+        color: #fff;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+        margin-top: 1rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.9rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+    }
+
+    .btn-secondary {
+        background: rgba(100, 100, 100, 0.3);
+        color: #aaa;
+    }
+
+    .btn-danger {
+        background: rgba(231, 76, 60, 0.3);
+        color: #e74c3c;
+    }
+
+    .btn-edit {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .svg-editor-row {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .svg-editor-row textarea {
+        flex: 1;
+    }
+
+    .svg-preview-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .preview-label {
+        font-size: 0.75rem;
+        color: #888;
+    }
+
+    .svg-preview {
+        width: 64px;
+        height: 64px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .svg-preview :deep(svg) {
+        width: 48px;
+        height: 48px;
+        fill: #667eea;
+    }
+
+    .svg-preview .fallback-emoji {
+        font-size: 2rem;
+    }
+
+    /* Category badge */
+    .category-badge {
+        background: rgba(102, 126, 234, 0.15);
+        color: #667eea;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+    }
+
+    .meta-sep {
+        margin: 0 0.25rem;
+    }
+
+    /* Import modal */
+    .modal-hint {
+        color: #888;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .import-error {
+        background: rgba(231, 76, 60, 0.15);
+        color: #e74c3c;
+        padding: 0.75rem;
+        border-radius: 6px;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    /* Test panel */
+    .test-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .test-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    .node-preview-card {
+        background: linear-gradient(135deg, rgba(30, 30, 50, 0.9) 0%, rgba(20, 20, 35, 0.95) 100%);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 12px;
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .node-preview-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .node-preview-icon {
+        width: 48px;
+        height: 48px;
+        background: rgba(102, 126, 234, 0.2);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .node-preview-icon :deep(svg) {
+        width: 32px;
+        height: 32px;
+        fill: #667eea;
+    }
+
+    .node-preview-title h4 {
+        margin: 0;
+        color: #fff;
+        font-size: 1.1rem;
+    }
+
+    .node-preview-type {
+        font-size: 0.75rem;
+        color: #888;
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    .node-preview-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .node-preview-section h5 {
+        margin: 0;
+        color: #aaa;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .preview-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .preview-field label {
+        font-size: 0.8rem;
+        color: #bbb;
+    }
+
+    .preview-field .required {
+        color: #e74c3c;
+    }
+
+    .preview-field .field-help {
+        font-size: 0.7rem;
+        color: #666;
+    }
+
+    .output-params-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .output-param {
+        background: rgba(46, 204, 113, 0.15);
+        color: #2ecc71;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    .tag-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .connection-tag {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .no-items {
+        color: #666;
+        font-style: italic;
+        font-size: 0.8rem;
+    }
+
+    .test-execution-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .test-execution-panel h5 {
+        margin: 0;
+        color: #fff;
+        font-size: 1rem;
+    }
+
+    .test-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .test-section label {
+        color: #aaa;
+        font-size: 0.85rem;
+    }
+
+    .test-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .test-error {
+        background: rgba(231, 76, 60, 0.15);
+        color: #e74c3c;
+        padding: 0.75rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+    }
+
+    /* Built-in Node Selection Styles - Table Layout */
+    .builtin-nodes-section {
+        margin-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding-top: 1rem;
+    }
+
+    .builtin-nodes-layout {
+        display: grid;
+        grid-template-columns: 1fr 320px;
+        gap: 1rem;
+        margin-top: 0.75rem;
+    }
+
+    .builtin-nodes-table-container {
+        max-height: 400px;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .builtin-nodes-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+
+    .builtin-nodes-table thead {
+        position: sticky;
+        top: 0;
+        background: rgba(30, 30, 50, 0.95);
+        z-index: 1;
+    }
+
+    .builtin-nodes-table th {
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        color: #888;
+        font-weight: 500;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .builtin-nodes-table td {
+        padding: 0.35rem 0.75rem;
+        color: #ccc;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .builtin-nodes-table tr:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .builtin-nodes-table tr.selected {
+        background: rgba(102, 126, 234, 0.15);
+    }
+
+    .builtin-nodes-table tr.editing {
+        background: rgba(102, 126, 234, 0.25);
+    }
+
+    .builtin-nodes-table .checkbox-cell {
+        width: 30px;
+        text-align: center;
+    }
+
+    .builtin-nodes-table .checkbox-cell input[type="checkbox"] {
+        accent-color: #667eea;
+    }
+
+    .builtin-nodes-table .category-cell {
+        color: #667eea;
+        font-size: 0.75rem;
+        width: 120px;
+    }
+
+    .builtin-nodes-table .name-cell {
+        color: #fff;
+    }
+
+    .builtin-nodes-table .icon-cell {
+        width: 30px;
+        text-align: center;
+    }
+
+    .btn-icon-edit {
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 4px;
+        padding: 0.2rem 0.35rem;
+        cursor: pointer;
+        font-size: 0.85rem;
+        opacity: 0.6;
+        transition: all 0.15s ease;
+    }
+
+    .btn-icon-edit:hover,
+    .btn-icon-edit.has-override,
+    .btn-icon-edit.active {
+        opacity: 1;
+        background: rgba(102, 126, 234, 0.2);
+        border-color: #667eea;
+    }
+
+    .builtin-svg-icon {
+        width: 1rem;
+        height: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .builtin-svg-icon :deep(svg) {
+        width: 100%;
+        height: 100%;
+        fill: currentColor;
+    }
+
+    /* SVG Editor Panel */
+    .builtin-svg-editor-panel {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .builtin-svg-editor-panel .svg-editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .builtin-svg-editor-panel .svg-editor-header h5 {
+        margin: 0;
+        color: #fff;
+        font-size: 0.9rem;
+    }
+
+    .builtin-svg-editor-panel .svg-editor-content label,
+    .builtin-svg-editor-panel .svg-editor-preview label {
+        display: block;
+        color: #888;
+        font-size: 0.75rem;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .builtin-svg-editor-panel .svg-editor-content .code-input {
+        font-family: monospace;
+        font-size: 0.8rem;
+    }
+
+    .svg-preview-large {
+        width: 100%;
+        height: 120px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .svg-preview-large :deep(svg) {
+        width: 64px;
+        height: 64px;
+        fill: #667eea;
+    }
+
+    .svg-preview-large .default-icon {
+        font-size: 3rem;
+    }
+
+    .builtin-svg-editor-panel .svg-editor-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .svg-editor-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        min-height: 200px;
+        color: #666;
+        text-align: center;
+    }
+
+    .svg-editor-empty span {
+        font-size: 2rem;
+        opacity: 0.5;
+    }
+
+    .svg-editor-empty p {
+        margin: 0.5rem 0 0;
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    private bool isLoading = true;
+    private string activeSection = "nodes";
+    private string editorTab = "general";
+    private string nodeSearchQuery = "";
+    private string categoryFilter = "all"; // "all", "none", or category id
+    private int currentPage = 1;
+    private const int PageSize = 10;
+
+    private List<CustomNodeCategory> categories = new();
+    private List<AdminNodeListItem> nodeListItems = new();
+    private bool isLoadingNode = false;
+
+    // Category editing
+    private bool showCategoryModal = false;
+    private bool isNewCategory = false;
+    private CustomNodeCategory editingCategory = new();
+    private HashSet<string> selectedBuiltInNodes = new();
+    private Dictionary<string, string> builtInIconOverrides = new();
+    private string? editingIconNodeType = null;
+    private string tempIconSvg = "";
+
+    // Node editing
+    private CustomNodeDefinition? editingNode;
+    private bool isNewNode = false;
+    private bool isSaving = false;
+
+    // Export
+    private bool showExportModal = false;
+    private string exportJson = "";
+
+    // Import
+    private bool showImportModal = false;
+    private string importJson = "";
+    private string importError = "";
+    private bool isImporting = false;
+
+    // Test execution
+    private string testResultJson = "";
+    private bool isTestRunning = false;
+    private string testError = "";
+    private Dictionary<string, string> testInputValues = new();
+    private Dictionary<string, bool> testCheckboxValues = new();
+
+    private IEnumerable<AdminNodeListItem> FilteredNodesBeforePaging
+    {
+        get
+        {
+            var query = nodeListItems.AsEnumerable();
+            
+            // Category filter
+            if (categoryFilter == "none")
+            {
+                query = query.Where(n => n.CategoryId == null);
+            }
+            else if (categoryFilter != "all" && Guid.TryParse(categoryFilter, out var catId))
+            {
+                query = query.Where(n => n.CategoryId == catId);
+            }
+            
+            // Search filter
+            if (!string.IsNullOrEmpty(nodeSearchQuery))
+            {
+                query = query.Where(n =>
+                    n.DisplayName.Contains(nodeSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    n.NodeTypeKey.Contains(nodeSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    (n.CategoryName?.Contains(nodeSearchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+            
+            return query;
+        }
+    }
+    
+    private IEnumerable<AdminNodeListItem> FilteredNodes =>
+        FilteredNodesBeforePaging
+            .Skip((currentPage - 1) * PageSize)
+            .Take(PageSize);
+    
+    private int TotalFilteredCount => FilteredNodesBeforePaging.Count();
+    private int TotalPages => (int)Math.Ceiling(TotalFilteredCount / (double)PageSize);
+    
+    private void OnCategoryFilterChanged(ChangeEventArgs e)
+    {
+        categoryFilter = e.Value?.ToString() ?? "all";
+        currentPage = 1; // Reset to first page when filter changes
+    }
+    
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        nodeSearchQuery = e.Value?.ToString() ?? "";
+        currentPage = 1; // Reset to first page when search changes
+    }
+    
+    private void GoToPage(int page)
+    {
+        if (page >= 1 && page <= TotalPages)
+        {
+            currentPage = page;
+        }
+    }
+
+    // Tab switching methods
+    private void SetCategoriesTab() => activeSection = "categories";
+    private void SetNodesTab() => activeSection = "nodes";
+    private void SetEditorTab() => activeSection = "editor";
+    private void SetEditorTabGeneral() => editorTab = "general";
+    private void SetEditorTabInputs() => editorTab = "inputs";
+    private void SetEditorTabOutputs() => editorTab = "outputs";
+    private void SetEditorTabScript() => editorTab = "script";
+    private void SetEditorTabTags() => editorTab = "tags";
+    private void SetEditorTabTest() => editorTab = "test";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        categories = await CustomNodeService.GetCategoriesAsync();
+        nodeListItems = await CustomNodeService.GetAdminListItemsAsync();
+        isLoading = false;
+    }
+
+    // Category methods
+    private void CreateNewCategory()
+    {
+        editingCategory = new CustomNodeCategory { IsEnabled = true };
+        selectedBuiltInNodes = new HashSet<string>();
+        builtInIconOverrides = BuiltInNodeCatalogService.GetAllIconOverrides();
+        editingIconNodeType = null;
+        tempIconSvg = "";
+        isNewCategory = true;
+        showCategoryModal = true;
+    }
+
+    private void EditCategory(CustomNodeCategory category)
+    {
+        editingCategory = new CustomNodeCategory
+        {
+            Id = category.Id,
+            Name = category.Name,
+            Description = category.Description,
+            IconEmoji = category.IconEmoji,
+            IconSvg = category.IconSvg,
+            DisplayOrder = category.DisplayOrder,
+            IsEnabled = category.IsEnabled
+        };
+        // Load assigned built-in nodes for this category
+        selectedBuiltInNodes = BuiltInNodeCatalogService.GetAssignedNodes(category.Id).ToHashSet();
+        builtInIconOverrides = BuiltInNodeCatalogService.GetAllIconOverrides();
+        editingIconNodeType = null;
+        tempIconSvg = "";
+        isNewCategory = false;
+        showCategoryModal = true;
+    }
+
+    private void CloseCategoryModal()
+    {
+        showCategoryModal = false;
+        editingIconNodeType = null;
+    }
+
+    private void ToggleBuiltInNode(string nodeTypeKey, bool isChecked)
+    {
+        if (isChecked)
+            selectedBuiltInNodes.Add(nodeTypeKey);
+        else
+            selectedBuiltInNodes.Remove(nodeTypeKey);
+    }
+
+    private void ToggleIconEditor(string nodeTypeKey)
+    {
+        if (editingIconNodeType == nodeTypeKey)
+        {
+            editingIconNodeType = null;
+        }
+        else
+        {
+            editingIconNodeType = nodeTypeKey;
+            tempIconSvg = builtInIconOverrides.TryGetValue(nodeTypeKey, out var existing) ? existing : "";
+        }
+    }
+
+    private void SaveIconOverride(string nodeTypeKey)
+    {
+        if (!string.IsNullOrWhiteSpace(tempIconSvg))
+        {
+            builtInIconOverrides[nodeTypeKey] = tempIconSvg;
+            BuiltInNodeCatalogService.SetIconOverride(nodeTypeKey, tempIconSvg);
+        }
+        editingIconNodeType = null;
+    }
+
+    private void ClearIconOverride(string nodeTypeKey)
+    {
+        builtInIconOverrides.Remove(nodeTypeKey);
+        BuiltInNodeCatalogService.SetIconOverride(nodeTypeKey, null);
+        editingIconNodeType = null;
+        tempIconSvg = "";
+    }
+
+    private async Task SaveCategory()
+    {
+        CustomNodeCategory savedCategory;
+        if (isNewCategory)
+        {
+            savedCategory = await CustomNodeService.CreateCategoryAsync(editingCategory);
+            categories.Add(savedCategory);
+        }
+        else
+        {
+            savedCategory = await CustomNodeService.UpdateCategoryAsync(editingCategory);
+            // Update existing category in-place
+            var index = categories.FindIndex(c => c.Id == savedCategory.Id);
+            if (index >= 0)
+                categories[index] = savedCategory;
+        }
+        
+        // Save built-in node assignments
+        BuiltInNodeCatalogService.SetAssignedNodes(savedCategory.Id, selectedBuiltInNodes.ToList());
+
+        showCategoryModal = false;
+        selectedBuiltInNodes.Clear();
+        // Sort categories after update
+        categories = categories.OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToList();
+    }
+
+    private async Task DeleteCategory(Guid id)
+    {
+        await CustomNodeService.DeleteCategoryAsync(id);
+        categories.RemoveAll(c => c.Id == id);
+    }
+
+    // Node methods
+    private void CreateNewNode()
+    {
+        editingNode = new CustomNodeDefinition
+        {
+            IsEnabled = true,
+            TimeoutSeconds = 30,
+            NodeTypeKey = "Custom_",
+            ExecutionType = CustomNodeExecutionType.DataTransformation
+        };
+        isNewNode = true;
+        editorTab = "general";
+        activeSection = "editor";
+    }
+
+    private async Task EditNodeAsync(Guid nodeId)
+    {
+        isLoadingNode = true;
+        StateHasChanged();
+        
+        try
+        {
+            // Load full definition on-demand (two-tier caching pattern)
+            var node = await CustomNodeService.GetDefinitionByIdAsync(nodeId);
+            if (node == null)
+            {
+                // Node was deleted, refresh list
+                await LoadDataAsync();
+                return;
+            }
+            
+            editingNode = node;
+            isNewNode = false;
+            editorTab = "general";
+            activeSection = "editor";
+            
+            // Initialize test input values from field defaults
+            testInputValues = new();
+            testCheckboxValues = new();
+            testResultJson = "";
+            testError = "";
+            
+            foreach (var field in node.InputFields)
+            {
+                if (field.FieldType == CustomFieldType.Boolean)
+                {
+                    testCheckboxValues[field.FieldName] = false;
+                }
+                else
+                {
+                    testInputValues[field.FieldName] = field.DefaultValue ?? "";
+                }
+            }
+        }
+        finally
+        {
+            isLoadingNode = false;
+        }
+    }
+
+    private void CancelEdit()
+    {
+        editingNode = null;
+        activeSection = "nodes";
+    }
+
+    private async Task SaveNode()
+    {
+        if (editingNode == null) return;
+
+        isSaving = true;
+        try
+        {
+            if (isNewNode)
+                await CustomNodeService.CreateDefinitionAsync(editingNode);
+            else
+                await CustomNodeService.UpdateDefinitionAsync(editingNode);
+
+            editingNode = null;
+            activeSection = "nodes";
+            await LoadDataAsync();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteNode(Guid id)
+    {
+        await CustomNodeService.DeleteDefinitionAsync(id);
+        await LoadDataAsync();
+    }
+
+    // Input/Output/Tag management
+    private void AddInputField()
+    {
+        if (editingNode == null) return;
+        editingNode.InputFields.Add(new CustomNodeInputField
+        {
+            DisplayOrder = editingNode.InputFields.Count,
+            FieldType = CustomFieldType.Text,
+            AllowPlaceholders = true
+        });
+    }
+
+    private void RemoveInputField(CustomNodeInputField field)
+    {
+        editingNode?.InputFields.Remove(field);
+    }
+
+    private void AddOutputParam()
+    {
+        if (editingNode == null) return;
+        editingNode.OutputParameters.Add(new CustomNodeOutputParameter
+        {
+            DisplayOrder = editingNode.OutputParameters.Count,
+            DataType = "string"
+        });
+    }
+
+    private void RemoveOutputParam(CustomNodeOutputParameter param)
+    {
+        editingNode?.OutputParameters.Remove(param);
+    }
+
+    private void AddConnectionTag()
+    {
+        if (editingNode == null) return;
+        editingNode.ConnectionTags.Add(new CustomNodeConnectionTag
+        {
+            DisplayOrder = editingNode.ConnectionTags.Count
+        });
+    }
+
+    private void RemoveConnectionTag(CustomNodeConnectionTag tag)
+    {
+        editingNode?.ConnectionTags.Remove(tag);
+    }
+
+    // Export
+    private async Task ExportNode(Guid id)
+    {
+        exportJson = await CustomNodeService.ExportAsync(id);
+        showExportModal = true;
+    }
+
+    private void CloseExportModal()
+    {
+        showExportModal = false;
+        exportJson = "";
+    }
+
+    private void CopyExportToClipboard()
+    {
+        // Note: Clipboard API requires JS interop in Blazor Server
+        // For now, users can select and copy manually
+    }
+
+    // Import
+    private void ShowImportModal()
+    {
+        importJson = "";
+        importError = "";
+        showImportModal = true;
+    }
+
+    private void CloseImportModal()
+    {
+        showImportModal = false;
+        importJson = "";
+        importError = "";
+    }
+
+    private async Task ImportNode()
+    {
+        if (string.IsNullOrWhiteSpace(importJson))
+        {
+            importError = "Please paste the node JSON to import";
+            return;
+        }
+
+        isImporting = true;
+        importError = "";
+
+        try
+        {
+            var imported = await CustomNodeService.ImportAsync(importJson);
+            await LoadDataAsync();
+            showImportModal = false;
+            importJson = "";
+            
+            // We already have the full definition from import, set up editor directly
+            editingNode = imported;
+            isNewNode = false;
+            editorTab = "general";
+            activeSection = "editor";
+            testInputValues = new();
+            testCheckboxValues = new();
+            testResultJson = "";
+            testError = "";
+            foreach (var field in imported.InputFields)
+            {
+                if (field.FieldType == CustomFieldType.Boolean)
+                    testCheckboxValues[field.FieldName] = false;
+                else
+                    testInputValues[field.FieldName] = field.DefaultValue ?? "";
+            }
+        }
+        catch (Exception ex)
+        {
+            importError = ex.Message;
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    // Test execution
+    private async Task RunTestExecution()
+    {
+        if (editingNode == null) return;
+
+        isTestRunning = true;
+        testError = "";
+        testResultJson = "";
+
+        await Task.Run(() =>
+        {
+            try
+            {
+                // Collect input values from the form
+                var inputConfig = new Dictionary<string, object?>();
+                foreach (var field in editingNode.InputFields)
+                {
+                    if (field.FieldType == CustomFieldType.Boolean)
+                    {
+                        inputConfig[field.FieldName] = testCheckboxValues.TryGetValue(field.FieldName, out var bval) ? bval : false;
+                    }
+                    else
+                    {
+                        inputConfig[field.FieldName] = testInputValues.TryGetValue(field.FieldName, out var sval) ? sval : "";
+                    }
+                }
+
+                // Initialize Jint engine with security constraints
+                var outputs = new Dictionary<string, object?>();
+                var triggeredTags = new List<string>();
+                var logs = new List<(string Level, string Message)>();
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(editingNode.TimeoutSeconds > 0 ? editingNode.TimeoutSeconds : 10));
+
+                // Simple engine - timeout handled by cancellation token
+                var engine = new Jint.Engine();
+
+                // Input API - simplified for testing
+                engine.SetValue("input", new TestInputApi(inputConfig));
+
+                // Upstream API - empty for testing
+                engine.SetValue("upstream", new TestUpstreamApi(new Dictionary<string, object?>()));
+
+                // Output API
+                engine.SetValue("output", new TestOutputApi(outputs));
+
+                // Tags API
+                engine.SetValue("tags", new TestTagsApi(triggeredTags, editingNode.ConnectionTags.Select(t => t.TagName).ToList()));
+
+                // Log API
+                engine.SetValue("log", new TestLogApi(logs));
+
+                // JSON utilities
+                engine.SetValue("json", new TestJsonApi());
+
+                // HTTP API (makes real HTTP calls)
+                engine.SetValue("http", new TestHttpApi(HttpClientFactory));
+
+                // Node context (mock values for testing)
+                engine.SetValue("nodeId", "test-node-id");
+                engine.SetValue("nodeName", editingNode.DisplayName);
+                engine.SetValue("userId", "test-user");
+
+                // Execute initialization script if present
+                if (!string.IsNullOrWhiteSpace(editingNode.InitializationScript))
+                {
+                    engine.Execute(editingNode.InitializationScript);
+                }
+
+                // Execute main script
+                if (!string.IsNullOrWhiteSpace(editingNode.Script))
+                {
+                    engine.Execute(editingNode.Script);
+                }
+
+                // Build result
+                var result = new
+                {
+                    status = "success",
+                    outputs = outputs,
+                    triggeredTags = triggeredTags,
+                    logs = logs.Select(l => new { level = l.Level, message = l.Message }).ToList(),
+                    inputsUsed = inputConfig
+                };
+
+                testResultJson = System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+            }
+            catch (Jint.Runtime.StatementsCountOverflowException)
+            {
+                testError = "Script exceeded maximum statement count (possible infinite loop)";
+            }
+            catch (Jint.Runtime.JavaScriptException jsEx)
+            {
+                testError = $"JavaScript error at line {jsEx.Location.Start.Line}: {jsEx.Message}";
+            }
+            catch (Exception ex)
+            {
+                testError = $"Execution error: {ex.Message}";
+            }
+        });
+
+        isTestRunning = false;
+        StateHasChanged();
+    }
+
+    #region Test API Classes (simplified for in-editor testing)
+    
+    private class TestInputApi
+    {
+        private readonly Dictionary<string, object?> _config;
+        public TestInputApi(Dictionary<string, object?> config) => _config = config;
+        public object? get(string fieldName) => _config.TryGetValue(fieldName, out var val) ? val : null;
+        public Dictionary<string, object?> all() => new(_config);
+    }
+
+    private class TestUpstreamApi
+    {
+        private readonly Dictionary<string, object?> _data;
+        public TestUpstreamApi(Dictionary<string, object?> data) => _data = data;
+        public object? get(string key) => _data.TryGetValue(key, out var val) ? val : null;
+        public Dictionary<string, object?> all() => new(_data);
+    }
+
+    private class TestOutputApi
+    {
+        private readonly Dictionary<string, object?> _outputs;
+        public TestOutputApi(Dictionary<string, object?> outputs) => _outputs = outputs;
+        public void set(string name, object? value) => _outputs[name] = value;
+        public void setJson(string name, object? value) => _outputs[name] = value != null 
+            ? System.Text.Json.JsonSerializer.Serialize(value) : null;
+    }
+
+    private class TestTagsApi
+    {
+        private readonly List<string> _triggered;
+        private readonly List<string> _valid;
+        public TestTagsApi(List<string> triggered, List<string> valid) { _triggered = triggered; _valid = valid; }
+        public void trigger(string tagName) { if (!_triggered.Contains(tagName)) _triggered.Add(tagName); }
+        public bool isValid(string tagName) => _valid.Contains(tagName);
+    }
+
+    private class TestLogApi
+    {
+        private readonly List<(string, string)> _logs;
+        public TestLogApi(List<(string, string)> logs) => _logs = logs;
+        public void info(string message, object? detail = null) => _logs.Add(("info", message));
+        public void warn(string message, object? detail = null) => _logs.Add(("warn", message));
+        public void error(string message, object? detail = null) => _logs.Add(("error", message));
+        public void debug(string message, object? detail = null) => _logs.Add(("debug", message));
+    }
+
+    private class TestJsonApi
+    {
+        public object? parse(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            try 
+            { 
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                return ConvertJsonElement(doc.RootElement.Clone());
+            }
+            catch { return null; }
+        }
+
+        private static object? ConvertJsonElement(System.Text.Json.JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case System.Text.Json.JsonValueKind.Object:
+                    var dict = new Dictionary<string, object?>();
+                    foreach (var prop in element.EnumerateObject())
+                    {
+                        dict[prop.Name] = ConvertJsonElement(prop.Value);
+                    }
+                    return dict;
+                
+                case System.Text.Json.JsonValueKind.Array:
+                    var list = new List<object?>();
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        list.Add(ConvertJsonElement(item));
+                    }
+                    return list.ToArray(); // Return array for JavaScript
+                
+                case System.Text.Json.JsonValueKind.String:
+                    return element.GetString();
+                
+                case System.Text.Json.JsonValueKind.Number:
+                    if (element.TryGetInt32(out var intVal)) return intVal;
+                    if (element.TryGetInt64(out var longVal)) return longVal;
+                    return element.GetDouble();
+                
+                case System.Text.Json.JsonValueKind.True:
+                    return true;
+                
+                case System.Text.Json.JsonValueKind.False:
+                    return false;
+                
+                case System.Text.Json.JsonValueKind.Null:
+                default:
+                    return null;
+            }
+        }
+
+        public string stringify(object? value) => value != null 
+            ? System.Text.Json.JsonSerializer.Serialize(value) : "null";
+    }
+
+    private class TestHttpApi
+    {
+        private readonly IHttpClientFactory _httpClientFactory;
+
+        public TestHttpApi(IHttpClientFactory httpClientFactory)
+        {
+            _httpClientFactory = httpClientFactory;
+        }
+
+        public TestHttpResponse get(string url, object? headers = null)
+        {
+            try
+            {
+                using var client = _httpClientFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(30);
+                
+                // Add headers if provided
+                if (headers != null)
+                {
+                    var headerDict = headers as IDictionary<string, object>;
+                    if (headerDict != null)
+                    {
+                        foreach (var h in headerDict)
+                        {
+                            client.DefaultRequestHeaders.TryAddWithoutValidation(h.Key, h.Value?.ToString());
+                        }
+                    }
+                }
+
+                var response = client.GetAsync(url).GetAwaiter().GetResult();
+                var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                
+                return new TestHttpResponse
+                {
+                    statusCode = (int)response.StatusCode,
+                    body = body,
+                    isSuccess = response.IsSuccessStatusCode
+                };
+            }
+            catch (Exception ex)
+            {
+                return new TestHttpResponse
+                {
+                    statusCode = 0,
+                    body = $"Request failed: {ex.Message}",
+                    isSuccess = false
+                };
+            }
+        }
+
+        public TestHttpResponse post(string url, object? body = null, object? headers = null)
+        {
+            try
+            {
+                using var client = _httpClientFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(30);
+                
+                // Add headers if provided
+                if (headers != null)
+                {
+                    var headerDict = headers as IDictionary<string, object>;
+                    if (headerDict != null)
+                    {
+                        foreach (var h in headerDict)
+                        {
+                            client.DefaultRequestHeaders.TryAddWithoutValidation(h.Key, h.Value?.ToString());
+                        }
+                    }
+                }
+
+                var content = body != null
+                    ? new StringContent(System.Text.Json.JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
+                    : null;
+
+                var response = client.PostAsync(url, content).GetAwaiter().GetResult();
+                var responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                
+                return new TestHttpResponse
+                {
+                    statusCode = (int)response.StatusCode,
+                    body = responseBody,
+                    isSuccess = response.IsSuccessStatusCode
+                };
+            }
+            catch (Exception ex)
+            {
+                return new TestHttpResponse
+                {
+                    statusCode = 0,
+                    body = $"Request failed: {ex.Message}",
+                    isSuccess = false
+                };
+            }
+        }
+    }
+
+    public class TestHttpResponse
+    {
+        public int statusCode { get; set; }
+        public string body { get; set; } = "";
+        public bool isSuccess { get; set; }
+    }
+
+    #endregion
+}

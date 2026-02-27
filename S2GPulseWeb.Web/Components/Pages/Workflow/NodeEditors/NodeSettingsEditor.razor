@@ -1,0 +1,78 @@
+@using S2GPulseWeb.Web.Components.Pages.Workflow.Designer
+
+<div class="node-settings-editor">
+    <div class="settings-section mb-4">
+        <h5>📊 Logging Configuration</h5>
+        <p class="text-muted small mb-3">
+            Configure which log levels to save to the database. Logging is disabled by default to reduce storage.
+        </p>
+        
+        <div class="form-check form-switch mb-3">
+            <input type="checkbox" class="form-check-input" id="loggingEnabled" 
+                   @bind="LoggingSettings.LoggingEnabled"
+                   @bind:after="NotifySettingsChanged" />
+            <label class="form-check-label" for="loggingEnabled">
+                <strong>Enable Log Persistence</strong>
+            </label>
+        </div>
+        
+        @if (LoggingSettings.LoggingEnabled)
+        {
+            <div class="log-level-options ps-4">
+                <div class="form-check mb-2">
+                    <input type="checkbox" class="form-check-input" id="logInfo" 
+                           @bind="LoggingSettings.LogInfo"
+                           @bind:after="NotifySettingsChanged" />
+                    <label class="form-check-label" for="logInfo">
+                        <span class="badge bg-info me-2">Info</span> General execution information
+                    </label>
+                </div>
+                <div class="form-check mb-2">
+                    <input type="checkbox" class="form-check-input" id="logWarning" 
+                           @bind="LoggingSettings.LogWarning"
+                           @bind:after="NotifySettingsChanged" />
+                    <label class="form-check-label" for="logWarning">
+                        <span class="badge bg-warning text-dark me-2">Warning</span> Potential issues
+                    </label>
+                </div>
+                <div class="form-check mb-2">
+                    <input type="checkbox" class="form-check-input" id="logError" 
+                           @bind="LoggingSettings.LogError"
+                           @bind:after="NotifySettingsChanged" />
+                    <label class="form-check-label" for="logError">
+                        <span class="badge bg-danger me-2">Error</span> Execution failures
+                    </label>
+                </div>
+                <div class="form-check mb-2">
+                    <input type="checkbox" class="form-check-input" id="logDebug" 
+                           @bind="LoggingSettings.LogDebug"
+                           @bind:after="NotifySettingsChanged" />
+                    <label class="form-check-label" for="logDebug">
+                        <span class="badge bg-secondary me-2">Debug</span> Detailed debugging data
+                    </label>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+
+
+@code {
+    [Parameter] public NodeLoggingSettings LoggingSettings { get; set; } = new();
+    [Parameter] public EventCallback<NodeLoggingSettings> OnSettingsChanged { get; set; }
+    [Parameter] public string? IconOverride { get; set; }
+    [Parameter] public string NodeType { get; set; } = "";
+    [Parameter] public EventCallback<string?> OnIconChanged { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        Console.WriteLine($"[NodeSettingsEditor] OnParametersSet: LoggingEnabled={LoggingSettings?.LoggingEnabled}, LogInfo={LoggingSettings?.LogInfo}");
+    }
+
+    private async Task NotifySettingsChanged()
+    {
+        await OnSettingsChanged.InvokeAsync(LoggingSettings);
+    }
+}
+

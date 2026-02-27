@@ -1,0 +1,225 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Data
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>Operation</label>
+        <select value="@config.Operation" @onchange="OnOperationChanged" class="form-control">
+            <optgroup label="Search & List">
+                <option value="Search">🔍 Search</option>
+                <option value="ListEntities">📋 List Entities</option>
+                <option value="GetGraph">🕸️ Get Graph</option>
+            </optgroup>
+            <optgroup label="Entity CRUD">
+                <option value="GetEntity">👁 Get Entity</option>
+                <option value="AddEntity">➕ Add Entity</option>
+                <option value="UpdateEntity">✏️ Update Entity</option>
+                <option value="DeleteEntity">🗑️ Delete Entity</option>
+            </optgroup>
+            <optgroup label="Relations">
+                <option value="AddRelation">🔗 Add Relation</option>
+                <option value="RemoveRelation">✂️ Remove Relation</option>
+                <option value="GetRelations">🔗 Get Relations</option>
+                <option value="GetNeighbors">🌐 Get Neighbors</option>
+            </optgroup>
+        </select>
+    </div>
+
+    @* ── Search ─────────────────────────────────────────────────── *@
+    @if (config.Operation == "Search")
+    {
+        <div class="form-group">
+            <label>Query <span class="placeholder-hint">{{placeholder}}</span></label>
+            <input type="text" value="@config.Query"
+                   @onchange="@(e => UpdateConfig(c => c.Query = e.Value?.ToString()))"
+                   class="form-control" placeholder="e.g. machine learning, {{SearchTerm}}" />
+        </div>
+        <div class="form-group">
+            <label>Max Results</label>
+            <input type="number" value="@config.MaxResults"
+                   @onchange="@(e => UpdateConfig(c => c.MaxResults = int.TryParse(e.Value?.ToString(), out var r) ? r : 20))"
+                   class="form-control" min="1" max="500" />
+        </div>
+        <div class="form-group">
+            <label>Filter by Entity Type <small>(optional)</small></label>
+            <input type="text" value="@config.EntityType"
+                   @onchange="@(e => UpdateConfig(c => c.EntityType = e.Value?.ToString()))"
+                   class="form-control" placeholder="e.g. Note, Project, Person" />
+        </div>
+    }
+
+    @* ── List / GetGraph ─────────────────────────────────────────── *@
+    @if (config.Operation == "ListEntities" || config.Operation == "GetGraph")
+    {
+        <div class="form-group">
+            <label>Filter by Entity Type <small>(optional)</small></label>
+            <input type="text" value="@config.EntityType"
+                   @onchange="@(e => UpdateConfig(c => c.EntityType = e.Value?.ToString()))"
+                   class="form-control" placeholder="Leave empty for all types" />
+        </div>
+        <div class="form-group">
+            <label>Max Results / Nodes</label>
+            <input type="number" value="@(config.Operation == "GetGraph" ? config.MaxNodes : config.MaxResults)"
+                   @onchange="@(e => UpdateConfig(c => {
+                       if (config.Operation == "GetGraph") c.MaxNodes = int.TryParse(e.Value?.ToString(), out var r) ? r : 200;
+                       else c.MaxResults = int.TryParse(e.Value?.ToString(), out var r2) ? r2 : 100;
+                   }))"
+                   class="form-control" min="1" max="1000" />
+        </div>
+    }
+
+    @* ── Entity ID (shared) ───────────────────────────────────────── *@
+    @if (config.Operation is "GetEntity" or "UpdateEntity" or "DeleteEntity" or "GetRelations" or "GetNeighbors")
+    {
+        <div class="form-group">
+            <label>Entity ID <span class="placeholder-hint">{{placeholder}}</span></label>
+            <input type="text" value="@config.EntityId"
+                   @onchange="@(e => UpdateConfig(c => c.EntityId = e.Value?.ToString()))"
+                   class="form-control" placeholder="e.g. {{KnowledgeEntityId}}" />
+        </div>
+    }
+
+    @* ── Entity fields for Add / Update ──────────────────────────── *@
+    @if (config.Operation is "AddEntity" or "UpdateEntity")
+    {
+        <div class="form-group">
+            <label>Title <span class="placeholder-hint">{{placeholder}}</span></label>
+            <input type="text" value="@config.Title"
+                   @onchange="@(e => UpdateConfig(c => c.Title = e.Value?.ToString()))"
+                   class="form-control" placeholder="Entity title" />
+        </div>
+        <div class="form-group">
+            <label>Entity Type</label>
+            <input type="text" value="@config.EntityType"
+                   @onchange="@(e => UpdateConfig(c => c.EntityType = e.Value?.ToString()))"
+                   class="form-control" placeholder="Note, Project, Person, Concept..." />
+        </div>
+        <div class="form-group">
+            <label>Tags <small>(comma-separated)</small></label>
+            <input type="text" value="@config.Tags"
+                   @onchange="@(e => UpdateConfig(c => c.Tags = e.Value?.ToString()))"
+                   class="form-control" placeholder="tag1, tag2, tag3" />
+        </div>
+        <div class="form-group">
+            <label>Content <span class="placeholder-hint">{{placeholder}}</span></label>
+            <textarea value="@config.Content"
+                      @onchange="@(e => UpdateConfig(c => c.Content = e.Value?.ToString()))"
+                      class="form-control" rows="5"
+                      placeholder="Markdown content. Use [[EntityTitle]] for wiki-links.">@config.Content</textarea>
+        </div>
+        <div class="form-group">
+            <label>Properties <small>(JSON object, optional)</small></label>
+            <input type="text" value="@config.Properties"
+                   @onchange="@(e => UpdateConfig(c => c.Properties = e.Value?.ToString()))"
+                   class="form-control" placeholder="{&quot;author&quot;: &quot;Alice&quot;, &quot;status&quot;: &quot;draft&quot;}" />
+        </div>
+    }
+
+    @* ── Relation fields ──────────────────────────────────────────── *@
+    @if (config.Operation is "AddRelation" or "RemoveRelation")
+    {
+        <div class="form-group">
+            <label>Source Entity ID <span class="placeholder-hint">{{placeholder}}</span></label>
+            <input type="text" value="@config.SourceId"
+                   @onchange="@(e => UpdateConfig(c => c.SourceId = e.Value?.ToString()))"
+                   class="form-control" placeholder="{{SourceEntityId}}" />
+        </div>
+        <div class="form-group">
+            <label>Target Entity ID <span class="placeholder-hint">{{placeholder}}</span></label>
+            <input type="text" value="@config.TargetId"
+                   @onchange="@(e => UpdateConfig(c => c.TargetId = e.Value?.ToString()))"
+                   class="form-control" placeholder="{{TargetEntityId}}" />
+        </div>
+        <div class="form-group">
+            <label>Relation Type</label>
+            <input type="text" value="@config.RelationType"
+                   @onchange="@(e => UpdateConfig(c => c.RelationType = e.Value?.ToString()))"
+                   class="form-control" placeholder="related_to, references, depends_on, contradicts..." />
+        </div>
+        @if (config.Operation == "AddRelation")
+        {
+            <div class="form-group form-check-group">
+                <label>
+                    <input type="checkbox" checked="@config.Bidirectional"
+                           @onchange="@(e => UpdateConfig(c => c.Bidirectional = (bool)(e.Value ?? false)))" />
+                    Bidirectional (create reverse relation too)
+                </label>
+            </div>
+        }
+    }
+
+    @* ── GetRelations / GetNeighbors :: direction + depth ─────────── *@
+    @if (config.Operation is "GetRelations" or "GetNeighbors")
+    {
+        <div class="form-group">
+            <label>Direction</label>
+            <select value="@config.Direction"
+                    @onchange="@(e => UpdateConfig(c => c.Direction = e.Value?.ToString()))"
+                    class="form-control">
+                <option value="both">Both (incoming &amp; outgoing)</option>
+                <option value="outgoing">Outgoing only</option>
+                <option value="incoming">Incoming only</option>
+            </select>
+        </div>
+        @if (config.Operation == "GetNeighbors")
+        {
+            <div class="form-group">
+                <label>Depth <small>(max hops)</small></label>
+                <input type="number" value="@config.Depth"
+                       @onchange="@(e => UpdateConfig(c => c.Depth = int.TryParse(e.Value?.ToString(), out var d) ? d : 2))"
+                       class="form-control" min="1" max="5" />
+                <small class="field-hint">⚠️ High depth values may be slow for large graphs.</small>
+            </div>
+        }
+    }
+
+    <PlaceholderList Placeholders="@GetOutputPlaceholders()" />
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public string NodeName { get; set; } = "Knowledge";
+
+    private KnowledgeNodeConfig config = new();
+    private static readonly List<string> OutputParams = new() { "Result", "ResultJson", "EntityId", "RelationsJson", "GraphJson", "Success" };
+
+    private List<string> GetOutputPlaceholders()
+        => OutputParams.Select(p => $"{{{{{NodeName}.{p}}}}}").ToList();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Configuration))
+        {
+            try
+            {
+                config = System.Text.Json.JsonSerializer.Deserialize<KnowledgeNodeConfig>(
+                    Configuration,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new KnowledgeNodeConfig();
+            }
+            catch { config = new KnowledgeNodeConfig(); }
+        }
+        else
+        {
+            config = new KnowledgeNodeConfig();
+        }
+    }
+
+    private void OnOperationChanged(ChangeEventArgs e)
+    {
+        UpdateConfig(c => c.Operation = e.Value?.ToString() ?? "Search");
+    }
+
+    private void UpdateConfig(Action<KnowledgeNodeConfig> update)
+    {
+        update(config);
+        NotifyChanged();
+    }
+
+    private void NotifyChanged()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(config);
+        OnConfigurationChanged.InvokeAsync(json);
+    }
+}

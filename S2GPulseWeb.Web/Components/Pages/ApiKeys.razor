@@ -1,0 +1,695 @@
+@page "/api-keys"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ApiKeyService ApiKeyService
+@inject IJSRuntime JSRuntime
+@rendermode InteractiveServer
+
+<PageTitle>API Keys - @PlatformSettings.SiteName</PageTitle>
+
+<div class="settings-page">
+    <div class="settings-header">
+        <h1>🔐 API Keys</h1>
+        <p>Manage API keys for programmatic access to the Workflow API. Keys use the <code>X-API-Key</code> header for authentication.</p>
+    </div>
+
+    <div class="settings-container">
+        @* --- Create New Key --- *@
+        <div class="settings-section">
+            <h2>Create New Key</h2>
+            <p class="section-description">Generate a new API key. The key will only be shown once — copy it immediately.</p>
+
+            <div class="create-form">
+                <div class="secret-item">
+                    <label>Key Name</label>
+                    <div class="secret-input-group">
+                        <input type="text" @bind="newKeyName" placeholder="e.g. CI/CD Pipeline, Monitoring Script" />
+                        <button class="btn btn-primary" @onclick="CreateKey" disabled="@isCreating">
+                            @if (isCreating)
+                            {
+                                <span>Creating...</span>
+                            }
+                            else
+                            {
+                                <span>+ Create Key</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                <div class="secret-item">
+                    <label>Expiration (Optional)</label>
+                    <div class="expiry-options">
+                        <button class="expiry-btn @(selectedExpiry == "none" ? "active" : "")" @onclick="@(() => selectedExpiry = "none")">Never</button>
+                        <button class="expiry-btn @(selectedExpiry == "30d" ? "active" : "")" @onclick="@(() => selectedExpiry = "30d")">30 Days</button>
+                        <button class="expiry-btn @(selectedExpiry == "90d" ? "active" : "")" @onclick="@(() => selectedExpiry = "90d")">90 Days</button>
+                        <button class="expiry-btn @(selectedExpiry == "1y" ? "active" : "")" @onclick="@(() => selectedExpiry = "1y")">1 Year</button>
+                    </div>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(newlyCreatedKey))
+            {
+                <div class="new-key-banner">
+                    <div class="banner-header">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Copy this key now — it won't be shown again!
+                    </div>
+                    <div class="key-display">
+                        <code>@newlyCreatedKey</code>
+                        <button class="btn-icon" @onclick="CopyKeyToClipboard" title="Copy to clipboard">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                    </div>
+                    @if (copied)
+                    {
+                        <span class="copied-badge">✓ Copied!</span>
+                    }
+                </div>
+            }
+        </div>
+
+        @* --- Existing Keys --- *@
+        <div class="settings-section">
+            <h2>Your API Keys</h2>
+            <p class="section-description">Active and revoked keys. Revoked keys can no longer authenticate.</p>
+
+            @if (isLoading)
+            {
+                <div class="empty-state">
+                    <span>⏳</span>
+                    <p>Loading keys...</p>
+                </div>
+            }
+            else if (keys == null || !keys.Any())
+            {
+                <div class="empty-state">
+                    <span>🔑</span>
+                    <p>No API keys yet. Create one above to get started.</p>
+                </div>
+            }
+            else
+            {
+                <div class="keys-list">
+                    @foreach (var key in keys)
+                    {
+                        <div class="key-card @(key.IsRevoked ? "revoked" : "")">
+                            <div class="key-info">
+                                <div class="key-name-row">
+                                    <span class="key-name">@key.Name</span>
+                                    @if (key.IsRevoked)
+                                    {
+                                        <span class="status-badge revoked-badge">Revoked</span>
+                                    }
+                                    else if (key.ExpiresAt.HasValue && key.ExpiresAt.Value < DateTime.UtcNow)
+                                    {
+                                        <span class="status-badge expired-badge">Expired</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge active-badge">Active</span>
+                                    }
+                                </div>
+                                <div class="key-meta">
+                                    <span class="key-prefix" title="Key prefix">@key.KeyPrefix…</span>
+                                    <span>Created @key.CreatedAt.ToString("MMM dd, yyyy")</span>
+                                    @if (key.LastUsedAt.HasValue)
+                                    {
+                                        <span>Last used @key.LastUsedAt.Value.ToString("MMM dd HH:mm")</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Never used</span>
+                                    }
+                                    @if (key.ExpiresAt.HasValue)
+                                    {
+                                        <span>Expires @key.ExpiresAt.Value.ToString("MMM dd, yyyy")</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="key-actions">
+                                @if (!key.IsRevoked)
+                                {
+                                    <button class="btn-action btn-revoke" @onclick="() => RevokeKey(key.Id)" title="Revoke key">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                                        Revoke
+                                    </button>
+                                }
+                                <button class="btn-action btn-delete" @onclick="() => DeleteKey(key.Id)" title="Delete key permanently">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* --- Quick Reference --- *@
+        <div class="settings-section">
+            <h2>Quick Reference</h2>
+            <p class="section-description">Use your API key with the <code>X-API-Key</code> header.</p>
+            <div class="code-example">
+                <code>curl -H "X-API-Key: pls_YOUR_KEY_HERE" https://your-instance/api/v1/workflows</code>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <div class="status-message @statusClass">
+                @statusMessage
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .settings-page {
+        padding: 2rem;
+        max-width: 800px;
+        margin: 0 auto;
+        color: #e0e0e0;
+    }
+
+    .settings-header {
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+        padding-bottom: 1rem;
+    }
+
+    .settings-header h1 {
+        color: #00f2fe;
+        margin: 0;
+    }
+
+    .settings-header p {
+        color: #888;
+        margin: 0.5rem 0 0;
+    }
+
+    .settings-header code {
+        background: rgba(0, 242, 254, 0.15);
+        color: #00f2fe;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+
+    .settings-container {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+    }
+
+    .settings-section {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+
+    .settings-section h2 {
+        font-size: 1.25rem;
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        color: #4facfe;
+    }
+
+    .section-description {
+        color: #888;
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .section-description code {
+        background: rgba(79, 172, 254, 0.15);
+        color: #4facfe;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.85em;
+    }
+
+    /* Create form */
+    .secret-item {
+        margin-bottom: 1.25rem;
+    }
+
+    .secret-item label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #ccc;
+    }
+
+    .secret-input-group {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .secret-input-group input {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        color: white;
+        transition: border-color 0.2s;
+    }
+
+    .secret-input-group input:focus {
+        border-color: #4facfe;
+        outline: none;
+    }
+
+    /* Expiry buttons */
+    .expiry-options {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .expiry-btn {
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        color: #888;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s;
+    }
+
+    .expiry-btn:hover {
+        border-color: #666;
+        color: #ccc;
+    }
+
+    .expiry-btn.active {
+        border-color: #4facfe;
+        color: #4facfe;
+        background: rgba(79, 172, 254, 0.1);
+    }
+
+    /* New key banner */
+    .new-key-banner {
+        margin-top: 1.25rem;
+        background: rgba(255, 193, 7, 0.08);
+        border: 1px solid rgba(255, 193, 7, 0.3);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .banner-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #ffc107;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        font-size: 0.9rem;
+    }
+
+    .key-display {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #444;
+    }
+
+    .key-display code {
+        flex: 1;
+        color: #00f2fe;
+        font-size: 0.9rem;
+        word-break: break-all;
+    }
+
+    .copied-badge {
+        display: inline-block;
+        margin-top: 0.5rem;
+        color: #28a745;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    /* Key list */
+    .keys-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .key-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 1rem;
+        transition: border-color 0.2s;
+    }
+
+    .key-card:hover {
+        border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .key-card.revoked {
+        opacity: 0.5;
+    }
+
+    .key-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .key-name-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .key-name {
+        font-weight: 600;
+        color: #e0e0e0;
+    }
+
+    .status-badge {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .active-badge {
+        background: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+        border: 1px solid rgba(40, 167, 69, 0.3);
+    }
+
+    .revoked-badge {
+        background: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.3);
+    }
+
+    .expired-badge {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+        border: 1px solid rgba(255, 193, 7, 0.3);
+    }
+
+    .key-meta {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.8rem;
+        color: #666;
+        flex-wrap: wrap;
+    }
+
+    .key-prefix {
+        font-family: monospace;
+        color: #888;
+    }
+
+    .key-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .btn-action {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: transparent;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.35rem 0.65rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-revoke {
+        color: #ffc107;
+    }
+
+    .btn-revoke:hover {
+        border-color: #ffc107;
+        background: rgba(255, 193, 7, 0.1);
+    }
+
+    .btn-delete {
+        color: #dc3545;
+    }
+
+    .btn-delete:hover {
+        border-color: #dc3545;
+        background: rgba(220, 53, 69, 0.1);
+    }
+
+    /* Buttons */
+    .btn-icon {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid #444;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem;
+        color: #888;
+        transition: all 0.2s;
+    }
+
+    .btn-icon:hover {
+        color: #00f2fe;
+        border-color: #00f2fe;
+        background: rgba(0, 242, 254, 0.1);
+    }
+
+    .btn.btn-primary {
+        background: linear-gradient(135deg, #4facfe, #00f2fe);
+        border: none;
+        border-radius: 6px;
+        padding: 0.5rem 1rem;
+        color: #000;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .btn.btn-primary:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+
+    .btn.btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    /* Code example */
+    .code-example {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        overflow-x: auto;
+    }
+
+    .code-example code {
+        color: #00f2fe;
+        font-size: 0.85rem;
+        white-space: nowrap;
+    }
+
+    /* Status */
+    .status-message {
+        padding: 1rem;
+        border-radius: 6px;
+        text-align: center;
+        margin-top: 1rem;
+    }
+
+    .status-success {
+        background: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+        border: 1px solid #28a745;
+    }
+
+    .status-error {
+        background: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        border: 1px solid #dc3545;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: #666;
+    }
+
+    .empty-state span {
+        font-size: 2rem;
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+@code {
+    private string? userId;
+    private List<ApiKey>? keys;
+    private string newKeyName = "";
+    private string selectedExpiry = "none";
+    private string newlyCreatedKey = "";
+    private bool isCreating = false;
+    private bool isLoading = true;
+    private bool copied = false;
+
+    private string statusMessage = "";
+    private string statusClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = UserManager.GetUserId(user);
+            if (userId != null)
+            {
+                await LoadKeys();
+            }
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadKeys()
+    {
+        if (userId == null) return;
+        keys = await ApiKeyService.GetUserKeysAsync(userId);
+    }
+
+    private async Task CreateKey()
+    {
+        if (string.IsNullOrWhiteSpace(newKeyName) || userId == null) return;
+
+        isCreating = true;
+        newlyCreatedKey = "";
+        copied = false;
+
+        try
+        {
+            DateTime? expiresAt = selectedExpiry switch
+            {
+                "30d" => DateTime.UtcNow.AddDays(30),
+                "90d" => DateTime.UtcNow.AddDays(90),
+                "1y" => DateTime.UtcNow.AddYears(1),
+                _ => null
+            };
+
+            var (key, plainText) = await ApiKeyService.CreateKeyAsync(userId, newKeyName.Trim(), expiresAt);
+            newlyCreatedKey = plainText;
+            newKeyName = "";
+            selectedExpiry = "none";
+            await LoadKeys();
+            ShowStatus("API key created successfully!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error creating key: {ex.Message}", false);
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task RevokeKey(Guid keyId)
+    {
+        if (userId == null) return;
+        try
+        {
+            var result = await ApiKeyService.RevokeKeyAsync(keyId, userId);
+            if (result)
+            {
+                await LoadKeys();
+                ShowStatus("API key revoked.", true);
+            }
+            else
+            {
+                ShowStatus("Failed to revoke key.", false);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error: {ex.Message}", false);
+        }
+    }
+
+    private async Task DeleteKey(Guid keyId)
+    {
+        if (userId == null) return;
+        try
+        {
+            var result = await ApiKeyService.DeleteKeyAsync(keyId, userId);
+            if (result)
+            {
+                await LoadKeys();
+                ShowStatus("API key deleted permanently.", true);
+            }
+            else
+            {
+                ShowStatus("Failed to delete key.", false);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error: {ex.Message}", false);
+        }
+    }
+
+    private async Task CopyKeyToClipboard()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", newlyCreatedKey);
+            copied = true;
+            StateHasChanged();
+            await Task.Delay(2000);
+            copied = false;
+            StateHasChanged();
+        }
+        catch
+        {
+            ShowStatus("Unable to copy — please select and copy manually.", false);
+        }
+    }
+
+    private void ShowStatus(string message, bool success)
+    {
+        statusMessage = message;
+        statusClass = success ? "status-success" : "status-error";
+        StateHasChanged();
+
+        Task.Delay(3000).ContinueWith(_ =>
+        {
+            statusMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

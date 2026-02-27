@@ -1,0 +1,252 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label class="form-label">Input Array (JSON)</label>
+        <textarea class="form-control" rows="4" 
+                  value="@config.InputArray"
+                  placeholder="[{&quot;id&quot;: 1, &quot;name&quot;: &quot;Item 1&quot;}, ...]"
+                  @onchange="@(e => UpdateConfig(c => c.InputArray = e.Value?.ToString()))"></textarea>
+        <small class="form-text text-muted">Enter a JSON array or use a placeholder like <code>{{HttpRequest.Body}}</code></small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders.Take(10))
+                {
+                    <span class="chip" @onclick="@(() => InsertPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Batch Size</label>
+        <input type="number" class="form-control" min="1" 
+               value="@config.BatchSize"
+               @onchange="@(e => UpdateConfig(c => c.BatchSize = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : 1))" />
+        <small class="form-text text-muted">Number of items to process in parallel. Use 1 for sequential processing.</small>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Delay Between Batches (ms)</label>
+        <input type="number" class="form-control" min="0" step="100"
+               value="@config.DelayBetweenBatches"
+               @onchange="@(e => UpdateConfig(c => c.DelayBetweenBatches = int.TryParse(e.Value?.ToString(), out var v) && v >= 0 ? v : 0))" />
+        <small class="form-text text-muted">Optional pause between batch executions (0 = no delay)</small>
+    </div>
+
+    @if (!string.IsNullOrEmpty(config.LastExecutedAt))
+    {
+        <div class="execution-stats">
+            <label class="form-label">Last Execution</label>
+            <div class="stats-display">
+                <span>🕐 @config.LastExecutedAt</span>
+                @if (config.LastItemCount.HasValue)
+                {
+                    <span class="ms-2">📊 @config.LastItemCount items</span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (config.DetectedNestedArrays != null && config.DetectedNestedArrays.Any())
+    {
+        <div class="nested-array-warning">
+            <span class="warning-icon">⚠️</span>
+            <div class="warning-content">
+                <strong>Nested Arrays Detected</strong>
+                <p>The following properties contain arrays: <code>@string.Join(", ", config.DetectedNestedArrays)</code></p>
+                <p class="recommendation">💡 Consider adding additional Loop nodes to process these nested arrays.</p>
+            </div>
+        </div>
+    }
+
+    <details class="help-section">
+        <summary>📖 Output Placeholders</summary>
+        <div class="help-content">
+            <p>Each iteration provides the following placeholders for downstream nodes:</p>
+            <ul>
+                <li><code>{{Loop.CurrentItem}}</code> - Full JSON of current item</li>
+                <li><code>{{Loop.CurrentIndex}}</code> - Zero-based index (0, 1, 2...)</li>
+                <li><code>{{Loop.TotalCount}}</code> - Total number of items</li>
+                <li><code>{{Loop.IsFirstItem}}</code> - True if first item</li>
+                <li><code>{{Loop.IsLastItem}}</code> - True if last item</li>
+                <li><code>{{Loop.BatchNumber}}</code> - Current batch (1-indexed)</li>
+                <li><code>{{Loop.propertyName}}</code> - Direct access to item properties</li>
+            </ul>
+            <p class="mt-2"><strong>Example:</strong> If your array contains <code>[{"id": 1, "name": "Test"}]</code>, 
+            you can use <code>{{Loop.id}}</code> and <code>{{Loop.name}}</code> in downstream nodes.</p>
+        </div>
+    </details>
+</div>
+
+<style>
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        color: var(--text-primary);
+        font-weight: 500;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .form-text.text-muted {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem;
+    }
+
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .execution-stats {
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .stats-display {
+        color: var(--accent-color);
+        font-family: monospace;
+        font-size: 0.7rem;
+    }
+
+    .help-section {
+        margin-top: 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .help-section summary {
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .help-content {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .help-content code {
+        color: var(--accent-color);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .help-content ul {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+    }
+
+    .help-content li {
+        margin: 0.25rem 0;
+    }
+
+    .nested-array-warning {
+        display: flex;
+        gap: 0.5rem;
+        background: rgba(255, 193, 7, 0.15);
+        border: 1px solid rgba(255, 193, 7, 0.4);
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-top: 0.75rem;
+    }
+
+    .nested-array-warning .warning-icon {
+        font-size: 1.2rem;
+    }
+
+    .nested-array-warning .warning-content {
+        flex: 1;
+    }
+
+    .nested-array-warning strong {
+        color: #ffc107;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .nested-array-warning p {
+        margin: 0.25rem 0;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .nested-array-warning code {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .nested-array-warning .recommendation {
+        color: var(--accent-color);
+        font-style: italic;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    private LoopConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<LoopConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<LoopConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task InsertPlaceholder(string placeholder)
+    {
+        var current = config.InputArray ?? "";
+        // Placeholders from AvailablePlaceholders already include {{ }}
+        if (placeholder.StartsWith("{{") && placeholder.EndsWith("}}"))
+            config.InputArray = current + placeholder;
+        else
+            config.InputArray = current + "{{" + placeholder + "}}";
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+}

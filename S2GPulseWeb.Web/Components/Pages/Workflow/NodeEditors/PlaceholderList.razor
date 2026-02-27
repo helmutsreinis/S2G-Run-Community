@@ -1,0 +1,96 @@
+@using System.Collections.Generic
+
+<div class="placeholder-container">
+    <label class="placeholder-label">Available Placeholders:</label>
+    <div class="placeholder-list">
+        @if (Placeholders == null || !Placeholders.Any())
+        {
+            <span class="placeholder-empty">No incoming data available</span>
+        }
+        else
+        {
+            @foreach (var p in Placeholders)
+            {
+                @if (p.EndsWith("[array]"))
+                {
+                    var displayText = p.Replace("[array]", "");
+                    var copyText = displayText;
+                    <span class="placeholder-item placeholder-array" 
+                          title="📦 Array property - Consider adding a nested Loop node to iterate through this array"
+                          @onclick="@(() => CopyToClipboard(copyText))">
+                        @displayText <span class="array-badge">📦</span>
+                    </span>
+                }
+                else
+                {
+                    <span class="placeholder-item" title="Click to copy" @onclick="@(() => CopyToClipboard(p))">@p</span>
+                }
+            }
+        }
+    </div>
+</div>
+
+<style>
+    .placeholder-container {
+        margin-top: 10px;
+        padding: 8px;
+        background: rgba(0, 168, 168, 0.05);
+        border: 1px dashed var(--border-color);
+        border-radius: 4px;
+    }
+    .placeholder-label {
+        font-size: 0.7rem;
+        color: var(--accent-color);
+        display: block;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+    }
+    .placeholder-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    .placeholder-item {
+        font-family: monospace;
+        font-size: 0.75rem;
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        padding: 2px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: var(--text-primary);
+    }
+    .placeholder-item:hover {
+        border-color: var(--accent-color);
+        background: var(--background-light);
+    }
+    .placeholder-array {
+        background: rgba(255, 152, 0, 0.15);
+        border-color: rgba(255, 152, 0, 0.5);
+        color: #ff9800;
+    }
+    .placeholder-array:hover {
+        background: rgba(255, 152, 0, 0.25);
+        border-color: #ff9800;
+    }
+    .array-badge {
+        font-size: 0.65rem;
+        margin-left: 2px;
+    }
+    .placeholder-empty {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-style: italic;
+    }
+</style>
+
+@code {
+    [Parameter] public List<string>? Placeholders { get; set; }
+    [Inject] IJSRuntime JSRuntime { get; set; } = default!;
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+}

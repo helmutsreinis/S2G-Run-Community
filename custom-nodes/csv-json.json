@@ -1,0 +1,125 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:25:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_CsvJson",
+        "displayName": "CSV ↔ JSON",
+        "description": "Converts between CSV and JSON formats. Encode mode converts JSON array to CSV, decode mode converts CSV to JSON array.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M14 3V7C14 7.55228 14.4477 8 15 8H19M14 3H7C5.89543 3 5 3.89543 5 5V19C5 20.1046 5.89543 21 7 21H17C18.1046 21 19 20.1046 19 19V8M14 3L19 8M9 13H15M9 17H12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// CSV ↔ JSON Converter\n\nvar mode = input.get(\"mode\") || \"toJson\";\nvar inputText = input.get(\"inputText\");\nvar delimiter = input.get(\"delimiter\") || \",\";\nvar hasHeaders = input.get(\"hasHeaders\") !== \"false\";\n\nif (!inputText || inputText.trim() === \"\") {\n    log.error(\"Input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Input is required\");\n    output.set(\"Result\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var result = \"\";\n        \n        if (mode.toLowerCase() === \"tocsv\" || mode.toLowerCase() === \"encode\") {\n            // JSON array to CSV\n            var data = json.parse(inputText);\n            if (!Array.isArray(data) || data.length === 0) {\n                throw new Error(\"Input must be a non-empty JSON array\");\n            }\n            \n            // Get headers from first object\n            var headers = Object.keys(data[0]);\n            var lines = [];\n            \n            if (hasHeaders) {\n                lines.push(headers.join(delimiter));\n            }\n            \n            for (var i = 0; i < data.length; i++) {\n                var row = [];\n                for (var j = 0; j < headers.length; j++) {\n                    var val = data[i][headers[j]];\n                    if (val === null || val === undefined) val = \"\";\n                    val = String(val);\n                    // Escape quotes and wrap if contains delimiter or quotes\n                    if (val.indexOf(delimiter) >= 0 || val.indexOf('\"') >= 0 || val.indexOf('\\n') >= 0) {\n                        val = '\"' + val.replace(/\"/g, '\"\"') + '\"';\n                    }\n                    row.push(val);\n                }\n                lines.push(row.join(delimiter));\n            }\n            result = lines.join('\\n');\n            output.set(\"RowCount\", data.length);\n            output.set(\"ColumnCount\", headers.length);\n            log.info(\"Converted JSON to CSV: \" + data.length + \" rows, \" + headers.length + \" columns\");\n        } else {\n            // CSV to JSON array\n            var lines = inputText.trim().split('\\n');\n            if (lines.length === 0) {\n                throw new Error(\"CSV input is empty\");\n            }\n            \n            // Parse CSV line handling quoted values\n            function parseLine(line) {\n                var result = [];\n                var current = \"\";\n                var inQuotes = false;\n                for (var i = 0; i < line.length; i++) {\n                    var c = line[i];\n                    if (c === '\"') {\n                        if (inQuotes && i + 1 < line.length && line[i + 1] === '\"') {\n                            current += '\"';\n                            i++;\n                        } else {\n                            inQuotes = !inQuotes;\n                        }\n                    } else if (c === delimiter && !inQuotes) {\n                        result.push(current);\n                        current = \"\";\n                    } else {\n                        current += c;\n                    }\n                }\n                result.push(current);\n                return result;\n            }\n            \n            var headers = parseLine(lines[0]);\n            var startRow = hasHeaders ? 1 : 0;\n            \n            if (!hasHeaders) {\n                headers = [];\n                for (var h = 0; h < parseLine(lines[0]).length; h++) {\n                    headers.push(\"col\" + h);\n                }\n            }\n            \n            var data = [];\n            for (var i = startRow; i < lines.length; i++) {\n                if (lines[i].trim() === \"\") continue;\n                var values = parseLine(lines[i]);\n                var obj = {};\n                for (var j = 0; j < headers.length; j++) {\n                    obj[headers[j]] = values[j] || \"\";\n                }\n                data.push(obj);\n            }\n            \n            result = json.stringify(data);\n            output.set(\"RowCount\", data.length);\n            output.set(\"ColumnCount\", headers.length);\n            output.set(\"Headers\", json.stringify(headers));\n            log.info(\"Converted CSV to JSON: \" + data.length + \" rows, \" + headers.length + \" columns\");\n        }\n        \n        output.set(\"Result\", result);\n        output.set(\"Mode\", mode);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Conversion failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Result\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "mode",
+                "displayLabel": "Mode",
+                "placeholderText": "toJson or toCsv",
+                "helpText": "'toJson' converts CSV to JSON array. 'toCsv' converts JSON array to CSV.",
+                "fieldType": "Dropdown",
+                "defaultValue": "toJson",
+                "isRequired": true,
+                "allowPlaceholders": false,
+                "displayOrder": 1,
+                "dropdownOptions": "toJson,toCsv"
+            },
+            {
+                "fieldName": "inputText",
+                "displayLabel": "Input",
+                "placeholderText": "CSV or JSON array",
+                "helpText": "For toJson: CSV text. For toCsv: JSON array of objects.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "delimiter",
+                "displayLabel": "Delimiter",
+                "placeholderText": ",",
+                "helpText": "CSV delimiter character. Default is comma.",
+                "fieldType": "Text",
+                "defaultValue": ",",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "hasHeaders",
+                "displayLabel": "Has Headers",
+                "helpText": "Whether the first row contains column headers (for CSV) or should include headers (for JSON to CSV).",
+                "fieldType": "Boolean",
+                "defaultValue": "true",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The converted output (JSON string or CSV text)",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "RowCount",
+                "description": "Number of data rows",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ColumnCount",
+                "description": "Number of columns",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Headers",
+                "description": "JSON array of column headers (CSV to JSON only)",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Mode",
+                "description": "The conversion mode used",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if conversion failed",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Conversion completed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Conversion failed",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

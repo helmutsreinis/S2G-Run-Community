@@ -1,0 +1,388 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label class="form-label">Schedule Type</label>
+        <select class="form-control" value="@config.ScheduleType"
+                @onchange="@(e => UpdateConfig(c => c.ScheduleType = e.Value?.ToString()))">
+            <option value="Interval">Interval (every X minutes/hours)</option>
+            <option value="TimeOfDay">Time of Day (daily at specific time)</option>
+            <option value="DayOfWeek">Day of Week (specific days at specific time)</option>
+            <option value="DayOfMonth">Day of Month (specific dates each month)</option>
+        </select>
+    </div>
+
+    @if (config.ScheduleType == "Interval")
+    {
+        <div class="form-row">
+            <div class="form-group flex-grow">
+                <label class="form-label">Every</label>
+                <input type="number" class="form-control" min="1"
+                       value="@config.IntervalValue"
+                       @onchange="@(e => UpdateConfig(c => c.IntervalValue = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : 1))" />
+            </div>
+            <div class="form-group flex-grow">
+                <label class="form-label">Unit</label>
+                <select class="form-control" value="@config.IntervalUnit"
+                        @onchange="@(e => UpdateConfig(c => c.IntervalUnit = e.Value?.ToString()))">
+                    <option value="Seconds">Seconds</option>
+                    <option value="Minutes">Minutes</option>
+                    <option value="Hours">Hours</option>
+                    <option value="Days">Days</option>
+                </select>
+            </div>
+        </div>
+        <small class="form-text text-muted">Trigger every @config.IntervalValue @(config.IntervalUnit?.ToLower() ?? "minutes")</small>
+    }
+
+    @if (config.ScheduleType == "TimeOfDay" || config.ScheduleType == "DayOfWeek" || config.ScheduleType == "DayOfMonth")
+    {
+        <div class="form-group">
+            <label class="form-label">Time of Day</label>
+            <input type="time" class="form-control" 
+                   value="@config.TimeOfDay"
+                   @onchange="@(e => UpdateConfig(c => c.TimeOfDay = e.Value?.ToString()))" />
+            <small class="form-text text-muted">Time in the selected timezone</small>
+        </div>
+    }
+
+    @if (config.ScheduleType == "DayOfWeek")
+    {
+        <div class="form-group">
+            <label class="form-label">Days of Week</label>
+            <div class="day-checkboxes">
+                @foreach (var day in new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" })
+                {
+                    var isChecked = config.DaysOfWeek?.Contains(day) ?? false;
+                    <label class="day-checkbox @(isChecked ? "checked" : "")">
+                        <input type="checkbox" checked="@isChecked"
+                               @onchange="@(e => ToggleDay(day, (bool)(e.Value ?? false)))" />
+                        <span>@day[..3]</span>
+                    </label>
+                }
+            </div>
+        </div>
+    }
+
+    @if (config.ScheduleType == "DayOfMonth")
+    {
+        <div class="form-group">
+            <label class="form-label">Days of Month</label>
+            <div class="month-day-grid">
+                @for (int day = 1; day <= 31; day++)
+                {
+                    var d = day;
+                    var isSelected = config.DaysOfMonth?.Contains(d) ?? false;
+                    <button type="button" class="month-day-btn @(isSelected ? "selected" : "")"
+                            @onclick="@(() => ToggleMonthDay(d))">@d</button>
+                }
+            </div>
+            <small class="form-text text-muted">Select one or more days. If a month has fewer days, the last valid day is used.</small>
+        </div>
+    }
+
+    <div class="form-group">
+        <label class="form-label">Timezone</label>
+        <select class="form-control" value="@config.Timezone"
+                @onchange="@(e => UpdateConfig(c => c.Timezone = e.Value?.ToString()))">
+            <optgroup label="Common">
+                <option value="UTC">UTC</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+                <option value="Europe/Riga">Europe/Riga (EET/EEST)</option>
+                <option value="Europe/Moscow">Europe/Moscow (MSK)</option>
+                <option value="America/New_York">America/New_York (EST/EDT)</option>
+                <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+                <option value="America/Denver">America/Denver (MST/MDT)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+                <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
+                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</option>
+            </optgroup>
+        </select>
+        <small class="form-text text-muted">All schedule times are interpreted in this timezone</small>
+    </div>
+
+    <div class="form-group">
+        <div class="end-datetime-header">
+            <label class="form-label">End Date/Time (Optional)</label>
+            <label class="toggle-label">
+                <input type="checkbox" checked="@hasEndDateTime"
+                       @onchange="@(e => ToggleEndDateTime((bool)(e.Value ?? false)))" />
+                <span>Set expiration</span>
+            </label>
+        </div>
+        @if (hasEndDateTime)
+        {
+            <input type="datetime-local" class="form-control" 
+                   value="@config.EndDateTime"
+                   @onchange="@(e => UpdateConfig(c => c.EndDateTime = e.Value?.ToString()))" />
+            <small class="form-text text-muted">Schedule will stop running after this date/time (in selected timezone)</small>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(config.LastTriggeredAt))
+    {
+        <div class="execution-stats">
+            <label class="form-label">Last Execution</label>
+            <div class="stats-display">
+                <span>🕐 @config.LastTriggeredLocalTime (@config.Timezone)</span>
+            </div>
+            @if (!string.IsNullOrEmpty(config.NextScheduledRun))
+            {
+                <div class="stats-display next-run">
+                    <span>⏭️ Next: @config.NextScheduledRun</span>
+                </div>
+            }
+        </div>
+    }
+
+    <details class="help-section">
+        <summary>📖 Output Placeholders</summary>
+        <div class="help-content">
+            <p>When triggered, the Scheduler provides these placeholders:</p>
+            <ul>
+                <li><code>{{Scheduler.SchedulerTriggeredAt}}</code> - UTC timestamp of trigger</li>
+                <li><code>{{Scheduler.SchedulerLocalTime}}</code> - Local time in configured timezone</li>
+                <li><code>{{Scheduler.SchedulerNextRun}}</code> - Next scheduled run time</li>
+                <li><code>{{Scheduler.SchedulerType}}</code> - Type of schedule (Interval, TimeOfDay, etc.)</li>
+                <li><code>{{Scheduler.SchedulerTimezone}}</code> - Configured timezone</li>
+                <li><code>{{Scheduler.SchedulerExpired}}</code> - True if end date/time has passed</li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+<style>
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        color: var(--text-primary);
+        font-weight: 500;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .form-text.text-muted {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem;
+    }
+
+    .form-row {
+        display: flex;
+        gap: 1rem;
+    }
+
+    .flex-grow {
+        flex: 1;
+    }
+
+    .day-checkboxes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .day-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s;
+    }
+
+    .day-checkbox:hover {
+        border-color: var(--accent-color);
+    }
+
+    .day-checkbox.checked {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+        color: white;
+    }
+
+    .day-checkbox input {
+        display: none;
+    }
+
+    .month-day-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 4px;
+    }
+
+    .month-day-btn {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border-color);
+        background: var(--background-dark);
+        color: var(--text-primary);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.75rem;
+        transition: all 0.2s;
+    }
+
+    .month-day-btn:hover {
+        border-color: var(--accent-color);
+    }
+
+    .month-day-btn.selected {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+        color: white;
+    }
+
+    .execution-stats {
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .stats-display {
+        color: var(--accent-color);
+        font-family: monospace;
+        font-size: 0.7rem;
+    }
+
+    .stats-display.next-run {
+        margin-top: 0.25rem;
+        color: var(--text-secondary);
+    }
+
+    .end-datetime-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.25rem;
+    }
+
+    .toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .toggle-label input {
+        width: 14px;
+        height: 14px;
+        accent-color: var(--accent-color);
+    }
+
+    .help-section {
+        margin-top: 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .help-section summary {
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .help-content {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .help-content code {
+        color: var(--accent-color);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .help-content ul {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+    }
+
+    .help-content li {
+        margin: 0.25rem 0;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    private SchedulerConfig config = new();
+    private bool hasEndDateTime = false;
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<SchedulerConfig>(Configuration ?? "{}") ?? new();
+            config.DaysOfWeek ??= new List<string>();
+            config.DaysOfMonth ??= new List<int>();
+            hasEndDateTime = !string.IsNullOrEmpty(config.EndDateTime);
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<SchedulerConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task ToggleDay(string day, bool isChecked)
+    {
+        config.DaysOfWeek ??= new List<string>();
+        
+        if (isChecked && !config.DaysOfWeek.Contains(day))
+            config.DaysOfWeek.Add(day);
+        else if (!isChecked && config.DaysOfWeek.Contains(day))
+            config.DaysOfWeek.Remove(day);
+        
+        await NotifyChanged();
+    }
+
+    private async Task ToggleEndDateTime(bool enabled)
+    {
+        hasEndDateTime = enabled;
+        if (!enabled)
+        {
+            config.EndDateTime = null;
+        }
+        StateHasChanged();
+        await NotifyChanged();
+    }
+
+    private async Task ToggleMonthDay(int day)
+    {
+        config.DaysOfMonth ??= new List<int>();
+        
+        if (config.DaysOfMonth.Contains(day))
+            config.DaysOfMonth.Remove(day);
+        else
+            config.DaysOfMonth.Add(day);
+        
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+}

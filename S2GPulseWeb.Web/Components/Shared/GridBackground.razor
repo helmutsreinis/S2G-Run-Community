@@ -1,0 +1,291 @@
+@* Animated grid background with dashing lines and connection tags *@
+
+<div class="grid-background">
+    <svg class="grid-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+        <defs>
+            @* Grid dot pattern *@
+            <pattern id="grid-dots" width="20" height="20" patternUnits="userSpaceOnUse">
+                <circle cx="10" cy="10" r="1" fill="rgba(0, 168, 168, 0.2)" />
+            </pattern>
+            
+            @* Glow filter for lines *@
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+            
+            @* Gradient for fading trails *@
+            <linearGradient id="trail-fade-http" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0" />
+                <stop offset="30%" stop-color="#3b82f6" stop-opacity="0.55" />
+                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0" />
+            </linearGradient>
+            <linearGradient id="trail-fade-ai" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#a855f7" stop-opacity="0" />
+                <stop offset="30%" stop-color="#a855f7" stop-opacity="0.55" />
+                <stop offset="100%" stop-color="#a855f7" stop-opacity="0" />
+            </linearGradient>
+            <linearGradient id="trail-fade-storage" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#22c55e" stop-opacity="0" />
+                <stop offset="30%" stop-color="#22c55e" stop-opacity="0.55" />
+                <stop offset="100%" stop-color="#22c55e" stop-opacity="0" />
+            </linearGradient>
+            <linearGradient id="trail-fade-flow" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#f59e0b" stop-opacity="0" />
+                <stop offset="30%" stop-color="#f59e0b" stop-opacity="0.55" />
+                <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+            </linearGradient>
+            <linearGradient id="trail-fade-remote" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ef4444" stop-opacity="0" />
+                <stop offset="30%" stop-color="#ef4444" stop-opacity="0.55" />
+                <stop offset="100%" stop-color="#ef4444" stop-opacity="0" />
+            </linearGradient>
+        </defs>
+        
+        @* Grid dots background *@
+        <rect width="100%" height="100%" fill="url(#grid-dots)" />
+        
+        @* Animated dashing lines *@
+        @foreach (var line in animatedLines)
+        {
+            <g class="dash-line-group" style="@line.AnimationStyle">
+                <polyline 
+                    points="@line.Points"
+                    fill="none"
+                    stroke="url(#trail-fade-@line.Type.ToLower())"
+                    stroke-width="@line.StrokeWidth"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-dasharray="@line.DashArray"
+                    filter="url(#glow)"
+                    class="dash-line dash-line-@line.Type.ToLower()" />
+                
+                @if (line.ShowTag)
+                {
+                    <g class="connection-tag" transform="translate(@line.TagPosition)">
+                        <rect x="-20" y="-8" width="40" height="16" rx="3" 
+                              fill="@line.TagBackground" stroke="@line.TagColor" stroke-width="0.5" />
+                        <text x="0" y="4" text-anchor="middle" 
+                              fill="@line.TagColor" font-size="8" font-family="monospace">
+                            @line.Type
+                        </text>
+                    </g>
+                }
+            </g>
+        }
+    </svg>
+</div>
+
+@code {
+    private List<AnimatedLine> animatedLines = new();
+    private Random random = new();
+
+    protected override void OnInitialized()
+    {
+        GenerateAnimatedLines();
+    }
+
+    private void GenerateAnimatedLines()
+    {
+        var lineTypes = new[] { "HTTP", "AI", "Storage", "Flow", "Remote" };
+        var lineColors = new Dictionary<string, string>
+        {
+            { "HTTP", "#3b82f6" },
+            { "AI", "#a855f7" },
+            { "Storage", "#22c55e" },
+            { "Flow", "#f59e0b" },
+            { "Remote", "#ef4444" }
+        };
+
+        // Generate 8-12 animated lines with varied positions and timing
+        int lineCount = random.Next(8, 13);
+        
+        for (int i = 0; i < lineCount; i++)
+        {
+            var type = lineTypes[random.Next(lineTypes.Length)];
+            var line = GenerateLinePath(type, lineColors[type], i);
+            animatedLines.Add(line);
+        }
+    }
+
+    private AnimatedLine GenerateLinePath(string type, string color, int index)
+    {
+        // Grid is 20px spacing, generate path that follows grid points
+        int gridSize = 20;
+        int segments = random.Next(4, 8);
+        
+        // Random starting position (locked to grid)
+        int startX = random.Next(2, 60) * gridSize;
+        int startY = random.Next(2, 30) * gridSize;
+        
+        var points = new List<string> { $"{startX},{startY}" };
+        int currentX = startX;
+        int currentY = startY;
+        
+        // Generate path segments (mostly horizontal/vertical with occasional diagonals)
+        for (int s = 0; s < segments; s++)
+        {
+            int direction = random.Next(4);
+            int distance = random.Next(3, 8) * gridSize;
+            
+            switch (direction)
+            {
+                case 0: currentX += distance; break; // right
+                case 1: currentX -= distance; break; // left
+                case 2: currentY += distance; break; // down
+                case 3: currentY -= distance; break; // up
+            }
+            
+            // Keep within reasonable bounds
+            currentX = Math.Max(gridSize, Math.Min(1200, currentX));
+            currentY = Math.Max(gridSize, Math.Min(600, currentY));
+            
+            points.Add($"{currentX},{currentY}");
+        }
+        
+        // Animation timing
+        double duration = 4 + random.NextDouble() * 6; // 4-10 seconds
+        double delay = random.NextDouble() * 8; // 0-8 second delay
+        
+        // Determine dash pattern based on type
+        string dashArray = type switch
+        {
+            "HTTP" => "80,40",
+            "AI" => "10,5",
+            "Storage" => "4,4",
+            "Flow" => "20,10,5,10",
+            "Remote" => "60,20",
+            _ => "40,20"
+        };
+        
+        double strokeWidth = type switch
+        {
+            "Remote" => 2.5,
+            "HTTP" => 2,
+            _ => 1.5
+        };
+
+        // Tag position (middle of path)
+        int midIndex = points.Count / 2;
+        var midPoint = points[midIndex].Split(',');
+        
+        return new AnimatedLine
+        {
+            Points = string.Join(" ", points),
+            Type = type,
+            TagColor = color,
+            TagBackground = "rgba(10, 26, 26, 0.9)",
+            ShowTag = random.Next(3) == 0, // 1 in 3 chance to show tag
+            TagPosition = $"{midPoint[0]},{midPoint[1]}",
+            DashArray = dashArray,
+            StrokeWidth = strokeWidth,
+            AnimationStyle = $"--dash-duration: {duration:F1}s; --dash-delay: {delay:F1}s; --line-index: {index};"
+        };
+    }
+
+    private class AnimatedLine
+    {
+        public string Points { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string TagColor { get; set; } = "";
+        public string TagBackground { get; set; } = "";
+        public bool ShowTag { get; set; }
+        public string TagPosition { get; set; } = "";
+        public string DashArray { get; set; } = "";
+        public double StrokeWidth { get; set; }
+        public string AnimationStyle { get; set; } = "";
+    }
+}
+
+<style>
+    .grid-background {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+        background-color: var(--background-dark, #0a1a1a);
+    }
+
+    .grid-svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .dash-line-group {
+        animation: dash-travel var(--dash-duration, 6s) linear var(--dash-delay, 0s) infinite;
+    }
+
+    .dash-line {
+        animation: dash-pulse var(--dash-duration, 6s) ease-in-out var(--dash-delay, 0s) infinite;
+    }
+
+    @@keyframes dash-travel {
+        0% {
+            stroke-dashoffset: 0;
+        }
+        100% {
+            stroke-dashoffset: -400;
+        }
+    }
+
+    @@keyframes dash-pulse {
+        0%, 100% {
+            opacity: 0;
+        }
+        5% {
+            opacity: 0.3;
+        }
+        15% {
+            opacity: 0.9;
+        }
+        50% {
+            opacity: 0.7;
+        }
+        85% {
+            opacity: 0.5;
+        }
+        95% {
+            opacity: 0.2;
+        }
+    }
+
+    .connection-tag {
+        animation: tag-fade var(--dash-duration, 6s) ease-in-out var(--dash-delay, 0s) infinite;
+    }
+
+    @@keyframes tag-fade {
+        0%, 100% {
+            opacity: 0;
+        }
+        20% {
+            opacity: 1;
+        }
+        80% {
+            opacity: 1;
+        }
+    }
+
+    /* Type-specific glow colors */
+    .dash-line-http {
+        filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.5));
+    }
+    .dash-line-ai {
+        filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.5));
+    }
+    .dash-line-storage {
+        filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.5));
+    }
+    .dash-line-flow {
+        filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.5));
+    }
+    .dash-line-remote {
+        filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.5));
+    }
+</style>

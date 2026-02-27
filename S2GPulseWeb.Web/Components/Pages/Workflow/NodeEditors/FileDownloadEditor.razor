@@ -1,0 +1,161 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>URL:</label>
+        <input type="text" value="@Config.Url" @onchange="OnUrlChanged" class="form-control" placeholder="https://example.com/file.pdf" />
+        <small class="text-muted">URL to download the file from. Supports placeholders.</small>
+    </div>
+
+    <div class="node-property mt-2">
+        <label>Filename (optional):</label>
+        <input type="text" value="@Config.FileName" @onchange="OnFileNameChanged" class="form-control" placeholder="Leave empty to auto-detect" />
+        <small class="text-muted">Override filename. If empty, extracted from Content-Disposition header or URL.</small>
+    </div>
+
+    <div class="node-property mt-2">
+        <label>Timeout (seconds):</label>
+        <input type="number" value="@Config.TimeoutSeconds" @onchange="OnTimeoutChanged" class="form-control" min="1" max="600" />
+        <small class="text-muted">Maximum time to wait for download (default: 60s, max: 600s).</small>
+    </div>
+
+    @* Headers - for authentication *@
+    <div class="node-property mt-3">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="color: #9b59b6;">📨 Headers (for authentication)</label>
+            <button type="button" class="btn btn-xs" style="background: #1a1a2e; border: 1px solid #9b59b6; color: #9b59b6; padding: 2px 8px; font-size: 0.75rem;" @onclick="AddHeader">
+                + Add
+            </button>
+        </div>
+        <div style="background: #1a1a2e; border: 1px solid #9b59b6; border-radius: 6px; padding: 8px; margin-top: 4px;">
+            @if (headers.Any())
+            {
+                <table style="width: 100%; border-collapse: collapse; background: transparent;">
+                    <thead style="background: transparent;">
+                        <tr style="background: transparent;">
+                            <th style="padding: 4px; width: 30px; background: transparent;"></th>
+                            <th style="padding: 4px; text-align: left; color: #9b59b6; font-size: 0.75rem; background: transparent;">Key</th>
+                            <th style="padding: 4px; text-align: left; color: #9b59b6; font-size: 0.75rem; background: transparent;">Value</th>
+                            <th style="padding: 4px; width: 30px; background: transparent;"></th>
+                        </tr>
+                    </thead>
+                    <tbody style="background: transparent;">
+                        @for (var i = 0; i < headers.Count; i++)
+                        {
+                            var idx = i;
+                            var header = headers[i];
+                            <tr style="border-bottom: 1px solid rgba(155, 89, 182, 0.2); background: transparent;">
+                                <td style="padding: 4px; background: transparent; text-align: center;">
+                                    <input type="checkbox" checked="@header.Enabled" @onchange="@(e => { header.Enabled = (bool)(e.Value ?? false); NotifyChanged(); })" 
+                                           style="accent-color: #9b59b6;" />
+                                </td>
+                                <td style="padding: 4px; background: transparent;">
+                                    <input type="text" value="@header.Key" @onchange="@(e => { header.Key = e.Value?.ToString() ?? ""; NotifyChanged(); })"
+                                           style="background: #0d0d1a; border: 1px solid #9b59b6; color: #fff; font-size: 0.85rem; padding: 4px 6px; width: 100%;"
+                                           placeholder="Authorization" />
+                                </td>
+                                <td style="padding: 4px; background: transparent;">
+                                    <input type="text" value="@header.Value" @onchange="@(e => { header.Value = e.Value?.ToString() ?? ""; NotifyChanged(); })"
+                                           style="background: #0d0d1a; border: 1px solid #9b59b6; color: #fff; font-size: 0.85rem; padding: 4px 6px; width: 100%;"
+                                           placeholder="Bearer {{Token}}" />
+                                </td>
+                                <td style="padding: 4px; background: transparent; text-align: center;">
+                                    <button type="button" @onclick="@(() => RemoveHeader(idx))"
+                                            style="background: transparent; border: none; color: #e74c3c; cursor: pointer; font-size: 1rem;">×</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="color: #666; font-size: 0.8rem; text-align: center; padding: 8px;">No headers configured. Add headers for authentication (e.g., Authorization: Bearer token).</div>
+            }
+        </div>
+    </div>
+
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+
+    <div class="output-info mt-3" style="background: #0a1a1a; border: 1px solid #00a8a8; border-radius: 6px; padding: 10px;">
+        <div style="color: #00d4d4; font-weight: bold; font-size: 0.85rem; margin-bottom: 6px;">📤 Output Parameters</div>
+        <div style="font-size: 0.8rem; color: #aaa;">
+            <div><code style="color: #00d4d4;">Success</code> - Boolean indicating if download succeeded</div>
+            <div><code style="color: #00d4d4;">FileName</code> - Name of the downloaded file</div>
+            <div><code style="color: #00d4d4;">ContentType</code> - MIME type (e.g., image/png, application/pdf)</div>
+            <div><code style="color: #00d4d4;">FileSize</code> - Size in bytes</div>
+            <div><code style="color: #00d4d4;">ContentBase64</code> - Base64-encoded file content for storage nodes</div>
+            <div><code style="color: #00d4d4;">ErrorMessage</code> - Error description if failed</div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private FileDownloadConfig Config { get; set; } = new();
+    private List<FileDownloadHeader> headers = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Configuration))
+        {
+            try
+            {
+                Config = JsonSerializer.Deserialize<FileDownloadConfig>(Configuration) ?? new();
+                headers = Config.Headers ?? new();
+            }
+            catch
+            {
+                Config = new FileDownloadConfig();
+                headers = new();
+            }
+        }
+    }
+
+    private void OnUrlChanged(ChangeEventArgs e)
+    {
+        Config.Url = e.Value?.ToString() ?? "";
+        NotifyChanged();
+    }
+
+    private void OnFileNameChanged(ChangeEventArgs e)
+    {
+        Config.FileName = e.Value?.ToString() ?? "";
+        NotifyChanged();
+    }
+
+    private void OnTimeoutChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val))
+        {
+            Config.TimeoutSeconds = Math.Max(1, Math.Min(600, val));
+            NotifyChanged();
+        }
+    }
+
+    private void AddHeader()
+    {
+        headers.Add(new FileDownloadHeader { Enabled = true, Key = "", Value = "" });
+        NotifyChanged();
+    }
+
+    private void RemoveHeader(int index)
+    {
+        if (index >= 0 && index < headers.Count)
+        {
+            headers.RemoveAt(index);
+            NotifyChanged();
+        }
+    }
+
+    private void NotifyChanged()
+    {
+        Config.Headers = headers;
+        var json = JsonSerializer.Serialize(Config);
+        OnConfigurationChanged.InvokeAsync(json);
+    }
+}

@@ -1,0 +1,133 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:43:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_JsonPathQuery",
+        "displayName": "JSON Path Query",
+        "description": "Extracts data from JSON using JSONPath expressions. Supports dot notation, bracket notation, wildcards, and array indexing.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M9 3H5C3.89543 3 3 3.89543 3 5V9\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M15 3H19C20.1046 3 21 3.89543 21 5V9\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M9 21H5C3.89543 21 3 20.1046 3 19V15\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M15 21H19C20.1046 21 21 20.1046 21 19V15\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><circle cx=\"12\" cy=\"12\" r=\"3\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var jsonInput = input.get('json');\nvar pathExpr = input.get('path');\nvar returnFirst = input.get('returnFirst') === 'true';\n\nif (!jsonInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'JSON input is required');\n    output.set('Result', '');\n    tags.trigger('error');\n} else if (!pathExpr) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Path is required');\n    output.set('Result', '');\n    tags.trigger('error');\n} else {\n    try {\n        var data = json.parse(jsonInput);\n        var results = [];\n        \n        function query(obj, path) {\n            if (path === '' || path === '$') {\n                results.push(obj);\n                return;\n            }\n            \n            var p = path;\n            if (p.charAt(0) === '$') p = p.substring(1);\n            if (p.charAt(0) === '.') p = p.substring(1);\n            \n            var segments = [];\n            var current = '';\n            var inBracket = false;\n            \n            for (var i = 0; i < p.length; i++) {\n                var c = p.charAt(i);\n                if (c === '[') {\n                    if (current) segments.push({type: 'prop', val: current});\n                    current = '';\n                    inBracket = true;\n                } else if (c === ']') {\n                    if (current === '*') {\n                        segments.push({type: 'wild'});\n                    } else if (!isNaN(parseInt(current))) {\n                        segments.push({type: 'idx', val: parseInt(current)});\n                    } else {\n                        var v = current;\n                        if ((v.charAt(0)==='\"'||v.charAt(0)===\"'\") && v.charAt(v.length-1)===v.charAt(0)) {\n                            v = v.substring(1, v.length-1);\n                        }\n                        segments.push({type: 'prop', val: v});\n                    }\n                    current = '';\n                    inBracket = false;\n                } else if (c === '.' && !inBracket) {\n                    if (current) segments.push({type: 'prop', val: current});\n                    current = '';\n                    if (p.charAt(i+1) === '.') {\n                        segments.push({type: 'recurse'});\n                        i++;\n                    }\n                } else if (c === '*' && !inBracket) {\n                    if (current) segments.push({type: 'prop', val: current});\n                    segments.push({type: 'wild'});\n                    current = '';\n                } else {\n                    current += c;\n                }\n            }\n            if (current) segments.push({type: 'prop', val: current});\n            \n            function traverse(obj, idx) {\n                if (idx >= segments.length) {\n                    results.push(obj);\n                    return;\n                }\n                if (obj === null || obj === undefined) return;\n                \n                var seg = segments[idx];\n                \n                if (seg.type === 'prop') {\n                    if (typeof obj === 'object' && obj[seg.val] !== undefined) {\n                        traverse(obj[seg.val], idx + 1);\n                    }\n                } else if (seg.type === 'idx') {\n                    if (Array.isArray(obj)) {\n                        var i = seg.val < 0 ? obj.length + seg.val : seg.val;\n                        if (i >= 0 && i < obj.length) {\n                            traverse(obj[i], idx + 1);\n                        }\n                    }\n                } else if (seg.type === 'wild') {\n                    if (Array.isArray(obj)) {\n                        for (var i = 0; i < obj.length; i++) {\n                            traverse(obj[i], idx + 1);\n                        }\n                    } else if (typeof obj === 'object') {\n                        var keys = Object.keys(obj);\n                        for (var k = 0; k < keys.length; k++) {\n                            traverse(obj[keys[k]], idx + 1);\n                        }\n                    }\n                } else if (seg.type === 'recurse') {\n                    traverse(obj, idx + 1);\n                    if (Array.isArray(obj)) {\n                        for (var i = 0; i < obj.length; i++) {\n                            traverse(obj[i], idx);\n                        }\n                    } else if (typeof obj === 'object') {\n                        var keys = Object.keys(obj);\n                        for (var k = 0; k < keys.length; k++) {\n                            traverse(obj[keys[k]], idx);\n                        }\n                    }\n                }\n            }\n            \n            traverse(obj, 0);\n        }\n        \n        query(data, pathExpr);\n        \n        var resultVal = returnFirst ? (results.length > 0 ? results[0] : null) : results;\n        \n        output.set('Result', json.stringify(resultVal));\n        output.set('ResultObject', resultVal);\n        output.set('MatchCount', results.length);\n        output.set('HasMatches', results.length > 0);\n        output.set('FirstMatch', results.length > 0 ? json.stringify(results[0]) : '');\n        output.set('Path', pathExpr);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('JSONPath matched ' + results.length + ' result(s)');\n        \n        if (results.length > 0) {\n            tags.trigger('found');\n        } else {\n            tags.trigger('not-found');\n        }\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('JSONPath failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('Result', '');\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "json",
+                "displayLabel": "JSON",
+                "placeholderText": "{\"store\": {\"books\": [{\"title\": \"...\"}]}}",
+                "helpText": "The JSON data to query.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "path",
+                "displayLabel": "JSONPath",
+                "placeholderText": "$.store.books[*].title",
+                "helpText": "JSONPath expression. Examples: $.prop, $.arr[0], $.arr[*], $..prop",
+                "fieldType": "Text",
+                "defaultValue": "$",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "returnFirst",
+                "displayLabel": "Return First Only",
+                "helpText": "Return only the first match instead of array.",
+                "fieldType": "Boolean",
+                "defaultValue": "false",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "Query result as JSON string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResultObject",
+                "description": "Query result as object",
+                "dataType": "any",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "FirstMatch",
+                "description": "First match as JSON string",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "MatchCount",
+                "description": "Number of matches",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "HasMatches",
+                "description": "True if matches found",
+                "dataType": "boolean",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Path",
+                "description": "The path used",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if failed",
+                "dataType": "boolean",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details",
+                "dataType": "string",
+                "displayOrder": 8
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Query succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "found",
+                "description": "Matches found",
+                "color": "#3b82f6",
+                "conditionDescription": "Has matches",
+                "displayOrder": 2
+            },
+            {
+                "tagName": "not-found",
+                "description": "No matches",
+                "color": "#f59e0b",
+                "conditionDescription": "No matches",
+                "displayOrder": 3
+            },
+            {
+                "tagName": "error",
+                "description": "Query failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 4
+            }
+        ],
+        "logConfigs": []
+    }
+}

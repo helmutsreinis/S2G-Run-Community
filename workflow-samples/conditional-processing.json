@@ -1,0 +1,68 @@
+{
+    "Name": "Conditional Processing",
+    "Description": "HTTP endpoint with conditional logic based on request data",
+    "Version": "1.0",
+    "Nodes": [
+        {
+            "NodeType": "HttpListener",
+            "Name": "RequestListener",
+            "X": 100,
+            "Y": 100,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"ListenerPath\":\"/api/process\",\"Methods\":[\"POST\"],\"Authentication\":\"None\"}",
+            "IsTrigger": true,
+            "Tags": []
+        },
+        {
+            "NodeType": "Condition",
+            "Name": "CheckType",
+            "X": 100,
+            "Y": 220,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"LeftOperand\":\"{{RequestListener.Body.type}}\",\"Operator\":\"equals\",\"RightOperand\":\"premium\"}",
+            "Tags": [
+                "success",
+                "failure"
+            ]
+        },
+        {
+            "NodeType": "HttpResponse",
+            "Name": "PremiumResponse",
+            "X": 0,
+            "Y": 340,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"StatusCode\":\"200\",\"ContentType\":\"application/json\",\"Body\":\"{\\\"tier\\\": \\\"premium\\\", \\\"features\\\": [\\\"all\\\"]}\"}",
+            "Tags": []
+        },
+        {
+            "NodeType": "HttpResponse",
+            "Name": "BasicResponse",
+            "X": 200,
+            "Y": 340,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"StatusCode\":\"200\",\"ContentType\":\"application/json\",\"Body\":\"{\\\"tier\\\": \\\"basic\\\", \\\"features\\\": [\\\"limited\\\"]}\"}",
+            "Tags": []
+        }
+    ],
+    "Connections": [
+        {
+            "SourceId": "RequestListener",
+            "TargetId": "CheckType",
+            "Label": null
+        },
+        {
+            "SourceId": "CheckType",
+            "TargetId": "PremiumResponse",
+            "Label": "success"
+        },
+        {
+            "SourceId": "CheckType",
+            "TargetId": "BasicResponse",
+            "Label": "failure"
+        }
+    ]
+}

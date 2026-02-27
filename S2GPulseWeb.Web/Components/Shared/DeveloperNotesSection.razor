@@ -1,0 +1,62 @@
+@rendermode InteractiveServer
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject DeveloperNoteService DeveloperNoteService
+
+<div class="developer-notes">
+    @if (developerNotes == null)
+    {
+        <p class="loading-text">Loading...</p>
+    }
+    else if (!developerNotes.Any())
+    {
+        <p class="no-notes-text">No developer notes available at this time.</p>
+    }
+    else
+    {
+        @foreach (var note in developerNotes)
+        {
+            <div class="dev-note-item" @onclick="() => ShowNotePopup(note)">
+                <h3>@note.Title</h3>
+                <span class="dev-note-date">@(note.PublishedAt?.ToString("MMMM d, yyyy") ?? note.CreatedAt.ToString("MMMM d, yyyy"))</span>
+            </div>
+        }
+    }
+</div>
+
+@* Developer Note Popup Modal *@
+@if (selectedNote != null)
+{
+    <div class="dev-note-overlay" @onclick="CloseNotePopup">
+        <div class="dev-note-modal" @onclick:stopPropagation="true">
+            <button class="modal-close" @onclick="CloseNotePopup">✕</button>
+            <div class="dev-note-modal-header">
+                <h2>@selectedNote.Title</h2>
+                <span class="dev-note-date">@(selectedNote.PublishedAt?.ToString("MMMM d, yyyy") ?? selectedNote.CreatedAt.ToString("MMMM d, yyyy"))</span>
+            </div>
+            <div class="dev-note-modal-content">
+                @((MarkupString)selectedNote.Content)
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DeveloperNote>? developerNotes;
+    private DeveloperNote? selectedNote;
+
+    protected override async Task OnInitializedAsync()
+    {
+        developerNotes = await DeveloperNoteService.GetPublishedNotesAsync();
+    }
+
+    private void ShowNotePopup(DeveloperNote note)
+    {
+        selectedNote = note;
+    }
+
+    private void CloseNotePopup()
+    {
+        selectedNote = null;
+    }
+}

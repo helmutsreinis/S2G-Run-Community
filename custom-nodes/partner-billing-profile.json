@@ -1,0 +1,158 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T18:56:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_PartnerBillingProfile",
+        "displayName": "Partner Billing Profile",
+        "description": "Retrieves the partner's own billing profile from Microsoft Partner Center API. Returns company information, address, primary contact, tax ID, and billing currency.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"6\" width=\"18\" height=\"13\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M3 10H21\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M7 15H13\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M7 18H10\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M3 6L12 2L21 6\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "// Partner Billing Profile Retrieval\n// Fetches the partner's own billing profile from Partner Center API\n\nvar accessToken = input.get(\"accessToken\");\n\nif (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/profiles/billing\";\n        \n        log.info(\"Fetching partner billing profile\");\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var profile = json.parse(response.body);\n            \n            // Company info\n            output.set(\"CompanyName\", profile.companyName || \"\");\n            output.set(\"TaxId\", profile.taxId || \"\");\n            output.set(\"BillingCurrency\", profile.billingCurrency || \"\");\n            output.set(\"ProfileType\", profile.profileType || \"\");\n            \n            // Address\n            var addr = profile.address || {};\n            output.set(\"Country\", addr.country || \"\");\n            output.set(\"City\", addr.city || \"\");\n            output.set(\"State\", addr.state || \"\");\n            output.set(\"PostalCode\", addr.postalCode || \"\");\n            output.set(\"AddressLine1\", addr.addressLine1 || \"\");\n            output.set(\"AddressLine2\", addr.addressLine2 || \"\");\n            \n            // Primary contact\n            var contact = profile.primaryContact || {};\n            output.set(\"ContactFirstName\", contact.firstName || \"\");\n            output.set(\"ContactLastName\", contact.lastName || \"\");\n            output.set(\"ContactPhone\", contact.phoneNumber || \"\");\n            \n            // ETag for caching/updates\n            var attrs = profile.attributes || {};\n            output.set(\"ETag\", attrs.etag || \"\");\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved billing profile for: \" + (profile.companyName || \"Partner\"));\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve billing profile: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "CompanyName",
+                "description": "The partner's company name",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "TaxId",
+                "description": "The partner's tax identification number",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "BillingCurrency",
+                "description": "The billing currency code (e.g., SEK, USD, EUR)",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Country",
+                "description": "Country code from address (e.g., SE, US)",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "City",
+                "description": "City from address",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "State",
+                "description": "State/region from address",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "PostalCode",
+                "description": "Postal code from address",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "AddressLine1",
+                "description": "Primary street address",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "AddressLine2",
+                "description": "Secondary address line",
+                "dataType": "string",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "ContactFirstName",
+                "description": "Primary contact first name",
+                "dataType": "string",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "ContactLastName",
+                "description": "Primary contact last name",
+                "dataType": "string",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "ContactPhone",
+                "description": "Primary contact phone number",
+                "dataType": "string",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "ProfileType",
+                "description": "The profile type (e.g., 'BillingProfile')",
+                "dataType": "string",
+                "displayOrder": 13
+            },
+            {
+                "parameterName": "ETag",
+                "description": "Entity tag for caching and update operations",
+                "dataType": "string",
+                "displayOrder": 14
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 15
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 16
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 17
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 18
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when billing profile was successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

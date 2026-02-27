@@ -1,0 +1,135 @@
+.nav-tabs-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0 2rem;
+    min-height: 3.5rem;
+    position: relative;
+    background: linear-gradient(to bottom, rgba(20, 25, 35, 0.9), rgba(15, 20, 30, 0.95));
+    border-bottom: 1px solid rgba(0, 168, 168, 0.15);
+    overflow: visible;
+    z-index: 1000;
+}
+
+.nav-tabs {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.nav-auth {
+    position: absolute;
+    right: 2rem;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+}
+
+.nav-item .nav-link {
+    color: rgba(180, 200, 210, 0.85);
+    text-decoration: none;
+    padding: 0.6rem 1.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    border-radius: 6px;
+    background: transparent;
+}
+
+.nav-item .nav-link:hover {
+    color: #fff;
+    background: rgba(0, 168, 168, 0.15);
+}
+
+.nav-item .nav-link.active {
+    color: #00d4d4;
+    background: rgba(0, 168, 168, 0.35);
+}
+
+/* Icons using CSS content - consistent and reliable */
+.nav-icon {
+    font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2rem;
+    height: 1.2rem;
+    filter: grayscale(100%) brightness(1.3);
+    opacity: 0.85;
+    transition: all 0.2s ease;
+}
+
+.nav-item .nav-link:hover .nav-icon,
+.nav-item .nav-link.active .nav-icon {
+    filter: grayscale(100%) brightness(1.1);
+    opacity: 1;
+}
+
+/* Remove old bi classes styling */
+.bi {
+    display: none;
+}
+
+/* Logout link styling */
+.logout-link {
+    color: rgba(255, 150, 150, 0.85) !important;
+}
+
+.logout-link:hover {
+    color: #ff6666 !important;
+    background: rgba(200, 80, 80, 0.15) !important;
+}
+
+
+@media (max-width: 1024px) {
+    .nav-auth {
+        right: 1rem;
+    }
+
+    .nav-tabs-container {
+        padding: 0 1rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .nav-tabs-container {
+        flex-direction: column;
+        padding: 0.5rem;
+        gap: 0.5rem;
+    }
+
+    .nav-auth {
+        position: static;
+    }
+
+    .nav-tabs,
+    .nav-auth {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .nav-item .nav-link {
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .nav-item .nav-link {
+        padding: 0.5rem 0.75rem;
+    }
+
+    .nav-tabs,
+    .nav-auth {
+        gap: 0.25rem;
+    }
+}

@@ -1,0 +1,158 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-21T23:18:00.0000000Z",
+    "definition": {
+        "nodeTypeKey": "Custom_GraphGroupById",
+        "displayName": "Graph Group By ID",
+        "description": "Retrieves a single group from Microsoft Graph API by its object ID (GUID). Returns the complete group profile including display name, membership settings, security configuration, mail settings, and sync status. Useful for direct group lookups when you already have the group ID from another source.\n",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g id=\"SVGRepo_bgCarrier\" stroke-width=\"0\"></g><g id=\"SVGRepo_tracerCarrier\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g id=\"SVGRepo_iconCarrier\"><path d=\"M17 20C17 18.3431 14.7614 17 12 17C9.23858 17 7 18.3431 7 20M21 17.0004C21 15.7702 19.7659 14.7129 18 14.25M3 17.0004C3 15.7702 4.2341 14.7129 6 14.25M18 10.2361C18.6137 9.68679 19 8.8885 19 8C19 6.34315 17.6569 5 16 5C15.2316 5 14.5308 5.28885 14 5.76389M6 10.2361C5.38625 9.68679 5 8.8885 5 8C5 6.34315 6.34315 5 8 5C8.76835 5 9.46924 5.28885 10 5.76389M12 14C10.3431 14 9 12.6569 9 11C9 9.34315 10.3431 8 12 8C13.6569 8 15 9.34315 15 11C15 12.6569 13.6569 14 12 14Z\" stroke=\"#000000\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></g></svg>",
+        "iconFallbackEmoji": null,
+        "categoryName": "Microsoft Graph",
+        "executionType": "HttpRequest",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "// Configuration\nvar token = input.get(\"accessToken\");\nvar groupId = input.get(\"groupId\");\nvar selectFields = input.get(\"selectFields\") || \"\";\n\n// Validate inputs\nif (!token) {\n    log.error(\"Access token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access token is required\");\n    tags.trigger(\"error\");\n} else if (!groupId) {\n    log.error(\"Group ID is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Group ID is required\");\n    tags.trigger(\"error\");\n} else {\n    // Build URL\n    var url = \"https://graph.microsoft.com/v1.0/groups/\" + encodeURIComponent(groupId);\n    if (selectFields) {\n        url += \"?$select=\" + selectFields;\n    }\n\n    // Headers for Graph API\n    var headers = {\n        \"Authorization\": \"Bearer \" + token,\n        \"Accept\": \"application/json\"\n    };\n\n    log.info(\"Fetching group: \" + groupId);\n    \n    try {\n        var response = http.get(url, headers);\n        \n        if (response.statusCode === 404) {\n            log.warn(\"Group not found: \" + groupId);\n            output.set(\"Group\", null);\n            output.set(\"GroupJson\", \"\");\n            output.set(\"Found\", false);\n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            tags.trigger(\"notfound\");\n        } else if (!response.isSuccess) {\n            log.error(\"API error: HTTP \" + response.statusCode);\n            output.set(\"Group\", null);\n            output.set(\"GroupJson\", \"\");\n            output.set(\"Found\", false);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", \"API error: HTTP \" + response.statusCode);\n            tags.trigger(\"error\");\n        } else {\n            var group = json.parse(response.body);\n            log.info(\"Found group: \" + group.displayName);\n            \n            output.set(\"Group\", group);\n            output.setJson(\"GroupJson\", group);\n            output.set(\"Found\", true);\n            output.set(\"GroupId\", group.id || \"\");\n            output.set(\"DisplayName\", group.displayName || \"\");\n            output.set(\"Description\", group.description || \"\");\n            output.set(\"MailNickname\", group.mailNickname || \"\");\n            output.set(\"SecurityEnabled\", group.securityEnabled || false);\n            output.set(\"MailEnabled\", group.mailEnabled || false);\n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            tags.trigger(\"success\");\n        }\n        \n    } catch (ex) {\n        log.error(\"Exception: \" + ex.message);\n        output.set(\"Group\", null);\n        output.set(\"GroupJson\", \"\");\n        output.set(\"Found\", false);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Exception: \" + ex.message);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": null,
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{Auth.AccessToken}}",
+                "helpText": "Microsoft Graph OAuth access token with Group.Read.All or Directory.Read.All permissions. Obtain via OAuth 2.0 flow or use the Connector Token node.",
+                "fieldType": "Password",
+                "defaultValue": null,
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 0
+            },
+            {
+                "fieldName": "groupId",
+                "displayLabel": "Group ID",
+                "placeholderText": "f92d20dd-b322-4aed-a858-11c7decca069",
+                "helpText": "The Azure AD object ID (GUID) of the group to retrieve. Supports placeholders for dynamic lookups from previous node outputs.",
+                "fieldType": "Text",
+                "defaultValue": null,
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "selectFields",
+                "displayLabel": "Select Fields",
+                "placeholderText": "id,displayName,description,securityEnabled",
+                "helpText": "Comma-separated list of group properties to return (e.g., id,displayName,description,members). Reduces response payload. Leave empty to return all default properties.",
+                "fieldType": "Text",
+                "defaultValue": null,
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Group",
+                "description": "The complete group object containing all requested properties from Microsoft Graph",
+                "dataType": "object",
+                "displayOrder": 0
+            },
+            {
+                "parameterName": "GroupJson",
+                "description": "Serialized JSON string of the group object, ready for storage or transmission to external systems",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "Found",
+                "description": "Boolean indicating whether the group was found in the directory. False if group doesn't exist (404 response).",
+                "dataType": "bool",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "GroupId",
+                "description": "The group's unique Azure AD object ID (GUID). Empty string if group not found.",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "DisplayName",
+                "description": "The group's display name as shown in the directory. Empty string if group not found.",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Description",
+                "description": "The group's description text. Empty string if not set or group not found.",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "MailNickname",
+                "description": "The group's mail nickname/alias used for email addressing. Empty string if group not found.",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "SecurityEnabled",
+                "description": "Boolean indicating if this is a security group (can be used for access control). False if group not found.",
+                "dataType": "bool",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "MailEnabled",
+                "description": "Boolean indicating if this is a mail-enabled group (distribution list or Microsoft 365 group). False if group not found.",
+                "dataType": "bool",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "Boolean flag indicating if an error occurred (excluding 404 not found, which is handled separately via the notfound tag).",
+                "dataType": "bool",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message including HTTP status code and exception details if applicable",
+                "dataType": "string",
+                "displayOrder": 10
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when the group was found and its profile was successfully retrieved",
+                "color": "#16ca34",
+                "conditionDescription": "",
+                "displayOrder": 0
+            },
+            {
+                "tagName": "notfound",
+                "description": "Triggered when the specified group ID does not exist in the directory (HTTP 404)",
+                "color": "#fe9501",
+                "conditionDescription": "",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when an API error, authentication failure, or exception occurs during the request",
+                "color": "#db0606",
+                "conditionDescription": "",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

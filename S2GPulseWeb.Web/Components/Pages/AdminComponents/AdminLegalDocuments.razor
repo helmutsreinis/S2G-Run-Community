@@ -1,0 +1,509 @@
+@using S2GPulseWeb.Web.Logic
+@inject LegalDocumentService LegalDocumentService
+
+<div class="legal-documents-section">
+    <div class="document-type-tabs">
+        <button class="doc-tab @(selectedType == LegalDocumentType.TermsOfService ? "active" : "")"
+                @onclick="() => SelectType(LegalDocumentType.TermsOfService)">
+            📜 Terms of Service
+        </button>
+        <button class="doc-tab @(selectedType == LegalDocumentType.PrivacyPolicy ? "active" : "")"
+                @onclick="() => SelectType(LegalDocumentType.PrivacyPolicy)">
+            🔒 Privacy Policy
+        </button>
+    </div>
+
+    <div class="documents-header">
+        <h3>@(selectedType == LegalDocumentType.TermsOfService ? "Terms of Service" : "Privacy Policy") Versions</h3>
+        <button class="btn btn-primary" @onclick="OpenCreateModal">
+            ➕ Create New Version
+        </button>
+    </div>
+
+    @if (documents == null)
+    {
+        <p class="loading">Loading...</p>
+    }
+    else if (!documents.Any())
+    {
+        <p class="no-data">No documents found. Create your first version.</p>
+    }
+    else
+    {
+        <div class="documents-list">
+            @foreach (var doc in documents)
+            {
+                <div class="document-card @(doc.IsActive ? "active" : "")">
+                    <div class="doc-info">
+                        <span class="doc-version">v@doc.Version</span>
+                        <span class="doc-title">@doc.Title</span>
+                        <span class="doc-status @(doc.IsActive ? "status-active" : (doc.PublishedAt.HasValue ? "status-previous" : "status-draft"))">
+                            @(doc.IsActive ? "Active" : (doc.PublishedAt.HasValue ? "Previous" : "Draft"))
+                        </span>
+                        <span class="doc-date">
+                            @(doc.PublishedAt?.ToString("MMM d, yyyy") ?? doc.CreatedAt.ToString("MMM d, yyyy"))
+                        </span>
+                    </div>
+                    <div class="doc-actions">
+                        <button class="btn btn-sm btn-preview" @onclick="() => PreviewDocument(doc)">
+                            👁️ Preview
+                        </button>
+                        @if (!doc.IsActive)
+                        {
+                            <button class="btn btn-sm btn-edit" @onclick="() => OpenEditModal(doc)">
+                                ✏️ Edit
+                            </button>
+                            <button class="btn btn-sm btn-publish" @onclick="() => PublishDocument(doc.Id)">
+                                🚀 Publish
+                            </button>
+                            @if (!doc.PublishedAt.HasValue)
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteDocument(doc.Id)">
+                                    🗑️
+                                </button>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@* Create/Edit Modal *@
+@if (showEditor)
+{
+    <div class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 1000;" @onclick="CloseEditor">
+        <div class="modal-content editor-modal" style="background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; width: 1100px; max-width: 95vw; height: 750px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);" @onclick:stopPropagation="true">
+            <h3 style="margin: 0 0 1.5rem 0; color: #fff; flex-shrink: 0;">@(editingDocument == null ? "Create New Version" : $"Edit v{editingDocument.Version}")</h3>
+            
+            <div class="form-group" style="margin-bottom: 1rem; flex-shrink: 0;">
+                <label style="display: block; margin-bottom: 0.5rem; color: #aaa; font-size: 0.9rem;">Title</label>
+                <input type="text" class="form-control" style="width: 100%; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 1rem;" @bind="editorTitle" placeholder="e.g., Terms of Service" />
+            </div>
+            
+            <div class="form-group editor-group" style="flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; color: #aaa; font-size: 0.9rem;">Content</label>
+                <RadzenHtmlEditor @bind-Value="@editorContent" style="flex: 1; min-height: 450px;" 
+                                  Paste="@OnPaste" />
+            </div>
+            
+            <div class="modal-actions" style="display: flex; gap: 0.75rem; justify-content: flex-end; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;">
+                <button class="btn btn-secondary" @onclick="CloseEditor">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveDocument" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Preview Modal *@
+@if (showPreview && previewDocument != null)
+{
+    <div class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 1000;" @onclick="ClosePreview">
+        <div class="modal-content preview-modal" style="background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; width: 900px; max-width: 95vw; height: 700px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);" @onclick:stopPropagation="true">
+            <div class="preview-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;">
+                <h3 style="margin: 0; color: #667eea; font-size: 1.1rem;">@previewDocument.Title (v@previewDocument.Version)</h3>
+                <button class="btn-close" style="background: transparent; border: none; color: #888; font-size: 1.5rem; cursor: pointer;" @onclick="ClosePreview">×</button>
+            </div>
+            <div class="preview-content" style="flex: 1; overflow-y: auto; color: #bbb; line-height: 1.6; font-size: 0.9rem;">
+                @((MarkupString)previewDocument.Content)
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .legal-documents-section {
+        margin-top: 1rem;
+    }
+
+    .document-type-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 0.5rem;
+    }
+
+    .doc-tab {
+        background: transparent;
+        border: none;
+        color: #888;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: all 0.2s;
+    }
+
+    .doc-tab:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #ddd;
+    }
+
+    .doc-tab.active {
+        background: rgba(102, 126, 234, 0.2);
+        color: #667eea;
+    }
+
+    .documents-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .documents-header h3 {
+        margin: 0;
+        color: #ddd;
+    }
+
+    .documents-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .document-card {
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .document-card.active {
+        border-color: #2ecc71;
+        background: rgba(46, 204, 113, 0.1);
+    }
+
+    .doc-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .doc-version {
+        font-weight: 700;
+        color: #667eea;
+        font-size: 0.9rem;
+    }
+
+    .doc-title {
+        color: #ddd;
+    }
+
+    .doc-status {
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .status-active {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+    }
+
+    .status-previous {
+        background: rgba(100, 100, 100, 0.2);
+        color: #888;
+    }
+
+    .status-draft {
+        background: rgba(241, 196, 15, 0.2);
+        color: #f1c40f;
+    }
+
+    .doc-date {
+        color: #888;
+        font-size: 0.85rem;
+    }
+
+    .doc-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn-preview {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #ddd;
+    }
+
+    .btn-preview:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-publish {
+        background: #2ecc71;
+        border: none;
+        color: #fff;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 2rem;
+    }
+
+    .modal-content {
+        background: #1a1a2e;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .editor-modal {
+        width: 1100px;
+        max-width: 95vw;
+        height: 700px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .editor-modal h3 {
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+        color: #fff;
+    }
+
+    .editor-modal .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .editor-modal .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #aaa;
+        font-size: 0.9rem;
+    }
+
+    .editor-modal .form-control {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+        font-size: 1rem;
+    }
+
+    .editor-group {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .editor-group .rz-html-editor {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .editor-group .rz-html-editor-content {
+        flex: 1 !important;
+        min-height: 400px !important;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        flex-shrink: 0;
+    }
+
+    .preview-modal {
+        max-width: 800px;
+        width: 95%;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .preview-header h3 {
+        margin: 0;
+    }
+
+    .btn-close {
+        background: transparent;
+        border: none;
+        color: #888;
+        font-size: 1.5rem;
+        cursor: pointer;
+    }
+
+    .btn-close:hover {
+        color: #fff;
+    }
+
+    .preview-content {
+        flex: 1;
+        overflow-y: auto;
+        color: #bbb;
+        line-height: 1.6;
+    }
+
+    .preview-content h2 {
+        color: #667eea;
+    }
+
+    .preview-content h3 {
+        color: #667eea;
+        font-size: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .no-data {
+        color: #888;
+        text-align: center;
+        padding: 2rem;
+    }
+
+    .loading {
+        color: #888;
+        text-align: center;
+        padding: 2rem;
+    }
+</style>
+
+@code {
+    private LegalDocumentType selectedType = LegalDocumentType.TermsOfService;
+    private List<LegalDocument>? documents;
+    
+    // Editor state
+    private bool showEditor = false;
+    private LegalDocument? editingDocument;
+    private string editorTitle = "";
+    private string editorContent = "";
+    private bool isSaving = false;
+    
+    // Preview state
+    private bool showPreview = false;
+    private LegalDocument? previewDocument;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        documents = await LegalDocumentService.GetAllVersionsAsync(selectedType);
+    }
+
+    private async Task SelectType(LegalDocumentType type)
+    {
+        selectedType = type;
+        await LoadDocuments();
+    }
+
+    private void OpenCreateModal()
+    {
+        editingDocument = null;
+        editorTitle = selectedType == LegalDocumentType.TermsOfService 
+            ? "Terms of Service" 
+            : "Privacy Policy";
+        editorContent = "";
+        showEditor = true;
+    }
+
+    private void OpenEditModal(LegalDocument doc)
+    {
+        editingDocument = doc;
+        editorTitle = doc.Title;
+        editorContent = doc.Content;
+        showEditor = true;
+    }
+
+    private void CloseEditor()
+    {
+        showEditor = false;
+        editingDocument = null;
+        editorTitle = "";
+        editorContent = "";
+    }
+
+    private async Task SaveDocument()
+    {
+        if (string.IsNullOrWhiteSpace(editorTitle) || string.IsNullOrWhiteSpace(editorContent))
+            return;
+
+        isSaving = true;
+        try
+        {
+            if (editingDocument == null)
+            {
+                await LegalDocumentService.CreateVersionAsync(selectedType, editorTitle, editorContent);
+            }
+            else
+            {
+                await LegalDocumentService.UpdateDraftAsync(editingDocument.Id, editorTitle, editorContent);
+            }
+            
+            await LoadDocuments();
+            CloseEditor();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task PublishDocument(int id)
+    {
+        await LegalDocumentService.PublishVersionAsync(id);
+        await LoadDocuments();
+    }
+
+    private async Task DeleteDocument(int id)
+    {
+        await LegalDocumentService.DeleteDraftAsync(id);
+        await LoadDocuments();
+    }
+
+    private void PreviewDocument(LegalDocument doc)
+    {
+        previewDocument = doc;
+        showPreview = true;
+    }
+
+    private void ClosePreview()
+    {
+        showPreview = false;
+        previewDocument = null;
+    }
+
+    private void OnPaste(HtmlEditorPasteEventArgs args)
+    {
+        // Allow standard paste behavior
+    }
+}

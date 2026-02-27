@@ -1,0 +1,97 @@
+@using Microsoft.JSInterop
+@using S2GPulseWeb.Web.Data
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="@ContainerId" class="kg-viewer-container"
+     style="position:absolute;inset:0;width:100%;height:100%;overflow:hidden;"></div>
+
+@code {
+    [Parameter] public KbGraph? GraphData { get; set; }
+    [Parameter] public string? SelectedEntityId { get; set; }
+    [Parameter] public EventCallback<string> OnNodeSelected { get; set; }
+
+    private string ContainerId => "kg-viewer";
+    private bool _jsReady = false;
+    private DotNetObjectReference<KnowledgeGraphViewer>? _selfRef;
+    private KbGraph? _lastGraphData;
+    private string? _lastSelectedId;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("eval", "/* kg init */");
+                _jsReady = true;
+                _selfRef = DotNetObjectReference.Create(this);
+            }
+            catch { }
+        }
+
+        if (!_jsReady) return;
+
+        if (GraphData != _lastGraphData)
+        {
+            // Graph data changed — full rebuild
+            _lastGraphData = GraphData;
+            _lastSelectedId = SelectedEntityId;
+            await RenderGraphAsync();
+        }
+        else if (SelectedEntityId != _lastSelectedId)
+        {
+            // Only selection changed — lightweight highlight, no layout reset
+            _lastSelectedId = SelectedEntityId;
+            try { await JS.InvokeVoidAsync("KnowledgeGraph.highlightNode", ContainerId, SelectedEntityId ?? ""); }
+            catch { }
+        }
+    }
+
+    private async Task RenderGraphAsync()
+    {
+        try
+        {
+            object? jsPayload = null;
+            if (GraphData != null && GraphData.Nodes.Any())
+            {
+                jsPayload = new
+                {
+                    nodes = GraphData.Nodes.Select(n => new
+                    {
+                        id = n.Id,
+                        title = n.Label,       // KbGraphNode uses Label
+                        entityType = n.Type    // KbGraphNode uses Type
+                    }),
+                    edges = GraphData.Edges.Select(e => new
+                    {
+                        source = e.Source,     // KbGraphEdge uses Source
+                        target = e.Target,     // KbGraphEdge uses Target
+                        relationType = e.Label // KbGraphEdge uses Label
+                    })
+                };
+            }
+
+            await JS.InvokeVoidAsync(
+                "KnowledgeGraph.initGraph",
+                ContainerId,
+                jsPayload,
+                SelectedEntityId ?? "",
+                _selfRef);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"KnowledgeGraphViewer JS error: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnGraphNodeClicked(string nodeId)
+        => await OnNodeSelected.InvokeAsync(nodeId);
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("KnowledgeGraph.destroyGraph", ContainerId); } catch { }
+        _selfRef?.Dispose();
+    }
+}

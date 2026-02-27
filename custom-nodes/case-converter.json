@@ -1,0 +1,97 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:16:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_CaseConverter",
+        "displayName": "Case Converter",
+        "description": "Converts text between different case formats: camelCase, PascalCase, snake_case, kebab-case, CONSTANT_CASE, and more.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 7H6L9 17H6L3 7Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M9 7H12L15 17H12L9 7Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M17 7H21M19 7V17\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// Case Converter\n\nvar inputText = input.get(\"text\");\nvar targetCase = input.get(\"targetCase\") || \"camelCase\";\n\nif (!inputText) {\n    log.error(\"Text input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Text input is required\");\n    output.set(\"Result\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        // Split input into words\n        function toWords(str) {\n            // Handle various input formats\n            return str\n                // Insert space before uppercase letters (for camelCase/PascalCase)\n                .replace(/([a-z])([A-Z])/g, '$1 $2')\n                // Replace underscores, hyphens, dots with spaces\n                .replace(/[_\\-\\.]+/g, ' ')\n                // Replace multiple spaces with single space\n                .replace(/\\s+/g, ' ')\n                // Trim and split\n                .trim()\n                .toLowerCase()\n                .split(' ')\n                .filter(function(w) { return w.length > 0; });\n        }\n        \n        function capitalize(word) {\n            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();\n        }\n        \n        var words = toWords(inputText);\n        var result = \"\";\n        \n        switch (targetCase) {\n            case \"camelCase\":\n                result = words.map(function(w, i) {\n                    return i === 0 ? w.toLowerCase() : capitalize(w);\n                }).join('');\n                break;\n                \n            case \"PascalCase\":\n                result = words.map(function(w) {\n                    return capitalize(w);\n                }).join('');\n                break;\n                \n            case \"snake_case\":\n                result = words.map(function(w) {\n                    return w.toLowerCase();\n                }).join('_');\n                break;\n                \n            case \"SCREAMING_SNAKE_CASE\":\n            case \"CONSTANT_CASE\":\n                result = words.map(function(w) {\n                    return w.toUpperCase();\n                }).join('_');\n                break;\n                \n            case \"kebab-case\":\n                result = words.map(function(w) {\n                    return w.toLowerCase();\n                }).join('-');\n                break;\n                \n            case \"SCREAMING-KEBAB-CASE\":\n                result = words.map(function(w) {\n                    return w.toUpperCase();\n                }).join('-');\n                break;\n                \n            case \"dot.case\":\n                result = words.map(function(w) {\n                    return w.toLowerCase();\n                }).join('.');\n                break;\n                \n            case \"Title Case\":\n                result = words.map(function(w) {\n                    return capitalize(w);\n                }).join(' ');\n                break;\n                \n            case \"Sentence case\":\n                result = words.map(function(w, i) {\n                    return i === 0 ? capitalize(w) : w.toLowerCase();\n                }).join(' ');\n                break;\n                \n            case \"lowercase\":\n                result = words.join(' ').toLowerCase();\n                break;\n                \n            case \"UPPERCASE\":\n                result = words.join(' ').toUpperCase();\n                break;\n                \n            default:\n                result = inputText;\n        }\n        \n        output.set(\"Result\", result);\n        output.set(\"OriginalCase\", detectCase(inputText));\n        output.set(\"TargetCase\", targetCase);\n        output.set(\"WordCount\", words.length);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        \n        log.info(\"Converted to \" + targetCase + \": \" + result);\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Conversion failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Result\", \"\");\n        tags.trigger(\"error\");\n    }\n}\n\nfunction detectCase(str) {\n    if (str.indexOf('_') >= 0 && str === str.toUpperCase()) return \"CONSTANT_CASE\";\n    if (str.indexOf('_') >= 0) return \"snake_case\";\n    if (str.indexOf('-') >= 0 && str === str.toUpperCase()) return \"SCREAMING-KEBAB-CASE\";\n    if (str.indexOf('-') >= 0) return \"kebab-case\";\n    if (str.indexOf('.') >= 0) return \"dot.case\";\n    if (str === str.toUpperCase()) return \"UPPERCASE\";\n    if (str === str.toLowerCase()) return \"lowercase\";\n    if (str.charAt(0) === str.charAt(0).toUpperCase() && str.indexOf(' ') === -1) return \"PascalCase\";\n    if (str.charAt(0) === str.charAt(0).toLowerCase() && str.indexOf(' ') === -1) return \"camelCase\";\n    if (str.indexOf(' ') >= 0) return \"Title Case\";\n    return \"unknown\";\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "text",
+                "displayLabel": "Text",
+                "placeholderText": "myVariableName or my-variable-name",
+                "helpText": "The text to convert. Can be in any case format.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "targetCase",
+                "displayLabel": "Target Case",
+                "helpText": "The case format to convert to.",
+                "fieldType": "Dropdown",
+                "defaultValue": "camelCase",
+                "isRequired": true,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "camelCase,PascalCase,snake_case,CONSTANT_CASE,kebab-case,SCREAMING-KEBAB-CASE,dot.case,Title Case,Sentence case,lowercase,UPPERCASE"
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The converted text",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "OriginalCase",
+                "description": "Detected case of the input",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "TargetCase",
+                "description": "The target case format",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "WordCount",
+                "description": "Number of words detected",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if conversion failed",
+                "dataType": "boolean",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if conversion failed",
+                "dataType": "string",
+                "displayOrder": 6
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Conversion succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Conversion failed",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

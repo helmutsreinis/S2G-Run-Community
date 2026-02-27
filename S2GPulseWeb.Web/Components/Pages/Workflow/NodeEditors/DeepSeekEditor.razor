@@ -1,0 +1,181 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey"
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))"
+                   class="form-control" placeholder="Enter API Key (overrides settings)"
+                   autocomplete="new-password" />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" @onclick="CopyApiKey" title="Copy API Key">📋</button>
+            </div>
+        </div>
+        <small class="form-text text-muted">Leave empty to use global setting.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <select value="@config.Model" @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString()))" class="form-control">
+            <option value="deepseek-chat">DeepSeek Chat (V3)</option>
+            <option value="deepseek-reasoner">DeepSeek Reasoner (R1)</option>
+        </select>
+        <div class="model-pricing small mt-1" style="color: var(--teal-light);">
+            @GetPricingInfo()
+        </div>
+    </div>
+
+    @if (config.Cost > 0 || config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Cumulative Cost:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">$@config.Cost.ToString("F4")</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens in / @config.OutputTokens out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetCost" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or output format..."></textarea>
+        <small class="form-text text-muted">Optional. Used to set custom instructions or define the AI's role.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <div class="custom-control custom-switch">
+            <input type="checkbox" class="custom-control-input" id="jsonModeSwitch" 
+                   checked="@config.JsonMode" 
+                   @onchange="@(e => UpdateConfig(c => c.JsonMode = (bool)(e.Value ?? false)))" />
+            <label class="custom-control-label" for="jsonModeSwitch">JSON Output Mode</label>
+        </div>
+        <small class="form-text text-muted">When enabled, the model is constrained to output valid JSON. Include "json" and a format example in your prompts.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="4" placeholder="Enter your prompt here..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s = 5 minutes)</small>
+    </div>
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    [Inject] IJSRuntime JSRuntime { get; set; } = default!;
+
+    private DeepSeekConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<DeepSeekConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<DeepSeekConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task CopyApiKey()
+    {
+        if (!string.IsNullOrEmpty(config.ApiKey))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", config.ApiKey);
+        }
+    }
+
+    private async Task ResetCost()
+    {
+        config.Cost = 0;
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private string GetPricingInfo()
+    {
+        return "$0.28 / 1M in, $0.42 / 1M out";
+    }
+}

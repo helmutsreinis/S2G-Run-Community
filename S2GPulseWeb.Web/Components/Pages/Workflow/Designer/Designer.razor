@@ -1,0 +1,2119 @@
+@page "/workflow"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+@using S2GPulseWeb.Web.Components.Pages.Workflow.Designer
+@using System.Text.Json
+@inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JSRuntime
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NodeExecutionManager ExecutionManager
+@inject WorkflowService WorkflowService
+@inject NodeLogService LogService
+@inject UserPreferenceService PreferenceService
+@inject WorkflowExecutionService WorkflowExecutionService
+@inject CacheStorageService CacheStorageService
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Workflow Designer - @PlatformSettings.SiteName</PageTitle>
+
+@* Newsletter popup for targeted announcements *@
+<S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@currentUserId" CurrentPage="Workflow" />
+
+@* Loading overlay for workflow node pre-loading *@
+@if (isLoadingWorkflowNodes)
+{
+    <div class="workflow-loading-overlay">
+        <div class="workflow-loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">@workflowLoadingStatus</div>
+        </div>
+    </div>
+}
+
+@* Saving overlay for workflow save operations *@
+@if (isSavingWorkflow)
+{
+    <div class="workflow-loading-overlay">
+        <div class="workflow-loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">@workflowSavingStatus</div>
+        </div>
+    </div>
+}
+<div class="workflow-page">
+    <div class="workflow-header d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-3">
+            <h1 class="m-0">Workflow Designer</h1>
+            <select class="workflow-selector" @onchange="OnWorkflowSelected">
+                <option value="">-- Select Workflow --</option>
+                @foreach (var wf in userWorkflows)
+                {
+                    var running = WorkflowExecutionService.IsRunning(wf.Id);
+                    <option value="@wf.Id" selected="@(currentWorkflowId == wf.Id)">
+                        @(running ? "⚡ " : "")@wf.Name
+                    </option>
+                }
+            </select>
+            <input type="text" @bind="currentWorkflowName" @bind:after="MarkAsChanged" class="workflow-name-input" placeholder="Workflow Name..." />
+        </div>
+        
+        <!-- Zoom Controls in Header -->
+        <div class="zoom-slider-group">
+            <button class="zoom-slider-btn" @onclick="ZoomOut" title="Zoom Out (10%)">−</button>
+            <input type="range" 
+                   class="zoom-slider" 
+                   min="25" 
+                   max="200" 
+                   step="10" 
+                   value="@((int)(zoomLevel * 100))" 
+                   @onchange="OnZoomSliderChange" />
+            <span class="zoom-slider-value">@((int)(zoomLevel * 100))%</span>
+            <button class="zoom-slider-btn" @onclick="ZoomIn" title="Zoom In (10%)">+</button>
+            <button class="zoom-slider-btn reset" @onclick="ResetZoom" title="Reset View">⟳</button>
+        </div>
+
+        
+        <div class="workflow-actions d-flex gap-1 align-items-center">
+            @if (isWorkflowRunning)
+            {
+                <button class="btn btn-sm btn-danger" @onclick="StopWorkflow">⏹️ Stop</button>
+            }
+            else
+            {
+                <button class="btn btn-sm btn-success" @onclick="StartWorkflow" disabled="@(!canvasNodes.Any(n => n.IsTrigger))">▶️ Start</button>
+            }
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ClearCanvas">✨ New</button>
+            <button class="btn btn-sm btn-primary" @onclick="SaveWorkflow">💾 Save</button>
+            @if (currentWorkflowId.HasValue)
+            {
+                @if (canDeleteWorkflow)
+                {
+                    <button class="btn btn-sm btn-outline-danger" @onclick="ShowDeleteConfirmation" title="Delete this workflow">🗑️</button>
+                }
+                <label class="auto-start-label" title="Auto-Start resumes this workflow automatically after service interruptions or deployments">
+                    <input type="checkbox" @bind="currentWorkflowIsActive" @bind:after="MarkAsChanged" />
+                    <span>🚀</span>
+                </label>
+            }
+            @if (currentTierLimits == null || currentTierLimits.CanImportExport)
+            {
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ExportWorkflow" title="Export workflow to JSON">📤</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="TriggerImportDialog" title="Import workflow from JSON">📥</button>
+                <input type="file" @ref="importFileInput" style="display: none;" accept=".json" @onchange="ImportWorkflow" />
+            }
+        </div>
+    </div>
+
+    @* Notification Banner *@
+    @if (!string.IsNullOrEmpty(workflowNotificationMessage))
+    {
+        <div class="alert alert-@workflowNotificationType alert-dismissible py-2 mb-2 mx-3" role="alert">
+            @workflowNotificationMessage
+            <button type="button" class="btn-close" @onclick="@(() => workflowNotificationMessage = null)"></button>
+        </div>
+    }
+
+    @* Unsaved changes indicator *@
+    @if (hasUnsavedChanges)
+    {
+        <div class="unsaved-indicator mx-3 mb-2 small text-warning">
+            ⚠️ You have unsaved changes
+        </div>
+    }
+
+    <div class="workflow-container">
+
+        <!-- AI Builder Panel (Left Side) - Draggable -->
+        <div class="ai-builder-panel @(isAiPanelCollapsed ? "collapsed" : "")" 
+             style="@(!isAiPanelCollapsed ? $"left: {aiPanelX}px; top: {aiPanelY}px;" : "")"
+             @onmousemove="HandleAiPanelDragMove"
+             @onmouseup="HandleAiPanelDragEnd"
+             @onmouseleave="HandleAiPanelDragEnd">
+            <div class="ai-builder-header @(isDraggingAiPanel ? "dragging" : "")" 
+                 @onmousedown="HandleAiPanelDragStart"
+                 @onmousedown:stopPropagation>
+                @if (isAiPanelCollapsed)
+                {
+                    <span class="panel-icon" @onclick="ToggleAiPanel">🤖</span>
+                    <span class="panel-title-vertical" @onclick="ToggleAiPanel">AI Builder</span>
+                }
+                else
+                {
+                    <span class="drag-handle" title="Drag to move">⋮⋮</span>
+                    <span class="panel-title">AI Builder</span>
+                    <button class="panel-toggle-btn" @onclick="ToggleAiPanel">×</button>
+                }
+            </div>
+
+            @if (!isAiPanelCollapsed)
+            {
+                <div class="ai-builder-content">
+                    <!-- Provider & Model Selector -->
+                    <div class="ai-provider-selector">
+                        <select value="@selectedAiProvider" @onchange="OnProviderChanged" class="ai-provider-dropdown">
+                            @foreach (var provider in aiProviders)
+                            {
+                                <option value="@provider.Name">
+                                    @provider.Name @(provider.HasKey ? "" : "⚠️")
+                                </option>
+                            }
+                        </select>
+                        <select @bind="selectedAiModel" class="ai-model-dropdown">
+                            @foreach (var model in availableModels)
+                            {
+                                <option value="@model">@model</option>
+                            }
+                        </select>
+                        <select @bind="aiChatMode" class="ai-mode-dropdown">
+                            <option value="Ask">💬 Ask</option>
+                            <option value="Build">🔧 Build</option>
+                            <option value="Edit">✏️ Edit</option>
+                        </select>
+                        <select @bind="aiTemperatureMode" class="ai-temp-dropdown" title="AI Temperature">
+                            <option value="Focused">🎯 Focused</option>
+                            <option value="Creative">🎨 Creative</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Build Mode Warning -->
+                    @if (aiChatMode == "Build" && canvasNodes.Any())
+                    {
+                        <div class="ai-warning-banner">⚠️ Build mode may overwrite existing nodes</div>
+                    }
+                    
+                    <!-- Selected Context Nodes -->
+                    @if (aiContextNodes.Any())
+                    {
+                        <div class="ai-context-nodes">
+                            <div class="context-header">
+                                <span class="context-title">📎 Selected Nodes</span>
+                                <button class="context-clear-btn" @onclick="ClearAiContext" title="Clear all">✕</button>
+                            </div>
+                            <div class="context-node-list">
+                                @foreach (var node in aiContextNodes)
+                                {
+                                    <div class="context-node-item">
+                                        <span class="context-node-icon">@((MarkupString)GetNodeIconSvg(node))</span>
+                                        <span class="context-node-name">@node.Name</span>
+                                        <button class="context-remove-btn" @onclick="@(() => RemoveFromAiContext(node))" title="Remove">✕</button>
+                                    </div>
+                                }
+                            </div>
+                            <div class="context-hint">💡 Click nodes on canvas to add more</div>
+                        </div>
+                    }
+                    
+                    <div class="ai-messages" @ref="aiMessagesRef">
+                        @foreach (var msg in AssistantService.CurrentConversation.Messages)
+                        {
+                            <div class="message @msg.Role">
+                                <div class="message-content">@((MarkupString)RenderMarkdown(msg.Content))</div>
+                            </div>
+                        }
+                        @if (isAiThinking)
+                        {
+                            <div class="message assistant thinking">
+                                <div class="thinking-dots"><span>.</span><span>.</span><span>.</span></div>
+                            </div>
+                        }
+                    </div>
+                    <div class="ai-input-container">
+                        <div class="ai-input">
+                            <textarea value="@aiInputMessage" 
+                                      @oninput="HandleAiInputChanged"
+                                      @onkeydown="HandleAiInputKeyDown"
+                                      @onkeydown:preventDefault="@showNodeAutocomplete"
+                                      @onkeyup="HandleAiKey"
+                                      placeholder="@GetAiPlaceholder()" 
+                                      rows="4"></textarea>
+                            <button class="btn-send @(string.IsNullOrWhiteSpace(aiInputMessage) ? "disabled" : "")" @onclick="SendAiMessage" disabled="@(string.IsNullOrWhiteSpace(aiInputMessage) || isAiThinking)">
+                                <i class="bi bi-send"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Node Autocomplete Dropdown -->
+                        @if (showNodeAutocomplete && nodeAutocompleteMatches.Any())
+                        {
+                            <div class="ai-autocomplete-dropdown">
+                                @for (var i = 0; i < nodeAutocompleteMatches.Count; i++)
+                                {
+                                    var idx = i;
+                                    var nodeName = nodeAutocompleteMatches[i];
+                                    <div class="autocomplete-item @(selectedAutocompleteIndex == idx ? "selected" : "")"
+                                         @onclick="@(() => InsertNodeReference(nodeName))">
+                                        <span class="node-name">@nodeName</span>
+                                        <span class="hint">Tab to insert</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Cost Panel (Left Side) -->
+        <div class="cost-panel @(isCostPanelCollapsed ? "collapsed" : "")">
+            <div class="cost-panel-header" @onclick="ToggleCostPanel">
+                @if (isCostPanelCollapsed)
+                {
+                    <span class="panel-icon">💰</span>
+                    <span class="panel-title-vertical">AI Expenses</span>
+                }
+                else
+                {
+                    <span class="panel-title">AI Expenses</span>
+                    <button class="panel-toggle-btn">×</button>
+                }
+            </div>
+
+            @if (!isCostPanelCollapsed)
+            {
+                <div class="cost-panel-content">
+                    <div class="cost-item total">
+                        <span class="label">Total Cost</span>
+                        <span class="value badge badge-success">$@TotalWorkflowCost.ToString("F4")</span>
+                    </div>
+                    
+                    @foreach (var aiNode in GetAINodeCostBreakdown())
+                    {
+                        <div class="ai-node-cost-item">
+                            <div class="node-name">
+                                @if (!string.IsNullOrEmpty(aiNode.IconSvg))
+                                {
+                                    <span class="node-icon custom-svg-icon">@((MarkupString)aiNode.IconSvg)</span>
+                                }
+                                else
+                                {
+                                    <span class="node-icon">@NodeHelper.GetDisplayIcon(aiNode.NodeType, null)</span>
+                                }
+                                <span class="name">@aiNode.Name</span>
+                            </div>
+                            <div class="node-stats">
+                                <span class="badge badge-info" title="Input Tokens">↓ @FormatTokenCount(aiNode.InputTokens)</span>
+                                <span class="badge badge-warning" title="Output Tokens">↑ @FormatTokenCount(aiNode.OutputTokens)</span>
+                                <span class="badge badge-primary" title="Cost">$@aiNode.Cost.ToString("F5")</span>
+                            </div>
+                        </div>
+                    }
+                    
+                    @if (!GetAINodeCostBreakdown().Any())
+                    {
+                        <div class="cost-note">
+                            No AI nodes in this workflow yet.
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Minimap Panel (Right Side) -->
+        <div class="minimap-panel @(isMinimapCollapsed ? "collapsed" : "")">
+            <div class="minimap-header" @onclick="ToggleMinimap">
+                @if (isMinimapCollapsed)
+                {
+                    <span class="panel-icon">🗺️</span>
+                    <span class="panel-title-vertical">Minimap</span>
+                }
+                else
+                {
+                    <span class="panel-title">Minimap</span>
+                    <button class="panel-toggle-btn">×</button>
+                }
+            </div>
+
+            @if (!isMinimapCollapsed)
+            {
+                <div class="minimap-content"
+                     @onmousedown="HandleMinimapMouseDown"
+                     @onmousemove="HandleMinimapMouseMove"
+                     @onmouseup="HandleMinimapMouseUp"
+                     @onmouseleave="HandleMinimapMouseUp">
+                    <!-- Scaled-down node representations -->
+                    @{
+                        var scale = GetMinimapScale();
+                        var viewport = GetMinimapViewport();
+                    }
+                    @foreach (var node in canvasNodes)
+                    {
+                        <div class="minimap-node @node.NodeType.ToLower()"
+                             style="left: @(node.X * scale)px; top: @(node.Y * scale)px; width: @(node.Width * scale)px; height: @(node.Height * scale)px;">
+                        </div>
+                    }
+                    <!-- Viewport indicator -->
+                    <div class="minimap-viewport"
+                         style="left: @(viewport.X)px; top: @(viewport.Y)px; width: @(viewport.Width)px; height: @(viewport.Height)px;">
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Catalog Panel (Right Side, Below Minimap) -->
+        <div class="custom-node-panel @(isCustomNodePanelCollapsed ? "collapsed" : "")">
+            <div class="custom-node-panel-header" @onclick="ToggleCustomNodePanel">
+                @if (isCustomNodePanelCollapsed)
+                {
+                    <span class="panel-icon">📚</span>
+                    <span class="panel-title-vertical">Catalog</span>
+                }
+                else
+                {
+                    <span class="panel-title">📚 Catalog</span>
+                    <button class="panel-toggle-btn">×</button>
+                }
+            </div>
+
+            @if (!isCustomNodePanelCollapsed)
+            {
+                <div class="custom-node-panel-content">
+                    <div class="custom-node-search">
+                        <input type="text" 
+                               @bind="customNodeSearchText" 
+                               @bind:event="oninput"
+                               @bind:after="OnSearchTextChanged"
+                               placeholder="🔍 Search nodes..." />
+                        @if (isSearchLoading)
+                        {
+                            <span class="search-loading">⏳</span>
+                        }
+                    </div>
+                    
+                    @{
+                        var filteredResults = GetFilteredCustomNodes();
+                        var hasSearchText = !string.IsNullOrWhiteSpace(customNodeSearchText);
+                    }
+                    
+                    @if (!filteredResults.Any())
+                    {
+                        <div class="custom-node-empty">
+                            @if (hasSearchText)
+                            {
+                                <span>No matching nodes found</span>
+                            }
+                            else
+                            {
+                                <span>No custom nodes available</span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="custom-node-results">
+                            @foreach (var category in filteredResults)
+                            {
+                                var isExpanded = IsCatalogCategoryExpanded(category.Id);
+                                <div class="custom-node-category @(isExpanded ? "expanded" : "")">
+                                    <div class="custom-node-category-header" @onclick="() => ToggleCatalogCategory(category.Id)">
+                                        <span class="category-chevron">@(isExpanded ? "▼" : "▶")</span>
+                                        <span class="category-icon">
+                                            @if (!string.IsNullOrWhiteSpace(category.IconSvg))
+                                            {
+                                                <div class="category-svg">@((MarkupString)category.IconSvg)</div>
+                                            }
+                                            else if (!string.IsNullOrWhiteSpace(category.IconEmoji))
+                                            {
+                                                @category.IconEmoji
+                                            }
+                                            else
+                                            {
+                                                <span>📁</span>
+                                            }
+                                        </span>
+                                        <span class="category-name">@category.Name</span>
+                                        @if (loadingCategories.Contains(category.Id))
+                                        {
+                                            <span class="category-count">⏳</span>
+                                        }
+                                    </div>
+                                    @if (isExpanded)
+                                    {
+                                        <div class="custom-node-category-items">
+                                        @* Custom Jint Nodes (using lightweight catalog) *@
+                                        @foreach (var node in GetCatalogItemsForCategory(category.Id))
+                                        {
+                                            <div class="custom-node-item" 
+                                                 draggable="true" 
+                                                 @ondragstart="@(() => StartDragFromPalette(node.NodeTypeKey))">
+                                                <div class="custom-node-item-icon">
+                                                    @if (!string.IsNullOrWhiteSpace(node.IconSvg))
+                                                    {
+                                                        <div class="custom-node-svg">@((MarkupString)node.IconSvg)</div>
+                                                    }
+                                                    else if (!string.IsNullOrWhiteSpace(node.IconFallbackEmoji))
+                                                    {
+                                                        <span>@node.IconFallbackEmoji</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>🧩</span>
+                                                    }
+                                                </div>
+                                                <div class="custom-node-item-content">
+                                                    <span class="custom-node-item-name">@node.DisplayName</span>
+                                                </div>
+                                            </div>
+                                        }
+                                        @* Built-in Nodes assigned to this category *@
+                                        @foreach (var builtIn in GetBuiltInNodesForCategory(category.Id))
+                                        {
+                                            var iconOverride = BuiltInNodeCatalogService.GetIconOverride(builtIn.NodeTypeKey);
+                                            <div class="custom-node-item builtin-node-item" 
+                                                 draggable="true" 
+                                                 title="@builtIn.Description"
+                                                 @ondragstart="@(() => StartDragFromPalette(builtIn.NodeTypeKey))">
+                                                <div class="custom-node-item-icon">
+                                                    @if (!string.IsNullOrWhiteSpace(iconOverride))
+                                                    {
+                                                        <div class="custom-node-svg">@((MarkupString)iconOverride)</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@builtIn.Icon</span>
+                                                    }
+                                                </div>
+                                                <div class="custom-node-item-content">
+                                                    <span class="custom-node-item-name">@builtIn.DisplayName</span>
+                                                    @if (!string.IsNullOrWhiteSpace(builtIn.Description))
+                                                    {
+                                                        <span class="custom-node-item-desc">@builtIn.Description</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Canvas Area -->
+        <div class="workflow-canvas-container"
+             @onmousedown="HandleCanvasMouseDown"
+             @onmousemove="HandleCanvasMouseMove"
+             @onmouseup="HandleCanvasMouseUp"
+             @onmouseleave="HandleCanvasMouseUp"
+             style="cursor: @(resizingNode != null ? "nwse-resize" : isConnecting ? "crosshair" : isPanning ? "grabbing" : "grab");">
+            <div class="workflow-canvas" 
+                 @ref="canvasRef"
+                 @ondrop="HandleDrop"
+                 @ondragover="HandleDragOver"
+                 @ondragover:preventDefault
+                 style="position: relative; width: @(canvasWidth)px; height: @(canvasHeight)px; transform: translate(@(panX)px, @(panY)px) scale(@zoomLevel); transform-origin: 0 0;">
+
+                <!-- SVG for connections -->
+                <svg class="connections-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
+                    <!-- n8n-style connection marker definitions -->
+                    <defs>
+                        <!-- Default markers (teal) -->
+                        <!-- Source: dot indicator -->
+                        <marker id="arrow-start" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+                            <circle cx="6" cy="6" r="4" fill="#1a1f26" stroke="#00a8a8" stroke-width="2" />
+                        </marker>
+                        <!-- Target: arrow with rectangle badge -->
+                        <marker id="arrow-end" markerWidth="24" markerHeight="16" refX="22" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+                            <rect x="0" y="3" width="10" height="10" rx="2" fill="#1a1f26" stroke="#00a8a8" stroke-width="1.5" />
+                            <path d="M12,4 L12,12 L18,8 z" fill="#00a8a8" />
+                            <circle cx="21" cy="8" r="3" fill="#1a1f26" stroke="#00a8a8" stroke-width="1.5" />
+                        </marker>
+                        
+                        <!-- True path markers (green) -->
+                        <marker id="arrow-start-true" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+                            <circle cx="6" cy="6" r="4" fill="#1a1f26" stroke="#22c55e" stroke-width="2" />
+                        </marker>
+                        <marker id="arrow-end-true" markerWidth="24" markerHeight="16" refX="22" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+                            <rect x="0" y="3" width="10" height="10" rx="2" fill="#1a1f26" stroke="#22c55e" stroke-width="1.5" />
+                            <path d="M12,4 L12,12 L18,8 z" fill="#22c55e" />
+                            <circle cx="21" cy="8" r="3" fill="#1a1f26" stroke="#22c55e" stroke-width="1.5" />
+                        </marker>
+                        
+                        <!-- False path markers (red) -->
+                        <marker id="arrow-start-false" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+                            <circle cx="6" cy="6" r="4" fill="#1a1f26" stroke="#ef4444" stroke-width="2" />
+                        </marker>
+                        <marker id="arrow-end-false" markerWidth="24" markerHeight="16" refX="22" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+                            <rect x="0" y="3" width="10" height="10" rx="2" fill="#1a1f26" stroke="#ef4444" stroke-width="1.5" />
+                            <path d="M12,4 L12,12 L18,8 z" fill="#ef4444" />
+                            <circle cx="21" cy="8" r="3" fill="#1a1f26" stroke="#ef4444" stroke-width="1.5" />
+                        </marker>
+                        
+                        <!-- Orchestrate path markers (yellow - bidirectional control flow) -->
+                        <marker id="arrow-start-orchestrate" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+                            <circle cx="6" cy="6" r="4" fill="#1a1f26" stroke="#eab308" stroke-width="2" />
+                        </marker>
+                        <marker id="arrow-end-orchestrate" markerWidth="24" markerHeight="16" refX="22" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+                            <rect x="0" y="3" width="10" height="10" rx="2" fill="#1a1f26" stroke="#eab308" stroke-width="1.5" />
+                            <path d="M12,4 L12,12 L18,8 z" fill="#eab308" />
+                            <circle cx="21" cy="8" r="3" fill="#1a1f26" stroke="#eab308" stroke-width="1.5" />
+                        </marker>
+                        
+                        <!-- Run path markers (blue - RemoteCommand to Remote) -->
+                        <marker id="arrow-start-run" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+                            <circle cx="6" cy="6" r="4" fill="#1a1f26" stroke="#3b82f6" stroke-width="2" />
+                        </marker>
+                        <marker id="arrow-end-run" markerWidth="24" markerHeight="16" refX="22" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+                            <rect x="0" y="3" width="10" height="10" rx="2" fill="#1a1f26" stroke="#3b82f6" stroke-width="1.5" />
+                            <path d="M12,4 L12,12 L18,8 z" fill="#3b82f6" />
+                            <circle cx="21" cy="8" r="3" fill="#1a1f26" stroke="#3b82f6" stroke-width="1.5" />
+                        </marker>
+                    </defs>
+                    
+                    @{
+                        // Pre-calculate which port side each connection uses for proper fan grouping
+                        var connectionPortInfo = new Dictionary<NodeConnection, (ConnectionSide SourceSide, ConnectionSide TargetSide)>();
+                        foreach (var conn in connections)
+                        {
+                            var srcNode = canvasNodes.FirstOrDefault(n => n.Id == conn.SourceId);
+                            var tgtNode = canvasNodes.FirstOrDefault(n => n.Id == conn.TargetId);
+                            if (srcNode != null && tgtNode != null)
+                            {
+                                var ports = ConnectionHelper.GetClosestPorts(srcNode, tgtNode);
+                                connectionPortInfo[conn] = (ports.Source.Side, ports.Target.Side);
+                            }
+                        }
+                        
+                        // Build a unified grouping: all connections touching a (nodeId, side) pair
+                        // This includes both connections where the node is source AND where it's target
+                        var nodePortConnections = new Dictionary<(Guid NodeId, ConnectionSide Side), List<(NodeConnection Conn, bool IsSource)>>();
+                        foreach (var conn in connections.Where(c => connectionPortInfo.ContainsKey(c)))
+                        {
+                            var portInfo = connectionPortInfo[conn];
+                            
+                            // Add as source
+                            var sourceKey = (conn.SourceId, portInfo.SourceSide);
+                            if (!nodePortConnections.ContainsKey(sourceKey))
+                                nodePortConnections[sourceKey] = new List<(NodeConnection, bool)>();
+                            nodePortConnections[sourceKey].Add((conn, true));
+                            
+                            // Add as target
+                            var targetKey = (conn.TargetId, portInfo.TargetSide);
+                            if (!nodePortConnections.ContainsKey(targetKey))
+                                nodePortConnections[targetKey] = new List<(NodeConnection, bool)>();
+                            nodePortConnections[targetKey].Add((conn, false));
+                        }
+                    }
+                    @foreach (var connection in connections)
+                    {
+                        var sourceNode = canvasNodes.FirstOrDefault(n => n.Id == connection.SourceId);
+                        var targetNode = canvasNodes.FirstOrDefault(n => n.Id == connection.TargetId);
+                        if (sourceNode != null && targetNode != null && connectionPortInfo.ContainsKey(connection))
+                        {
+                            var portInfo = connectionPortInfo[connection];
+                            
+                            // Get all connections on source node's port side (both incoming and outgoing)
+                            var sourceKey = (connection.SourceId, portInfo.SourceSide);
+                            var sourcePortConns = nodePortConnections.GetValueOrDefault(sourceKey) ?? new List<(NodeConnection, bool)>();
+                            var sourceIndex = sourcePortConns.FindIndex(x => x.Conn == connection);
+                            
+                            // Get all connections on target node's port side (both incoming and outgoing)
+                            var targetKey = (connection.TargetId, portInfo.TargetSide);
+                            var targetPortConns = nodePortConnections.GetValueOrDefault(targetKey) ?? new List<(NodeConnection, bool)>();
+                            var targetIndex = targetPortConns.FindIndex(x => x.Conn == connection);
+                            
+                            // Use fanned ports when multiple connections share the same port side
+                            var ports = ConnectionHelper.GetClosestPortsWithFan(
+                                sourceNode, targetNode,
+                                sourceIndex, sourcePortConns.Count,
+                                targetIndex, targetPortConns.Count);
+                            var pathD = ConnectionHelper.GenerateSmartBezierPath(ports.Source, ports.Target);
+                            var pathId = $"conn-{connection.Id.ToString().Substring(0, 8)}";
+                            var isConnectionActive = activeConnectionIds.Contains(connection.Id);
+                            
+                            // Calculate label position - centered on the path
+                            var midX = (ports.Source.X + ports.Target.X) / 2;
+                            var midY = (ports.Source.Y + ports.Target.Y) / 2 - 8;
+                            
+                            // Determine color based on connection label
+                            var labelLower = connection.Label?.ToLower();
+                            var strokeColor = labelLower switch
+                            {
+                                "true" => "#22c55e",        // Green for true branch
+                                "false" => "#ef4444",       // Red for false branch
+                                "complete" => "#22c55e",    // Green for complete
+                                "error" => "#ef4444",       // Red for error
+                                "agent" => "#6b8afd",       // Blue for agent connections
+                                "orchestrate" => "#eab308", // Yellow for orchestrate (bidirectional control)
+                                _ when labelLower?.StartsWith("tool:") == true => "#a855f7",  // Purple for tool connections
+                                _ when labelLower?.StartsWith("run:") == true => "#3b82f6",   // Blue for run connections (RemoteCommand)
+                                _ => "#00a8a8"              // Teal default
+                            };
+                            var markerSuffix = labelLower switch
+                            {
+                                "true" => "-true",
+                                "false" => "-false",
+                                "complete" => "-true",      // Same marker as true
+                                "error" => "-false",        // Same marker as false
+                                "orchestrate" => "-orchestrate", // Yellow markers
+                                _ when labelLower?.StartsWith("run:") == true => "-run", // Blue markers for RemoteCommand
+                                _ => ""
+                            };
+
+                            <!-- Invisible hit area for right-click -->
+                            <path d="@pathD" stroke="transparent" stroke-width="15" fill="none" 
+                                  style="pointer-events: stroke; cursor: pointer;"
+                                  @oncontextmenu="@(e => HandleConnectionContextMenu(e, connection))"
+                                  @oncontextmenu:preventDefault />
+                            
+                            <!-- Visible connection line with arrows -->
+                            <path id="@pathId" d="@pathD" stroke="@strokeColor" stroke-width="@GetConnectionStrokeWidth(connection.Label)" fill="none" 
+                                  stroke-dasharray="@GetConnectionDashArray(connection.Label)"
+                                  marker-start="url(#arrow-start@(markerSuffix))" marker-end="url(#arrow-end@(markerSuffix))" />
+                            
+                            <!-- Animated dot traveling along path when active -->
+                            @if (isConnectionActive)
+                            {
+                                <circle r="5" fill="@strokeColor">
+                                    <animateMotion dur="1.5s" repeatCount="indefinite" path="@pathD" />
+                                </circle>
+                            }
+                            
+                            <!-- Label with background pill centered on the connection path (matching node-tag style) -->
+                            @if (!string.IsNullOrEmpty(connection.Label))
+                            {
+                                var labelWidth = connection.Label.Length * 6 + 16;
+                                var labelHeight = 18;
+                                var rectY = midY - labelHeight / 2 + 6;
+                                var textY = midY + 10;
+                                @:@(new MarkupString($"<rect x=\"{midX - labelWidth/2}\" y=\"{rectY}\" width=\"{labelWidth}\" height=\"{labelHeight}\" rx=\"8\" fill=\"#1a1f26\" stroke=\"{strokeColor}\" stroke-width=\"1\" />"))
+                                @:@(new MarkupString($"<text x=\"{midX}\" y=\"{textY}\" text-anchor=\"middle\" fill=\"{strokeColor}\" font-size=\"10\" font-weight=\"500\">{connection.Label}</text>"))
+                            }
+                        }
+                    }
+                    
+                    @* Temporary connection line while dragging *@
+                    @if (isConnecting && connectingFromNode != null)
+                    {
+                        var startPort = connectingFromSide.HasValue 
+                            ? ConnectionHelper.GetPortPosition(connectingFromNode, connectingFromSide.Value)
+                            : new PortPoint { X = connectingFromNode.X + connectingFromNode.Width, Y = connectingFromNode.Y + connectingFromNode.Height / 2, Side = ConnectionSide.Right };
+                        var tempPath = ConnectionHelper.GenerateSmartBezierPath(startPort, new PortPoint { X = connectingEndX, Y = connectingEndY, Side = ConnectionSide.Left });
+                        <path d="@tempPath" stroke="#00a8a8" stroke-width="2" fill="none" stroke-dasharray="5,5" opacity="0.8" />
+                        <circle cx="@connectingEndX" cy="@connectingEndY" r="6" fill="#00a8a8" opacity="0.6" />
+                    }
+                </svg>
+
+                <!-- Nodes on canvas -->
+                @foreach (var node in canvasNodes)
+                {
+                    <div class="canvas-node @node.NodeType.ToLower().Replace(" ", "-") @(selectedNodeId == node.Id ? "selected" : "") status-@node.Status.ToString().ToLower()"
+                         style="left: @(node.X)px; top: @(node.Y)px; width: @(node.Width)px; height: @(node.Height)px;"
+                         @onmousedown="@(e => HandleNodeMouseDown(e, node))"
+                         @onmousedown:stopPropagation
+                         @onclick="@(() => SelectNode(node))"
+                         @onclick:stopPropagation
+                         @ondblclick="@(() => OpenPropertyModal(node))"
+                         @ondblclick:stopPropagation
+                         @oncontextmenu="@(e => HandleNodeContextMenu(e, node))"
+                         @oncontextmenu:preventDefault
+                         @onmouseup="@(e => HandleNodeMouseUp(e, node))"
+                         @onmouseup:stopPropagation>
+                        @{
+                            // Determine which sides of this node have connections
+                            var nodeConnectedSides = new HashSet<ConnectionSide>();
+                            foreach (var conn in connections)
+                            {
+                                if (connectionPortInfo.TryGetValue(conn, out var portInfo))
+                                {
+                                    if (conn.SourceId == node.Id) nodeConnectedSides.Add(portInfo.SourceSide);
+                                    if (conn.TargetId == node.Id) nodeConnectedSides.Add(portInfo.TargetSide);
+                                }
+                            }
+                        }
+                        
+                        <!-- Connection handles - hidden on sides with existing connections -->
+                        @if (!nodeConnectedSides.Contains(ConnectionSide.Top))
+                        {
+                            <div class="connection-handle handle-top" 
+                                 @onmousedown="@(e => StartConnectionFromHandle(e, node, ConnectionSide.Top))" 
+                                 @onmousedown:stopPropagation></div>
+                        }
+                        @if (!nodeConnectedSides.Contains(ConnectionSide.Bottom))
+                        {
+                            <div class="connection-handle handle-bottom" 
+                                 @onmousedown="@(e => StartConnectionFromHandle(e, node, ConnectionSide.Bottom))" 
+                                 @onmousedown:stopPropagation></div>
+                        }
+                        @if (!nodeConnectedSides.Contains(ConnectionSide.Left))
+                        {
+                            <div class="connection-handle handle-left" 
+                                 @onmousedown="@(e => StartConnectionFromHandle(e, node, ConnectionSide.Left))" 
+                                 @onmousedown:stopPropagation></div>
+                        }
+                        @if (!nodeConnectedSides.Contains(ConnectionSide.Right))
+                        {
+                            <div class="connection-handle handle-right" 
+                                 @onmousedown="@(e => StartConnectionFromHandle(e, node, ConnectionSide.Right))" 
+                                 @onmousedown:stopPropagation></div>
+                        }
+                        
+                        <div class="node-header @(ExecutionManager.IsRunning(node.Id) ? "node-running" : "")">
+                            @if (node.IsTrigger)
+                            {
+                                <span class="trigger-indicator" title="Trigger Node">⚡</span>
+                            }
+                            @{
+                                var customNodeDef = NodeHelper.IsCustomNode(node.NodeType) 
+                                    ? customNodeDefinitions.FirstOrDefault(d => string.Equals(d.NodeTypeKey, node.NodeType, StringComparison.OrdinalIgnoreCase)) 
+                                    : null;
+                            }
+                            @if (customNodeDef != null && !string.IsNullOrWhiteSpace(customNodeDef.IconSvg))
+                            {
+                                <span class="node-type-icon custom-svg-icon">@((MarkupString)customNodeDef.IconSvg)</span>
+                            }
+                            else if (customNodeDef == null)
+                            {
+                                @* Check for built-in node icon override from catalog *@
+                                var builtInIconOverride = BuiltInNodeCatalogService.GetIconOverride(node.NodeType);
+                                if (!string.IsNullOrWhiteSpace(builtInIconOverride))
+                                {
+                                    <span class="node-type-icon custom-svg-icon">@((MarkupString)builtInIconOverride)</span>
+                                }
+                                else
+                                {
+                                    <span class="node-type-icon">@NodeHelper.GetDisplayIcon(node.NodeType, node.IconOverride)</span>
+                                }
+                            }
+                            <span class="node-name-label" title="@node.Name">@node.Name</span>
+                        </div>
+                        
+                        @* Surface fields - placeholder values displayed on node *@
+                        @if (node.SurfaceFields.Any())
+                        {
+                            <div class="node-surface-fields">
+                                @foreach (var fieldKey in node.SurfaceFields)
+                                {
+                                    var displayText = GetSurfaceFieldDisplay(node, fieldKey);
+                                    
+                                    <div class="surface-field" 
+                                         title="@displayText"
+                                         @oncontextmenu="@(e => ShowRemoveSurfaceFieldMenu(e, node, fieldKey))"
+                                         @oncontextmenu:preventDefault
+                                         @oncontextmenu:stopPropagation>
+                                        @displayText
+                                    </div>
+                                }
+                            </div>
+                        }
+                        
+                        @if (node.NodeType == "Cache")
+                        {
+                            <button class="view-cache" 
+                                    @onclick="@(() => OpenCacheViewer(node.Id))"
+                                    @onclick:stopPropagation
+                                    title="View Cached Data">📦</button>
+                        }
+
+                        @if (node.NodeType == "StorageTable")
+                        {
+                            <button class="view-cache" 
+                                    @onclick="@(() => OpenStorageTableViewer(node.Id))"
+                                    @onclick:stopPropagation
+                                    title="View Table Data">📦</button>
+                        }
+
+                        @if (node.NodeType == "VectorDb")
+                        {
+                            <button class="view-cache" 
+                                    @onclick="@(() => OpenVectorDbViewer(node.Id))"
+                                    @onclick:stopPropagation
+                                    title="View Vector Data">📦</button>
+                        }
+
+                        @if (node.NodeType == "AzureBlob")
+                        {
+                            <button class="view-cache" 
+                                    @onclick="@(() => OpenBlobViewer(node.Id))"
+                                    @onclick:stopPropagation
+                                    title="Browse Blob Storage">📦</button>
+                        }
+
+                        @if (node.NodeType == "S2GStorage")
+                        {
+                            <button class="view-cache" 
+                                    @onclick="@(() => OpenS2GStorageViewer(node.Id))"
+                                    @onclick:stopPropagation
+                                    title="Browse Files">📦</button>
+                        }
+
+                        <!-- Delete button -->
+                        <button class="delete-node" 
+                                @onclick="@(() => DeleteNode(node.Id))"
+                                @onclick:stopPropagation>×</button>
+                        
+                        @* Scheduler countdown timer - bottom of node *@
+                        @if (node.NodeType == "Scheduler")
+                        {
+                            var countdown = Logic.Nodes.SchedulerNode.GetCountdown(node.Id);
+                            if (countdown != null)
+                            {
+                                <div class="scheduler-countdown" title="Next trigger in @countdown">@countdown</div>
+                            }
+                        }
+                        
+                        <!-- Resize handle (bottom-right corner) -->
+                        <div class="resize-handle" 
+                             @onmousedown="@(e => StartResizeNode(e, node))"
+                             @onmousedown:stopPropagation></div>
+                    </div>
+                    
+                    <!-- Tags below node -->
+                    @if (node.Tags.Any())
+                    {
+                        <div class="node-tags" style="left: @(node.X + node.Width / 2)px; top: @(node.Y + node.Height + 5)px;">
+                            @foreach (var tag in node.Tags)
+                            {
+                                <span class="node-tag">@tag</span>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Bottom Node Toolbar -->
+    <div class="node-toolbar @(isPaletteCollapsed ? "collapsed" : "")">
+        <div class="toolbar-header">
+            <div class="toolbar-search">
+                <input type="text" @bind="nodeSearchText" @bind:event="oninput" placeholder="🔍 Search nodes..." />
+            </div>
+            <div class="toolbar-categories">
+                <button class="category-tab @(selectedToolbarCategory == "HTTP" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "HTTP")">
+                    🌐 HTTP
+                </button>
+                <button class="category-tab @(selectedToolbarCategory == "AI" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "AI")">
+                    🤖 AI
+                </button>
+                <button class="category-tab @(selectedToolbarCategory == "Database" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "Database")">
+                    🗄️ Database
+                </button>
+                <button class="category-tab @(selectedToolbarCategory == "DataProcessing" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "DataProcessing")">
+                    🔄 Processing
+                </button>
+                <button class="category-tab @(selectedToolbarCategory == "Integration" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "Integration")">
+                    ☁️ Cloud
+                </button>
+                <button class="category-tab @(selectedToolbarCategory == "M365" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "M365")">
+                    Ⓜ️ M365
+                </button>
+            </div>
+            <button class="toolbar-toggle" @onclick="TogglePalette" title="@(isPaletteCollapsed ? "Show Nodes" : "Hide Nodes")">
+                @(isPaletteCollapsed ? "▲" : "▼")
+            </button>
+        </div>
+        
+        @if (!isPaletteCollapsed)
+        {
+            <div class="toolbar-nodes">
+                @if (selectedToolbarCategory == "HTTP")
+                {
+                    @if (IsNodeVisible("Listener", "HttpListener"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("HttpListener"))">
+                            <div class="node-icon">🔊</div>
+                            <span>Listener</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Request", "HttpRequest"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("HttpRequest"))">
+                            <div class="node-icon">🌐</div>
+                            <span>Request</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Response", "HttpResponse"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("HttpResponse"))">
+                            <div class="node-icon">📤</div>
+                            <span>Response</span>
+                        </div>
+                    }
+                }
+                @if (selectedToolbarCategory == "AI")
+                {
+                    @if (IsNodeVisible("OpenAI", "OpenAI"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("OpenAI"))">
+                            <div class="node-icon">🤖</div>
+                            <span>OpenAI</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("DeepSeek", "DeepSeek"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("DeepSeek"))">
+                            <div class="node-icon">🧠</div>
+                            <span>DeepSeek</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Anthropic", "Anthropic"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Anthropic"))">
+                            <div class="node-icon">🅰️</div>
+                            <span>Anthropic</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Gemini", "Gemini"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Gemini"))">
+                            <div class="node-icon">✨</div>
+                            <span>Gemini</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Vector", "VectorDb"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("VectorDb"))">
+                            <div class="node-icon">🧬</div>
+                            <span>Vector Store</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Vector", "VectorClient"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("VectorClient"))">
+                            <div class="node-icon">🔍</div>
+                            <span>Vector Client</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Copilot", "CopilotAgent"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("CopilotAgent"))">
+                            <div class="node-icon">🐙</div>
+                            <span>Copilot</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("OpenClaw", "OpenClaw"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("OpenClaw"))">
+                            <div class="node-icon">🦾</div>
+                            <span>OpenClaw</span>
+                        </div>
+                    }
+                }
+                @if (selectedToolbarCategory == "Database")
+                {
+                    @if (IsNodeVisible("SQL", "SqlServer"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("SqlServer"))">
+                            <div class="node-icon">🗄️</div>
+                            <span>SQL</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Mongo", "MongoDB"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("MongoDB"))">
+                            <div class="node-icon">🍃</div>
+                            <span>Mongo</span>
+                        </div>
+                    }
+                }
+                @if (selectedToolbarCategory == "DataProcessing")
+                {
+                    @if (IsNodeVisible("Queue", "Queue"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Queue"))">
+                            <div class="node-icon">📬</div>
+                            <span>Queue</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Condition", "Condition"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Condition"))">
+                            <div class="node-icon">❓</div>
+                            <span>Condition</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Cache", "Cache"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Cache"))">
+                            <div class="node-icon">💾</div>
+                            <span>Cache</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Table", "StorageTable"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("StorageTable"))">
+                            <div class="node-icon">🗃️</div>
+                            <span>Table</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Client", "StorageClient"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("StorageClient"))">
+                            <div class="node-icon">📊</div>
+                            <span>Client</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Loop", "Loop"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Loop"))">
+                            <div class="node-icon">🔁</div>
+                            <span>Loop</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Scheduler", "Scheduler"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Scheduler"))">
+                            <div class="node-icon">⏰</div>
+                            <span>Scheduler</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Aggregator", "Aggregator"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Aggregator"))">
+                            <div class="node-icon">📥</div>
+                            <span>Aggregator</span>
+                        </div>
+                    }
+                }
+                @if (selectedToolbarCategory == "Integration")
+                {
+                    @if (IsNodeVisible("Azure Table", "AzureStorage"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureStorage"))">
+                            <div class="node-icon">📋</div>
+                            <span>Azure Table</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Azure Blob", "AzureBlob"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureBlob"))">
+                            <div class="node-icon">🗂️</div>
+                            <span>Azure Blob</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Queue Send", "AzureQueueSend"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureQueueSend"))">
+                            <div class="node-icon">📨</div>
+                            <span>Queue Send</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Queue Monitor", "AzureQueueMonitor"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureQueueMonitor"))">
+                            <div class="node-icon">📧</div>
+                            <span>Queue Monitor</span>
+                        </div>
+                    }
+                }
+                @if (selectedToolbarCategory == "M365")
+                {
+                    @if (IsNodeVisible("OneDrive", "OneDriveTrigger"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("OneDriveTrigger"))">
+                            <div class="node-icon">📂</div>
+                            <span>OneDrive File Monitor</span>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Property Popup Modal -->
+    @if (editingNode != null)
+    {
+        <div class="property-modal-overlay" @onmousedown="HandleOverlayMouseDown" @onmouseup="HandleOverlayMouseUp">
+            <div class="property-modal" @onclick:stopPropagation @onmousedown:stopPropagation @onmouseup:stopPropagation>
+                <div class="modal-header">
+                    @{
+                        var modalCustomDef = NodeHelper.IsCustomNode(editingNode.NodeType) 
+                            ? customNodeDefinitions.FirstOrDefault(d => string.Equals(d.NodeTypeKey, editingNode.NodeType, StringComparison.OrdinalIgnoreCase)) 
+                            : null;
+                    }
+                    <h3>
+                        @if (modalCustomDef != null && !string.IsNullOrWhiteSpace(modalCustomDef.IconSvg))
+                        {
+                            <span class="node-type-icon custom-svg-icon modal-icon">@((MarkupString)modalCustomDef.IconSvg)</span>
+                        }
+                        else
+                        {
+                            <span class="node-type-icon">@NodeHelper.GetDisplayIcon(editingNode.NodeType, editingNode.IconOverride)</span>
+                        }
+                        @editingNode.Name Properties
+                    </h3>
+                    <button class="modal-close" @onclick="ClosePropertyModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="modal-tabs">
+                        <button class="modal-tab @(activeModalTab == "properties" ? "active" : "")" @onclick="@(() => activeModalTab = "properties")">Properties</button>
+                        <button class="modal-tab @(activeModalTab == "settings" ? "active" : "")" @onclick="@(() => activeModalTab = "settings")">Settings</button>
+                        <button class="modal-tab @(activeModalTab == "logs" ? "active" : "")" @onclick="@(() => activeModalTab = "logs")">Activity Logs (@editingNode.ActivityLogs.Count)</button>
+                    </div>
+
+                    @if (activeModalTab == "properties")
+                    {
+                        <div class="form-group mb-4">
+                            <label class="form-label font-weight-bold">Node Name</label>
+                            <input type="text" class="form-control" @bind="editingNode.Name" @bind:after="MarkAsChanged" placeholder="Enter node name..." />
+                        </div>
+
+                        @if (modalCustomDef != null && !string.IsNullOrWhiteSpace(modalCustomDef.Description))
+                        {
+                            <div class="custom-node-description mb-4" style="background: rgba(0, 168, 168, 0.1); border: 1px solid rgba(0, 168, 168, 0.3); border-radius: 8px; padding: 12px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">📋 Description</div>
+                                @modalCustomDef.Description
+                            </div>
+                        }
+                        else if (modalCustomDef == null)
+                        {
+                            @* Show description for built-in nodes *@
+                            var builtInInfo = BuiltInNodeCatalogService.GetAllBuiltInNodeTypes().FirstOrDefault(n => n.NodeTypeKey == editingNode.NodeType);
+                            if (builtInInfo != null && !string.IsNullOrWhiteSpace(builtInInfo.Description))
+                            {
+                                <div class="custom-node-description mb-4" style="background: rgba(0, 168, 168, 0.1); border: 1px solid rgba(0, 168, 168, 0.3); border-radius: 8px; padding: 12px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                                    <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">📋 Description</div>
+                                    @builtInInfo.Description
+                                </div>
+                            }
+                        }
+
+                        <div class="form-check mb-3">
+                            <input type="checkbox" class="form-check-input" id="showAllPlaceholders" @bind="showAllPlaceholders" />
+                            <label class="form-check-label small" for="showAllPlaceholders" style="color: var(--text-secondary);">
+                                Show all upstream placeholders (not just immediate)
+                            </label>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label class="form-label small" style="color: var(--text-secondary);">Tags (comma-separated)</label>
+                            <input type="text" class="form-control form-control-sm" 
+                                   value="@string.Join(", ", editingNode.Tags)" 
+                                   @onchange="@(e => { UpdateNodeTags(editingNode, e.Value?.ToString() ?? ""); MarkAsChanged(); })" 
+                                   placeholder="e.g. Chat Model, Memory, Tool"
+                                   autocomplete="off" />
+                        </div>
+
+                        <div class="node-properties-scroll">
+                            @if (editingNode.NodeType == "OpenAI")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OpenAIEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "DeepSeek")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.DeepSeekEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "DeepSeekAgent")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.DeepSeekAgentEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    NodeId="@editingNode.Id"
+                                    CanvasNodes="@canvasNodes.Select(n => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.DeepSeekAgentEditor.CanvasNodeInfo { Id = n.Id, Name = n.Name, NodeType = n.NodeType }).ToList()"
+                                    CanvasConnections="@connections.Select(c => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.DeepSeekAgentEditor.CanvasConnectionInfo { SourceId = c.SourceId, TargetId = c.TargetId, Label = c.Label }).ToList()"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "CopilotAgent")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.CopilotAgentEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    NodeId="@editingNode.Id"
+                                    OrganizationId="@currentWorkflowOrganizationId"
+                                    CanvasNodes="@canvasNodes.Select(n => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.CopilotAgentEditor.CanvasNodeInfo { Id = n.Id, Name = n.Name, NodeType = n.NodeType }).ToList()"
+                                    CanvasConnections="@connections.Select(c => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.CopilotAgentEditor.CanvasConnectionInfo { SourceId = c.SourceId, TargetId = c.TargetId, Label = c.Label }).ToList()"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "OpenClaw")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OpenClawEditor
+                                    Configuration="@editingNode.Configuration"
+                                    NodeId="@editingNode.Id.ToString()"
+                                    CanvasNodes="@canvasNodes.Select(n => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OpenClawEditor.CanvasNodeInfo { Id = n.Id.ToString(), Name = n.Name, NodeType = n.NodeType }).ToList()"
+                                    CanvasConnections="@connections.Select(c => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OpenClawEditor.CanvasConnectionInfo { SourceId = c.SourceId.ToString(), TargetId = c.TargetId.ToString(), Label = c.Label }).ToList()"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Anthropic")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.AnthropicEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Gemini")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.GeminiEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Mistral")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.MistralEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Groq")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.GroqEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "PdfOcr")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.PdfOcrEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "HttpListener")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.HttpListenerEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    Node="@CreateWorkflowNodeFromCanvas(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "HttpRequest")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.HttpRequestEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "FileDownload")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.FileDownloadEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "SqlServer" || editingNode.NodeType == "Postgresql")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.SqlEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "MongoDB")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.MongoDbEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "AzureBlob")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.AzureBlobEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "AzureQueueSend")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.AzureQueueSendEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "AzureQueueMonitor")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.AzureQueueMonitorEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Queue")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.QueueEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "HttpResponse")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.HttpResponseEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "OneDriveTrigger")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OneDriveTriggerEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    OrganizationId="@currentWorkflowOrganizationId"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Condition")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.ConditionEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Cache")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.CacheEditor 
+                                    Node="@CreateWorkflowNodeFromCanvas(editingNode)"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "StorageTable")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.StorageTableEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    NodeId="@editingNode.Id"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "StorageClient")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.StorageClientEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    StorageTableColumns="@GetStorageTableColumns(editingNode)"
+                                    ConnectedStorageTableNodeId="@GetConnectedStorageTableId(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Loop")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.LoopEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "VectorDb")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.VectorDbEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "VectorClient")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.VectorClientEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    ConnectedVectorStoreNodeId="@GetConnectedVectorStoreId(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Scheduler")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.SchedulerEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Aggregator")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.AggregatorEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "S2GStorage")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.S2GStorageEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "ExcelToJson")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.ExcelToJsonEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "ConnectorToken")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.ConnectorTokenEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    OrganizationId="@currentWorkflowOrganizationId"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Orchestrator")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OrchestratorEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    NodeId="@editingNode.Id"
+                                    CanvasNodes="@canvasNodes.Select(n => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OrchestratorEditor.CanvasNodeInfo { Id = n.Id, Name = n.Name, NodeType = n.NodeType }).ToList()"
+                                    CanvasConnections="@connections.Select(c => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.OrchestratorEditor.CanvasConnectionInfo { SourceId = c.SourceId, TargetId = c.TargetId, Label = c.Label }).ToList()"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Remote")
+                            {
+                                // Find all HttpListener nodes in the workflow (potential source listeners)
+                                var upstreamListeners = canvasNodes
+                                    .Where(n => n.NodeType == "HttpListener")
+                                    .Select(n => (Id: n.Id, Name: n.Name))
+                                    .ToList();
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.RemoteNodeEditor 
+                                    Node="@CreateWorkflowNodeFromCanvas(editingNode)"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    UpstreamListeners="@upstreamListeners"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "RemoteCommand")
+                            {
+                                var remoteCommandConnections = connections.Select(c => (c.SourceId, c.TargetId, c.Label)).ToList();
+                                var remoteCommandCanvasNodes = canvasNodes.Select(n => new { n.Id, n.Name, n.NodeType }).ToList();
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.RemoteCommandEditor 
+                                    Node="@CreateWorkflowNodeFromCanvas(editingNode)"
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    Connections="@remoteCommandConnections"
+                                    CanvasNodes="@remoteCommandCanvasNodes"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "Knowledge")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.KnowledgeEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    NodeName="@editingNode.Name"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (NodeHelper.IsCustomNode(editingNode.NodeType))
+                            {
+                                @* Dynamic rendering of custom node input fields *@
+                                var customDef = customNodeDefinitions.FirstOrDefault(d => string.Equals(d.NodeTypeKey, editingNode.NodeType, StringComparison.OrdinalIgnoreCase));
+                                if (customDef != null)
+                                {
+                                    <div class="custom-node-editor">
+                                        @* Available Placeholders from upstream nodes *@
+                                        <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.PlaceholderList 
+                                            Placeholders="@GetAvailablePlaceholders(editingNode)" />
+                                        
+                                        @* Inputs Section *@
+                                        <div class="custom-node-section">
+                                            <h6 class="section-header">📥 Inputs</h6>
+                                            @foreach (var field in customDef.InputFields.OrderBy(f => f.DisplayOrder))
+                                            {
+                                                <div class="form-group mb-3">
+                                                    <label class="form-label">
+                                                        @field.DisplayLabel
+                                                        @if (field.IsRequired)
+                                                        {
+                                                            <span class="text-danger">*</span>
+                                                        }
+                                                    </label>
+                                                    @if (field.FieldType == CustomFieldType.Text)
+                                                    {
+                                                        <input type="text" class="form-control custom-input" 
+                                                               value="@GetCustomNodeFieldValue(editingNode, field.FieldName)"
+                                                               @onchange="@(e => SetCustomNodeFieldValue(editingNode, field.FieldName, e.Value?.ToString()))"
+                                                               placeholder="@field.PlaceholderText" />
+                                                    }
+                                                    else if (field.FieldType == CustomFieldType.Number)
+                                                    {
+                                                        <input type="number" class="form-control custom-input" 
+                                                               value="@GetCustomNodeFieldValue(editingNode, field.FieldName)"
+                                                               @onchange="@(e => SetCustomNodeFieldValue(editingNode, field.FieldName, e.Value?.ToString()))"
+                                                               placeholder="@field.PlaceholderText" />
+                                                    }
+                                                    else if (field.FieldType == CustomFieldType.Boolean)
+                                                    {
+                                                        <div class="form-check">
+                                                            <input type="checkbox" class="form-check-input"
+                                                                   checked="@(GetCustomNodeFieldValue(editingNode, field.FieldName) == "true")"
+                                                                   @onchange="@(e => SetCustomNodeFieldValue(editingNode, field.FieldName, ((bool)(e.Value ?? false)).ToString().ToLower()))" />
+                                                        </div>
+                                                    }
+                                                    else if (field.FieldType == CustomFieldType.TextArea)
+                                                    {
+                                                        <textarea class="form-control custom-input" rows="4"
+                                                                  @onchange="@(e => SetCustomNodeFieldValue(editingNode, field.FieldName, e.Value?.ToString()))"
+                                                                  placeholder="@field.PlaceholderText">@GetCustomNodeFieldValue(editingNode, field.FieldName)</textarea>
+                                                    }
+                                                    else if (field.FieldType == CustomFieldType.Password)
+                                                    {
+                                                        <input type="password" class="form-control custom-input" 
+                                                               value="@GetCustomNodeFieldValue(editingNode, field.FieldName)"
+                                                               @onchange="@(e => SetCustomNodeFieldValue(editingNode, field.FieldName, e.Value?.ToString()))"
+                                                               placeholder="@field.PlaceholderText" />
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(field.HelpText))
+                                                    {
+                                                        <small class="text-muted">@field.HelpText</small>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                        
+                                        @* Outputs Section *@
+                                        @if (customDef.OutputParameters.Any())
+                                        {
+                                            <div class="custom-node-section">
+                                                <h6 class="section-header">📤 Outputs</h6>
+                                                <div class="placeholder-chips">
+                                                    @foreach (var param in customDef.OutputParameters.OrderBy(p => p.DisplayOrder))
+                                                    {
+                                                        <span class="placeholder-chip" title="@param.Description">
+                                                            {{@editingNode.Name.Replace(" ", "").@param.ParameterName}}
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                        
+                                        @* Tags Section *@
+                                        @if (customDef.ConnectionTags.Any())
+                                        {
+                                            <div class="custom-node-section">
+                                                <h6 class="section-header">🏷️ Tags</h6>
+                                                <div class="tag-chips">
+                                                    @foreach (var tag in customDef.ConnectionTags.OrderBy(t => t.DisplayOrder))
+                                                    {
+                                                        var tagColor = tag.TagName.ToLower() switch 
+                                                        {
+                                                            "success" => "#28a745",
+                                                            "error" => "#dc3545",
+                                                            "empty" => "#6c757d",
+                                                            _ => "#17a2b8"
+                                                        };
+                                                        <span class="tag-chip" style="border-color: @tagColor; color: @tagColor;">
+                                                            @tag.TagName
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-warning">
+                                        Custom node definition not loaded for this session. The node is still functional — check the <strong>Activity Logs</strong> tab to trace execution. To load the editor, expand catalog categories to reload the definition cache. <em style="opacity: 0.7;">We're working on improving UI caching logic.</em>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                    else if (activeModalTab == "settings")
+                    {
+                        <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.NodeSettingsEditor 
+                            LoggingSettings="@editingNode.LoggingSettings"
+                            OnSettingsChanged="@(settings => HandleLoggingSettingsChanged(editingNode, settings))"
+                            IconOverride="@editingNode.IconOverride"
+                            NodeType="@editingNode.NodeType"
+                            OnIconChanged="@(icon => HandleIconChanged(editingNode, icon))" />
+                    }
+                    else if (activeModalTab == "logs")
+                    {
+                        <div class="node-activity-logs" style="max-height: 400px; overflow-y: auto;">
+                            @foreach (var log in editingNode.ActivityLogs.OrderByDescending(l => l.Timestamp))
+                            {
+                                <div class="log-entry @log.Level.ToString().ToLower() @(string.IsNullOrEmpty(log.Detail) ? "" : "clickable")" 
+                                     @onclick="@(() => ShowLogDetail(log))">
+                                    <span class="log-time">[@log.Timestamp.ToString("HH:mm:ss")]</span>
+                                    <span class="log-msg text-truncate">@log.Message</span>
+                                    @if (!string.IsNullOrEmpty(log.Detail))
+                                    {
+                                        <span class="log-detail-icon">🔍</span>
+                                    }
+                                </div>
+                            }
+                            @if (!editingNode.ActivityLogs.Any())
+                            {
+                                <div class="text-muted small p-3 text-center">No activity logs recorded yet.</div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (editingNode.NodeType == "HttpListener")
+                    {
+                        <button class="btn @(ExecutionManager.IsRunning(editingNode.Id) ? "btn-danger" : "btn-primary")" 
+                                @onclick="@(() => ExecuteNode(editingNode))">
+                            @(ExecutionManager.IsRunning(editingNode.Id) ? "■ Stop Node" : "▶ Run Node")
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary" @onclick="@(() => ExecuteNode(editingNode))">▶ Run Node</button>
+                    }
+                    @if (editingNode.NodeType == "StorageTable")
+                    {
+                        <button class="btn btn-info" @onclick="@(() => OpenStorageTableViewer(editingNode))">
+                            📋 View Data
+                        </button>
+                    }
+                    @if (editingNode.NodeType == "Remote")
+                    {
+                        <button class="btn btn-info" @onclick="@(() => OpenRemoteMachineMonitor(editingNode))">
+                            🖥️ Monitor
+                        </button>
+                    }
+                    <button class="btn btn-secondary" @onclick="ClosePropertyModal">Close</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Log Detail Modal -->
+    @if (selectedLogEntry != null)
+    {
+        <div class="property-modal-overlay" style="z-index: 2000;" @onclick="CloseLogDetail">
+            <div class="property-modal log-detail-modal" @onclick:stopPropagation>
+                <div class="modal-header">
+                    <h3 class="m-0">Log Details</h3>
+                    <button class="modal-close" @onclick="CloseLogDetail">&times;</button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="log-info mb-3">
+                        <span class="badge @selectedLogEntry.Level.ToString().ToLower()">@selectedLogEntry.Level</span>
+                        <span class="text-muted ms-2 small">@selectedLogEntry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff")</span>
+                    </div>
+                    <div class="log-message mb-3">
+                        <label class="text-muted small d-block mb-1">Message:</label>
+                        <div class="p-2 bg-dark rounded border border-secondary">@selectedLogEntry.Message</div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(selectedLogEntry.Detail))
+                    {
+                        <div class="log-detail">
+                            <label class="text-muted small d-block mb-1">Detailed Data:</label>
+                            <pre class="mt-1 p-3 bg-dark rounded border border-secondary"><code>@selectedLogEntry.Detail</code></pre>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer p-2 border-top border-secondary text-end">
+                    <button class="btn btn-secondary btn-sm" @onclick="CloseLogDetail">Close</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Workflow List Modal -->
+    @if (showWorkflowList)
+    {
+        <div class="property-modal-overlay" style="z-index: 3000;" @onclick="@(() => showWorkflowList = false)">
+            <div class="property-modal" style="max-width: 500px;" @onclick:stopPropagation>
+                <div class="modal-header">
+                    <h3 class="m-0">Your Workflows</h3>
+                    <button class="modal-close" @onclick="@(() => showWorkflowList = false)">&times;</button>
+                </div>
+                <div class="modal-body p-0 overflow-auto" style="max-height: 400px;">
+                    @if (userWorkflows.Any())
+                    {
+                        @foreach (var wf in userWorkflows)
+                        {
+                            <div class="workflow-list-item" @onclick="@(() => LoadWorkflow(wf.Id))">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <strong>@wf.Name</strong>
+                                    <span class="text-muted small">@wf.UpdatedAt.ToLocalTime().ToString("MMM dd, HH:mm")</span>
+                                </div>
+                                @if (!string.IsNullOrEmpty(wf.Description))
+                                {
+                                    <div class="text-muted small">@wf.Description</div>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="p-4 text-center text-muted">No workflows found.</div>
+                    }
+                </div>
+                <div class="modal-footer p-2 text-end">
+                    <button class="btn btn-secondary btn-sm" @onclick="@(() => showWorkflowList = false)">Close</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Delete Workflow Confirmation Modal -->
+    @if (showDeleteConfirmation && deletionInfo != null)
+    {
+        <div class="property-modal-overlay" style="z-index: 4000;" @onclick="@(() => showDeleteConfirmation = false)">
+            <div class="property-modal" style="max-width: 500px;" @onclick:stopPropagation>
+                <div class="modal-header" style="border-bottom: 1px solid rgba(231, 76, 60, 0.3);">
+                    <h3 class="m-0" style="color: #e74c3c;">⚠️ Delete Workflow</h3>
+                    <button class="modal-close" @onclick="@(() => showDeleteConfirmation = false)">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>"@deletionInfo.WorkflowName"</strong>?</p>
+                    
+                    <div class="deletion-details">
+                        <h5>This will permanently delete:</h5>
+                        <ul>
+                            <li>📦 <strong>@deletionInfo.NodeCount</strong> node(s)</li>
+                            <li>🔗 <strong>@deletionInfo.ConnectionCount</strong> connection(s)</li>
+                            <li>📋 <strong>@deletionInfo.LogCount</strong> log entr@(deletionInfo.LogCount == 1 ? "y" : "ies")</li>
+                            @if (deletionInfo.VectorDocCount > 0)
+                            {
+                                <li>🧠 <strong>@deletionInfo.VectorDocCount</strong> vector document(s)</li>
+                            }
+                            @if (deletionInfo.StorageRecordCount > 0)
+                            {
+                                <li>📊 <strong>@deletionInfo.StorageRecordCount</strong> storage record(s)</li>
+                            }
+                        </ul>
+                    </div>
+                    
+                    <p class="text-danger"><strong>This action cannot be undone!</strong></p>
+                </div>
+                <div class="modal-footer d-flex justify-content-end gap-2 p-3">
+                    <button class="btn btn-secondary" @onclick="@(() => showDeleteConfirmation = false)">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ConfirmDeleteWorkflow" disabled="@isDeleting">
+                        @if (isDeleting)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            <span> Deleting...</span>
+                        }
+                        else
+                        {
+                            <span>🗑️ Delete Workflow</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Delete Node Confirmation Modal -->
+    @if (showNodeDeleteConfirmation && nodeToDelete != null)
+    {
+        <div class="property-modal-overlay" style="z-index: 4000;" @onclick="CancelDeleteNode">
+            <div class="property-modal" style="max-width: 450px; height: auto; min-height: auto;" @onclick:stopPropagation>
+                <div class="modal-header" style="border-bottom: 1px solid rgba(231, 76, 60, 0.3);">
+                    <h3 class="m-0" style="color: #e74c3c;">⚠️ Delete Node</h3>
+                    <button class="modal-close" @onclick="CancelDeleteNode">&times;</button>
+                </div>
+                <div class="modal-body" style="padding: 1.5rem;">
+                    <p style="margin-bottom: 1rem;">Are you sure you want to delete <strong>"@nodeToDelete.Name"</strong>?</p>
+                    
+                    @{
+                        var outgoingConnections = connections.Count(c => c.SourceId == nodeToDelete.Id);
+                        var incomingConnections = connections.Count(c => c.TargetId == nodeToDelete.Id);
+                        var totalConnections = outgoingConnections + incomingConnections;
+                    }
+                    
+                    @if (totalConnections > 0)
+                    {
+                        <div class="alert alert-warning py-2 px-3" style="background: rgba(255, 193, 7, 0.15); border: 1px solid rgba(255, 193, 7, 0.3); color: var(--text-primary);">
+                            <small>🔗 This will also remove <strong>@totalConnections</strong> connection(s)</small>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer d-flex justify-content-end gap-2 p-3" style="border-top: 1px solid var(--border-color);">
+                    <button class="btn btn-secondary" @onclick="CancelDeleteNode">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ConfirmDeleteNode">
+                        🗑️ Delete Node
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Canvas Context Menu -->
+    @if (showContextMenu && contextMenuNode != null)
+    {
+        var incomingConnections = connections.Where(c => c.TargetId == contextMenuNode.Id).ToList();
+        var outgoingConnections = connections.Where(c => c.SourceId == contextMenuNode.Id).ToList();
+        
+        <div class="context-menu" style="left: @(contextMenuX)px; top: @(contextMenuY)px;">
+            <div class="context-menu-item" @onclick="HandleContextConnect">
+                <span>🔗</span> Connect To...
+            </div>
+            
+            @if (incomingConnections.Any())
+            {
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-header">Disconnect From:</div>
+                @foreach (var conn in incomingConnections)
+                {
+                    var sourceNode = canvasNodes.FirstOrDefault(n => n.Id == conn.SourceId);
+                    if (sourceNode != null)
+                    {
+                        <div class="context-menu-item" @onclick="@(() => DisconnectConnection(conn.SourceId, conn.TargetId))">
+                            <span>✂️</span> @sourceNode.Name
+                        </div>
+                    }
+                }
+            }
+            
+            @if (outgoingConnections.Any())
+            {
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-header">Remove Connection To:</div>
+                @foreach (var conn in outgoingConnections)
+                {
+                    var targetNode = canvasNodes.FirstOrDefault(n => n.Id == conn.TargetId);
+                    if (targetNode != null)
+                    {
+                        <div class="context-menu-item" @onclick="@(() => DisconnectConnection(conn.SourceId, conn.TargetId))">
+                            <span>✂️</span> @targetNode.Name
+                        </div>
+                    }
+                }
+            }
+            
+            <!-- Trigger toggle - only show for nodes without incoming connections -->
+            @if (!incomingConnections.Any())
+            {
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-item" @onclick="ToggleNodeTrigger">
+                    <span>⚡</span> @(contextMenuNode?.IsTrigger == true ? "Unmark as Trigger" : "Mark as Trigger")
+                </div>
+            }
+            
+            <div class="context-menu-separator"></div>
+            <div class="context-menu-item delete" @onclick="HandleContextDelete">
+                <span>🗑️</span> Delete Node
+            </div>
+            
+            <!-- Add Surface Field -->
+            <div class="context-menu-separator"></div>
+            <div class="context-menu-item" @onclick="ShowAddSurfaceFieldMenu">
+                <span>📊</span> Add Surface Field
+            </div>
+        </div>
+        
+        <!-- Add Surface Field Sub-menu -->
+        @if (showAddSurfaceFieldMenu && surfaceFieldMenuNode != null)
+        {
+            var filteredPlaceholders = GetFilteredPlaceholders();
+            <div class="context-menu" style="left: @(contextMenuX + 160)px; top: @(contextMenuY)px; min-width: 280px;" @onclick:stopPropagation>
+                <div class="context-menu-header">Select Field to Display</div>
+                <div class="context-menu-input">
+                    <input type="text" class="form-control form-control-sm" 
+                           placeholder="Search or enter custom label..." 
+                           @bind="surfaceFieldSearchText" 
+                           @bind:event="oninput" />
+                </div>
+                
+                @* Add as custom label option *@
+                @if (!string.IsNullOrWhiteSpace(surfaceFieldSearchText))
+                {
+                    <div class="context-menu-item" @onclick="@(() => AddSurfaceField(surfaceFieldSearchText))"
+                         style="border-bottom: 1px solid var(--border-color);">
+                        <span>🏷️</span> Add as custom label: "@surfaceFieldSearchText"
+                    </div>
+                }
+                
+                @if (filteredPlaceholders.Any())
+                {
+                    @foreach (var placeholder in filteredPlaceholders)
+                    {
+                        <div class="context-menu-item" @onclick="@(() => AddSurfaceField(placeholder))">
+                            <span>📎</span> @placeholder
+                        </div>
+                    }
+                }
+                else if (string.IsNullOrWhiteSpace(surfaceFieldSearchText))
+                {
+                    <div class="context-menu-item" style="color: var(--text-muted); cursor: default;">
+                        No placeholders available
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    <!-- Surface Field Context Menu (Edit/Remove) -->
+    @if (showSurfaceFieldMenu && surfaceFieldMenuNode != null && surfaceFieldToRemove != null)
+    {
+        <div class="context-menu" style="left: @(surfaceFieldMenuX)px; top: @(surfaceFieldMenuY)px;" @onclick:stopPropagation>
+            <div class="context-menu-header">Edit Surface Field</div>
+            <div class="context-menu-input">
+                <input type="text" class="form-control form-control-sm" 
+                       placeholder="Enter label with optional {{placeholder}}" 
+                       @bind="surfaceFieldEditText" 
+                       @bind:event="oninput" />
+            </div>
+            <div class="context-menu-item" @onclick="SaveSurfaceFieldEdit">
+                <span>💾</span> Save Changes
+            </div>
+            <div class="context-menu-separator"></div>
+            <div class="context-menu-item delete" @onclick="RemoveSurfaceField">
+                <span>🗑️</span> Remove Field
+            </div>
+        </div>
+    }
+
+    <!-- Connection Context Menu -->
+    @if (showConnectionContextMenu && contextMenuConnection != null)
+    {
+        <div class="context-menu connection-context-menu" 
+             style="position: fixed; left: @(connectionContextMenuX)px; top: @(connectionContextMenuY)px;"
+             @onclick:stopPropagation>
+            <div class="context-menu-header">Connection Label</div>
+            <div class="context-menu-input">
+                <input type="text" class="form-control form-control-sm" 
+                       @bind="connectionLabelInput" 
+                       @bind:event="oninput"
+                       placeholder="Enter label or select below" />
+            </div>
+            <div class="context-menu-item" @onclick="SaveConnectionLabel">
+                <span>💾</span> Save Label
+            </div>
+            <div class="context-menu-separator"></div>
+            <div class="context-menu-section-header">Quick Labels</div>
+            <div class="context-menu-item preset-label" @onclick="@(() => SetConnectionLabelPreset("no-wait"))" title="Fire-and-forget: branch executes independently without blocking">
+                <span>⚡</span> no-wait
+                <small class="preset-description">Fire-and-forget execution</small>
+            </div>
+            <div class="context-menu-item preset-label" @onclick="@(() => SetConnectionLabelPreset("true"))" title="Condition branch: executes when condition is true">
+                <span>✅</span> true
+                <small class="preset-description">Condition: true branch</small>
+            </div>
+            <div class="context-menu-item preset-label" @onclick="@(() => SetConnectionLabelPreset("false"))" title="Condition branch: executes when condition is false">
+                <span>❌</span> false
+                <small class="preset-description">Condition: false branch</small>
+            </div>
+            <div class="context-menu-separator"></div>
+            <div class="context-menu-item delete" @onclick="DeleteConnection">
+                <span>🗑️</span> Delete Connection
+            </div>
+        </div>
+        <div class="context-menu-backdrop" @onclick="CloseConnectionContextMenu"></div>
+    }
+
+    @* Cache Viewer Modal *@
+    @if (showCacheViewer)
+    {
+        <div class="modal fade show" style="display: block;" tabindex="-1">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
+                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                        <h5 class="modal-title" style="color: var(--accent-color);">📦 Cache Viewer</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => showCacheViewer = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <CacheViewer NodeId="@viewingCacheNodeId" WorkflowId="@currentWorkflowId" />
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => showCacheViewer = false)">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+
+    @* Storage Table Viewer Modal *@
+    @if (showStorageTableViewer && viewingStorageTableNodeId.HasValue)
+    {
+        <div class="modal fade show" style="display: block;" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
+                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                        <h5 class="modal-title" style="color: var(--accent-color);">🗃️ Storage Table Data</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => showStorageTableViewer = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <StorageTableViewer StorageTableNodeId="@viewingStorageTableNodeId.Value" />
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => showStorageTableViewer = false)">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+
+    @* Remote Machine Monitor Modal *@
+    @if (showRemoteMachineMonitor && viewingRemoteNodeId.HasValue)
+    {
+        <div class="modal fade show" style="display: block; z-index: 2100;" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
+                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                        <h5 class="modal-title" style="color: var(--accent-color);">🖥️ Remote Machine Monitor</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => showRemoteMachineMonitor = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <RemoteMachineMonitor RemoteNodeId="@viewingRemoteNodeId.Value" ClientId="@viewingRemoteClientId" />
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => showRemoteMachineMonitor = false)">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show" style="z-index: 2050;"></div>
+    }
+
+    @* Vector DB Viewer Modal *@
+    @if (showVectorDbViewer && viewingVectorDbNodeId.HasValue)
+    {
+        <div class="modal fade show" style="display: block;" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
+                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                        <h5 class="modal-title" style="color: var(--accent-color);">🧬 Vector Database</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => showVectorDbViewer = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <VectorDbViewer NodeId="@viewingVectorDbNodeId.Value" />
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => showVectorDbViewer = false)">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+
+    @* Azure Blob Viewer Modal *@
+    @if (showBlobViewer && viewingBlobNodeId.HasValue)
+    {
+        <div class="modal fade show" style="display: block;" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
+                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                        <h5 class="modal-title" style="color: var(--accent-color);">🗂️ Azure Blob Storage</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => showBlobViewer = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <BlobViewer NodeId="@viewingBlobNodeId.Value" Configuration="@(canvasNodes.FirstOrDefault(n => n.Id == viewingBlobNodeId.Value)?.Configuration)" />
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => showBlobViewer = false)">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+
+    @* S2G Storage Viewer Modal *@
+    @if (showS2GStorageViewer && viewingS2GStorageNodeId.HasValue)
+    {
+        <div class="modal fade show" style="display: block;" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
+                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                        <h5 class="modal-title" style="color: var(--accent-color); display: flex; align-items: center; gap: 8px;">
+                            @{
+                                var s2gStorageIcon = BuiltInNodeCatalogService.GetIconOverride("S2GStorage");
+                            }
+                            @if (!string.IsNullOrWhiteSpace(s2gStorageIcon))
+                            {
+                                <span class="custom-svg-icon" style="width: 20px; height: 20px;">@((MarkupString)s2gStorageIcon)</span>
+                            }
+                            else
+                            {
+                                <span>📁</span>
+                            }
+                            My Storage
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => showS2GStorageViewer = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <S2GStorageViewer NodeId="@viewingS2GStorageNodeId.Value" UserId="@currentUserId" />
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => showS2GStorageViewer = false)">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+</div>
+

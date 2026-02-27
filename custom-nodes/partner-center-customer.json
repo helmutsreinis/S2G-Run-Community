@@ -1,0 +1,223 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T18:41:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_PartnerCenterCustomer",
+        "displayName": "Partner Center Customer",
+        "description": "Retrieves customer details from Microsoft Partner Center API by customer ID. Returns company profile, billing profile, custom domains, and relationship information.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M12 14C8.13401 14 5 17.134 5 21H19C19 17.134 15.866 14 12 14Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M17 3L21 3M21 3L21 7M21 3L17 7\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "// Partner Center Customer Retrieval\n// Fetches customer details from Microsoft Partner Center API\n\nvar customerId = input.get(\"customerId\");\nvar accessToken = input.get(\"accessToken\");\n\nif (!customerId || customerId.trim() === \"\") {\n    log.error(\"Customer ID is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Customer ID is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/customers/\" + customerId.trim();\n        \n        log.info(\"Fetching customer: \" + customerId);\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim()\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var customer = json.parse(response.body);\n            \n            // Core identifiers\n            output.set(\"CustomerId\", customer.id || \"\");\n            output.set(\"CommerceId\", customer.commerceId || \"\");\n            output.set(\"RelationshipToPartner\", customer.relationshipToPartner || \"\");\n            \n            // Company profile\n            var company = customer.companyProfile || {};\n            output.set(\"CompanyName\", company.companyName || \"\");\n            output.set(\"Domain\", company.domain || \"\");\n            output.set(\"TenantId\", company.tenantId || \"\");\n            output.set(\"CompanyEmail\", company.email || \"\");\n            \n            // Company address\n            var companyAddr = company.address || {};\n            output.set(\"CompanyCountry\", companyAddr.country || \"\");\n            output.set(\"CompanyCity\", companyAddr.city || \"\");\n            output.set(\"CompanyState\", companyAddr.state || \"\");\n            output.set(\"CompanyPostalCode\", companyAddr.postalCode || \"\");\n            output.set(\"CompanyAddressLine1\", companyAddr.addressLine1 || \"\");\n            output.set(\"CompanyPhone\", companyAddr.phoneNumber || \"\");\n            \n            // Billing profile\n            var billing = customer.billingProfile || {};\n            output.set(\"BillingId\", billing.id || \"\");\n            output.set(\"BillingEmail\", billing.email || \"\");\n            output.set(\"BillingCulture\", billing.culture || \"\");\n            output.set(\"BillingLanguage\", billing.language || \"\");\n            \n            // Billing contact\n            var billingAddr = billing.defaultAddress || {};\n            output.set(\"BillingFirstName\", billingAddr.firstName || \"\");\n            output.set(\"BillingLastName\", billingAddr.lastName || \"\");\n            output.set(\"BillingPhone\", billingAddr.phoneNumber || \"\");\n            \n            // Custom domains as JSON array\n            var domains = customer.customDomains || [];\n            output.set(\"CustomDomains\", json.stringify(domains));\n            output.set(\"CustomDomainsCount\", domains.length);\n            \n            // Tags\n            var tags_data = customer.tags || [];\n            output.set(\"Tags\", json.stringify(tags_data));\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved customer: \" + (company.companyName || customerId));\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve customer: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "customerId",
+                "displayLabel": "Customer ID",
+                "placeholderText": "Enter customer GUID or use {{Placeholder}}",
+                "helpText": "The unique identifier (GUID) of the customer in Partner Center.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "CustomerId",
+                "description": "The customer's unique identifier (GUID)",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "CommerceId",
+                "description": "The customer's commerce identifier",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "CompanyName",
+                "description": "The customer's company name",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Domain",
+                "description": "The customer's primary domain (e.g., company.onmicrosoft.com)",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "TenantId",
+                "description": "The customer's Azure AD tenant ID",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "CompanyEmail",
+                "description": "The company profile email address",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "CompanyCountry",
+                "description": "Country code from company address (e.g., CH, US)",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "CompanyCity",
+                "description": "City from company address",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "CompanyState",
+                "description": "State/region from company address",
+                "dataType": "string",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "CompanyPostalCode",
+                "description": "Postal code from company address",
+                "dataType": "string",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "CompanyAddressLine1",
+                "description": "Street address from company address",
+                "dataType": "string",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "CompanyPhone",
+                "description": "Phone number from company address",
+                "dataType": "string",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "RelationshipToPartner",
+                "description": "The relationship type (e.g., 'reseller', 'advisor')",
+                "dataType": "string",
+                "displayOrder": 13
+            },
+            {
+                "parameterName": "BillingId",
+                "description": "Billing profile identifier",
+                "dataType": "string",
+                "displayOrder": 14
+            },
+            {
+                "parameterName": "BillingEmail",
+                "description": "Billing contact email address",
+                "dataType": "string",
+                "displayOrder": 15
+            },
+            {
+                "parameterName": "BillingCulture",
+                "description": "Billing culture setting (e.g., de-CH)",
+                "dataType": "string",
+                "displayOrder": 16
+            },
+            {
+                "parameterName": "BillingLanguage",
+                "description": "Billing language (e.g., de, en)",
+                "dataType": "string",
+                "displayOrder": 17
+            },
+            {
+                "parameterName": "BillingFirstName",
+                "description": "Billing contact first name",
+                "dataType": "string",
+                "displayOrder": 18
+            },
+            {
+                "parameterName": "BillingLastName",
+                "description": "Billing contact last name",
+                "dataType": "string",
+                "displayOrder": 19
+            },
+            {
+                "parameterName": "BillingPhone",
+                "description": "Billing contact phone number",
+                "dataType": "string",
+                "displayOrder": 20
+            },
+            {
+                "parameterName": "CustomDomains",
+                "description": "JSON array of all custom domains associated with the customer",
+                "dataType": "string",
+                "displayOrder": 21
+            },
+            {
+                "parameterName": "CustomDomainsCount",
+                "description": "Number of custom domains",
+                "dataType": "number",
+                "displayOrder": 22
+            },
+            {
+                "parameterName": "Tags",
+                "description": "JSON array of tags associated with the customer",
+                "dataType": "string",
+                "displayOrder": 23
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 24
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 25
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 26
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 27
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when customer data was successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

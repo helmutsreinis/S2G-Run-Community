@@ -1,0 +1,366 @@
+@page "/account/accept-terms"
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.JSInterop
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@inject LegalDocumentService LegalDocumentService
+
+@rendermode InteractiveServer
+
+<PageTitle>Accept Terms - @PlatformSettings.SiteName</PageTitle>
+
+<div class="legal-acceptance-container">
+    <div class="legal-acceptance-card">
+        <h2>Welcome to <span class="accent">S2G</span></h2>
+        
+        @if (isUpdateFlow)
+        {
+            <div class="update-notice">
+                <span class="notice-icon">📋</span>
+                <p>We have updated our policies/terms. Please review and accept to continue.</p>
+            </div>
+        }
+        else
+        {
+            <p class="subtitle">Please review and accept our terms to continue</p>
+        }
+
+        @if (requirements != null && requirements.NeedsTerms && !termsAccepted)
+        {
+            <div class="legal-step">
+                <h3>Terms of Service @(requirements.ActiveTermsVersion.HasValue ? $"(v{requirements.ActiveTermsVersion})" : "")</h3>
+                <div class="legal-scroll-box" id="terms-scroll" @onscroll="HandleTermsScroll">
+                    @((MarkupString)(requirements.ActiveTermsDocument?.Content ?? LegalContent.TermsOfService))
+                </div>
+                <p class="scroll-hint @(canAcceptTerms ? "hidden" : "")">
+                    ↓ Scroll to bottom to continue
+                </p>
+                <button class="btn btn-primary" disabled="@(!canAcceptTerms)" @onclick="HandleAcceptTerms">
+                    I Accept the Terms of Service
+                </button>
+            </div>
+        }
+        else if (requirements != null && requirements.NeedsPrivacy && !privacyAccepted)
+        {
+            <div class="legal-step">
+                <h3>Privacy Statement @(requirements.ActivePrivacyVersion.HasValue ? $"(v{requirements.ActivePrivacyVersion})" : "")</h3>
+                <div class="legal-scroll-box" id="privacy-scroll" @onscroll="HandlePrivacyScroll">
+                    @((MarkupString)(requirements.ActivePrivacyDocument?.Content ?? LegalContent.PrivacyStatement))
+                </div>
+                <p class="scroll-hint @(canAcceptPrivacy ? "hidden" : "")">
+                    ↓ Scroll to bottom to continue
+                </p>
+                <button class="btn btn-primary" disabled="@(!canAcceptPrivacy)" @onclick="HandleAcceptPrivacy">
+                    I Accept the Privacy Statement
+                </button>
+            </div>
+        }
+        else if (termsAccepted || !requirements?.NeedsTerms == true)
+        {
+            <div class="legal-complete">
+                <div class="checkmark">✓</div>
+                <p>Thank you! Redirecting...</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    private bool termsAccepted = false;
+    private bool privacyAccepted = false;
+    private bool canAcceptTerms = false;
+    private bool canAcceptPrivacy = false;
+    private bool isUpdateFlow = false;
+    private ApplicationUser? currentUser;
+    private ReacceptanceRequirements? requirements;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await SignInManager.Context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        if (authState?.Principal?.Identity?.IsAuthenticated == true)
+        {
+            currentUser = await UserManager.GetUserAsync(authState.Principal);
+            if (currentUser != null)
+            {
+                // Get requirements from LegalDocumentService
+                requirements = await LegalDocumentService.GetReacceptanceRequirementsAsync(currentUser.Id);
+                
+                // Check if this is an update flow (user had previously accepted, now needs to re-accept)
+                isUpdateFlow = requirements.IsAnyUpdate;
+                
+                // If user doesn't need to accept anything, redirect
+                if (!requirements.NeedsAnyAcceptance)
+                {
+                    NavigationManager.NavigateTo(ReturnUrl ?? "/workflow", forceLoad: true);
+                    return;
+                }
+                
+                // Skip terms step if not needed
+                if (!requirements.NeedsTerms)
+                {
+                    termsAccepted = true;
+                }
+            }
+        }
+        else
+        {
+            NavigationManager.NavigateTo("/account/login");
+        }
+    }
+
+    private void HandleTermsScroll(EventArgs e)
+    {
+        // Will be handled by JS interop after render
+    }
+
+    private void HandlePrivacyScroll(EventArgs e)
+    {
+        // Will be handled by JS interop after render
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (requirements?.NeedsTerms == true && !termsAccepted)
+        {
+            await CheckScrollPosition("terms-scroll", true);
+        }
+        else if (requirements?.NeedsPrivacy == true && !privacyAccepted)
+        {
+            await CheckScrollPosition("privacy-scroll", false);
+        }
+    }
+
+    private async Task CheckScrollPosition(string elementId, bool isTerms)
+    {
+        try
+        {
+            var result = await JSRuntime.InvokeAsync<bool>("eval", $@"
+                (function() {{
+                    var el = document.getElementById('{elementId}');
+                    if (el) {{
+                        return el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
+                    }}
+                    return false;
+                }})()
+            ");
+            
+            if (result)
+            {
+                if (isTerms && !canAcceptTerms)
+                {
+                    canAcceptTerms = true;
+                    StateHasChanged();
+                }
+                else if (!isTerms && !canAcceptPrivacy)
+                {
+                    canAcceptPrivacy = true;
+                    StateHasChanged();
+                }
+            }
+        }
+        catch { }
+    }
+
+    [JSInvokable]
+    public void EnableTermsAccept()
+    {
+        canAcceptTerms = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void EnablePrivacyAccept()
+    {
+        canAcceptPrivacy = true;
+        StateHasChanged();
+    }
+
+    private async Task HandleAcceptTerms()
+    {
+        if (currentUser != null && requirements?.ActiveTermsVersion.HasValue == true)
+        {
+            await LegalDocumentService.RecordAcceptanceAsync(
+                currentUser.Id, 
+                LegalDocumentType.TermsOfService, 
+                requirements.ActiveTermsVersion.Value);
+        }
+        else if (currentUser != null)
+        {
+            // Fallback for legacy mode
+            currentUser.TermsAcceptedAt = DateTime.UtcNow;
+            await UserManager.UpdateAsync(currentUser);
+        }
+        termsAccepted = true;
+        canAcceptPrivacy = false;
+        
+        // If privacy is not needed, complete flow
+        if (requirements?.NeedsPrivacy != true)
+        {
+            await Task.Delay(1000);
+            NavigationManager.NavigateTo(ReturnUrl ?? "/workflow", forceLoad: true);
+        }
+    }
+
+    private async Task HandleAcceptPrivacy()
+    {
+        if (currentUser != null && requirements?.ActivePrivacyVersion.HasValue == true)
+        {
+            await LegalDocumentService.RecordAcceptanceAsync(
+                currentUser.Id, 
+                LegalDocumentType.PrivacyPolicy, 
+                requirements.ActivePrivacyVersion.Value);
+        }
+        else if (currentUser != null)
+        {
+            // Fallback for legacy mode
+            currentUser.PrivacyAcceptedAt = DateTime.UtcNow;
+            await UserManager.UpdateAsync(currentUser);
+        }
+        privacyAccepted = true;
+        
+        await Task.Delay(1000);
+        NavigationManager.NavigateTo(ReturnUrl ?? "/workflow", forceLoad: true);
+    }
+}
+
+<style>
+    .legal-acceptance-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+    }
+
+    .legal-acceptance-card {
+        background: var(--background-medium, #0d2525);
+        border: 1px solid var(--border-color, #1a3a3a);
+        border-radius: 12px;
+        padding: 2rem;
+        width: 800px;
+        max-width: 95vw;
+    }
+
+    .legal-acceptance-card h2 {
+        color: var(--text-primary);
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .legal-acceptance-card .accent {
+        color: var(--accent-color);
+    }
+
+    .legal-acceptance-card .subtitle {
+        color: var(--text-secondary);
+        text-align: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .update-notice {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+        border: 1px solid rgba(102, 126, 234, 0.4);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .update-notice .notice-icon {
+        font-size: 1.5rem;
+    }
+
+    .update-notice p {
+        margin: 0;
+        color: var(--text-primary, #eee);
+        font-size: 0.95rem;
+    }
+
+    .legal-step h3 {
+        color: var(--accent-color);
+        font-size: 1.1rem;
+        margin-bottom: 1rem;
+    }
+
+    .legal-scroll-box {
+        height: 400px;
+        overflow-y: auto;
+        background: var(--background-dark, #0a1a1a);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+
+    .legal-scroll-box h2 { display: none; }
+
+    .legal-scroll-box h3 {
+        color: var(--accent-color);
+        font-size: 0.9rem;
+        margin-top: 1.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .legal-scroll-box ul {
+        margin: 0.5rem 0;
+        padding-left: 1.25rem;
+    }
+
+    .scroll-hint {
+        color: var(--accent-color);
+        font-size: 0.85rem;
+        text-align: center;
+        margin-bottom: 1rem;
+        opacity: 1;
+        transition: opacity 0.3s;
+    }
+
+    .scroll-hint.hidden {
+        opacity: 0;
+    }
+
+    .legal-step .btn {
+        display: block;
+        width: 100%;
+    }
+
+    .legal-step .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .legal-complete {
+        text-align: center;
+        padding: 3rem;
+    }
+
+    .checkmark {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+        color: white;
+        font-size: 2.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1rem;
+    }
+
+    .legal-complete p {
+        color: var(--text-secondary);
+    }
+</style>

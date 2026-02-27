@@ -1,0 +1,120 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T22:37:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_CronParser",
+        "displayName": "Cron Parser",
+        "description": "Parses cron expressions and calculates upcoming run times. Supports standard 5-field cron syntax (minute, hour, day of month, month, day of week) as well as common presets. Returns the next N scheduled run times, a human-readable description of the schedule, and validation status. Useful for scheduling workflows, understanding cron schedules, and debugging timing issues in automated tasks.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"12\" cy=\"12\" r=\"9\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M12 6V12L16 14\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var cronExpr = input.get('expression') || '';\nvar count = parseInt(input.get('count') || '5');\nvar fromDate = input.get('fromDate');\n\nif (!cronExpr) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Cron expression is required');\n    tags.trigger('error');\n} else {\n    try {\n        var presets = {\n            '@yearly': '0 0 1 1 *',\n            '@annually': '0 0 1 1 *',\n            '@monthly': '0 0 1 * *',\n            '@weekly': '0 0 * * 0',\n            '@daily': '0 0 * * *',\n            '@midnight': '0 0 * * *',\n            '@hourly': '0 * * * *'\n        };\n        var expr = presets[cronExpr.toLowerCase()] || cronExpr;\n        var parts = expr.trim().split(/\\s+/);\n        \n        if (parts.length !== 5) {\n            throw new Error('Cron must have 5 fields: minute hour day month weekday');\n        }\n        \n        function parseField(field, min, max) {\n            var values = [];\n            var segments = field.split(',');\n            for (var i = 0; i < segments.length; i++) {\n                var seg = segments[i];\n                if (seg === '*') {\n                    for (var v = min; v <= max; v++) values.push(v);\n                } else if (seg.indexOf('/') > -1) {\n                    var stepParts = seg.split('/');\n                    var step = parseInt(stepParts[1]);\n                    var start = stepParts[0] === '*' ? min : parseInt(stepParts[0]);\n                    for (var v = start; v <= max; v += step) values.push(v);\n                } else if (seg.indexOf('-') > -1) {\n                    var rangeParts = seg.split('-');\n                    for (var v = parseInt(rangeParts[0]); v <= parseInt(rangeParts[1]); v++) values.push(v);\n                } else {\n                    values.push(parseInt(seg));\n                }\n            }\n            return values;\n        }\n        \n        var minutes = parseField(parts[0], 0, 59);\n        var hours = parseField(parts[1], 0, 23);\n        var days = parseField(parts[2], 1, 31);\n        var months = parseField(parts[3], 1, 12);\n        var weekdays = parseField(parts[4], 0, 6);\n        \n        var start = fromDate ? new Date(fromDate) : new Date();\n        if (isNaN(start.getTime())) start = new Date();\n        \n        var results = [];\n        var current = new Date(start.getTime());\n        current.setSeconds(0);\n        current.setMilliseconds(0);\n        current.setMinutes(current.getMinutes() + 1);\n        \n        var maxIterations = 100000;\n        var iterations = 0;\n        \n        while (results.length < count && iterations < maxIterations) {\n            iterations++;\n            var m = current.getMonth() + 1;\n            var d = current.getDate();\n            var wd = current.getDay();\n            var h = current.getHours();\n            var min = current.getMinutes();\n            \n            if (months.indexOf(m) === -1) {\n                current.setMonth(current.getMonth() + 1);\n                current.setDate(1);\n                current.setHours(0);\n                current.setMinutes(0);\n                continue;\n            }\n            \n            var dayMatch = (parts[2] === '*' || days.indexOf(d) > -1);\n            var wdMatch = (parts[4] === '*' || weekdays.indexOf(wd) > -1);\n            var dayOk = (parts[2] === '*' && parts[4] === '*') || dayMatch || wdMatch;\n            \n            if (!dayOk) {\n                current.setDate(current.getDate() + 1);\n                current.setHours(0);\n                current.setMinutes(0);\n                continue;\n            }\n            \n            if (hours.indexOf(h) === -1) {\n                current.setHours(current.getHours() + 1);\n                current.setMinutes(0);\n                continue;\n            }\n            \n            if (minutes.indexOf(min) === -1) {\n                current.setMinutes(current.getMinutes() + 1);\n                continue;\n            }\n            \n            results.push(current.toISOString());\n            current.setMinutes(current.getMinutes() + 1);\n        }\n        \n        function describe() {\n            var desc = 'At ';\n            desc += parts[0] === '*' ? 'every minute' : 'minute ' + parts[0];\n            desc += parts[1] === '*' ? '' : ' past hour ' + parts[1];\n            if (parts[2] !== '*') desc += ' on day ' + parts[2];\n            if (parts[3] !== '*') desc += ' in month ' + parts[3];\n            if (parts[4] !== '*') {\n                var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];\n                var wdParsed = parseField(parts[4], 0, 6);\n                desc += ' on ' + wdParsed.map(function(w) { return dayNames[w]; }).join(', ');\n            }\n            return desc;\n        }\n        \n        output.set('NextRuns', json.stringify(results));\n        output.set('NextRun', results.length > 0 ? results[0] : '');\n        output.set('Schedule', describe());\n        output.set('Expression', expr);\n        output.set('IsValid', true);\n        output.set('RunCount', results.length);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Parsed cron: ' + expr + ' - next run: ' + (results[0] || 'none'));\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Cron parse failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('IsValid', false);\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "expression",
+                "displayLabel": "Cron Expression",
+                "placeholderText": "*/15 * * * *",
+                "helpText": "A standard 5-field cron expression in the format: MINUTE HOUR DAY MONTH WEEKDAY. Each field accepts: numbers (0-59 for minutes), ranges (1-5), lists (1,3,5), steps (*/15 for every 15), or wildcards (*). Also supports presets: @yearly, @monthly, @weekly, @daily, @hourly. Examples: '0 9 * * 1-5' runs at 9:00 AM on weekdays, '*/30 * * * *' runs every 30 minutes, '0 0 1 * *' runs at midnight on the 1st of each month.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "count",
+                "displayLabel": "Number of Runs",
+                "placeholderText": "5",
+                "helpText": "How many upcoming run times to calculate and return. The parser will iterate through the schedule starting from the 'From Date' and collect this many future occurrences. Useful for previewing a schedule or validating that a cron expression produces the expected timing pattern. Maximum recommended: 100.",
+                "fieldType": "Text",
+                "defaultValue": "5",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "fromDate",
+                "displayLabel": "From Date",
+                "placeholderText": "2024-01-15T00:00:00Z",
+                "helpText": "The starting point for calculating upcoming run times. If omitted, uses the current date and time. Accepts ISO 8601 format (2024-01-15T10:30:00Z) or common date formats. Useful for testing how a schedule will behave in the future or for historical analysis of what runs would have occurred.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "NextRun",
+                "description": "The next scheduled run time in ISO 8601 format (e.g., 2024-01-15T09:00:00.000Z). This is the first occurrence after the 'From Date'.",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "NextRuns",
+                "description": "JSON array of the next N scheduled run times, where N is specified by the 'Number of Runs' input. Each time is in ISO 8601 format.",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Schedule",
+                "description": "Human-readable description of the cron schedule, such as 'At minute 0 past hour 9 on Mon, Tue, Wed, Thu, Fri'. Useful for displaying to end users or for logging.",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Expression",
+                "description": "The normalized cron expression that was parsed. If a preset like @daily was used, this shows the expanded form (0 0 * * *).",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "IsValid",
+                "description": "True if the cron expression was successfully parsed and is syntactically correct. False if the expression has invalid syntax or unsupported features.",
+                "dataType": "boolean",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "RunCount",
+                "description": "The actual number of run times that were calculated. May be less than requested if the schedule has limited occurrences within the search window.",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if the parsing operation failed due to invalid input or an unsupported cron syntax.",
+                "dataType": "boolean",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message explaining why the parsing failed, such as 'Cron must have 5 fields' or 'Invalid minute value'.",
+                "dataType": "string",
+                "displayOrder": 8
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Cron expression was successfully parsed and run times calculated",
+                "color": "#22c55e",
+                "conditionDescription": "Parse succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Cron expression parsing failed due to invalid syntax",
+                "color": "#ef4444",
+                "conditionDescription": "Parse failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

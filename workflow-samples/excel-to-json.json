@@ -1,0 +1,278 @@
+{
+  "Name": "Excel2JSON",
+  "ExportedAt": "2026-02-12T20:27:11.5796012Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "44c43fd2-042b-4fb7-9a45-e9f6534bf3b1",
+      "NodeType": "FileDownload",
+      "Name": "OD-FileDownload",
+      "X": 860,
+      "Y": 160,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Url\u0022:\u0022{{OD-FileDrop.DownloadUrl}}\u0022,\u0022FileName\u0022:\u0022\u0022,\u0022TimeoutSeconds\u0022:60,\u0022Headers\u0022:[]}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\u2705 Success: {{OD-FileDownload.Success}}",
+        "\uD83D\uDCC4 File: {{OD-FileDownload.FileName}}",
+        "\uD83D\uDCCF Size: {{OD-FileDownload.FileSize}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "5d04d65a-a582-4a54-9d5a-bd911eab5236",
+      "NodeType": "CopilotAgent",
+      "Name": "Copilot Agent",
+      "X": 1720,
+      "Y": 160,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022ConnectionId\u0022:\u00229a08fd57-fa6d-48bd-b902-f9a86f90db34\u0022,\u0022Model\u0022:\u0022claude-opus-4.5\u0022,\u0022Prompt\u0022:\u0022Use tool - tool_jsonquery (JsonPathQuery) - to: [describe what to do with this tool]\\nUse tool - tool_jsonpivot (PivotTable) - to: [describe what to do with this tool]\u0022,\u0022SystemPrompt\u0022:\u0022You have access to multiple tools. When the task requires multiple steps, call each tool in sequence. After receiving a tool result, continue calling additional tools until the task is complete.\u0022,\u0022TimeoutSeconds\u0022:300,\u0022MaxToolCalls\u0022:10,\u0022PremiumRequestsUsed\u0022:0,\u0022Tools\u0022:[{\u0022Name\u0022:\u0022tool_jsonquery\u0022,\u0022Description\u0022:\u0022Execute Custom_JsonPathQuery operation: JsonPathQuery\u0022,\u0022EntryNodeId\u0022:\u00229874749f-c914-4fd7-8ef6-4164a05c56bd\u0022,\u0022Parameters\u0022:{\u0022data\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Data to pass to the tool\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022Data\u0022}},\u0022Required\u0022:[],\u0022Outputs\u0022:[],\u0022IsExpanded\u0022:false},{\u0022Name\u0022:\u0022tool_jsonpivot\u0022,\u0022Description\u0022:\u0022Execute Custom_PivotTable operation: PivotTable\u0022,\u0022EntryNodeId\u0022:\u00228e71fde2-50f7-4222-b01e-762f2b291a14\u0022,\u0022Parameters\u0022:{\u0022data\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Data to pass to the tool\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022Data\u0022}},\u0022Required\u0022:[],\u0022Outputs\u0022:[],\u0022IsExpanded\u0022:false}]}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83E\uDD16 Model: {{Copilot Agent.ModelUsed}}",
+        "\uD83D\uDD27 Tools: {{Copilot Agent.ToolCallsUsed}}",
+        "\uD83D\uDCB3 Premium: {{Copilot Agent.PremiumRequestsUsed}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "83de66d8-4175-44f2-972b-6571f158e38a",
+      "NodeType": "AzureBlob",
+      "Name": "AzureBlob-3",
+      "X": 1720,
+      "Y": 480,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Operation\u0022:\u0022Write\u0022,\u0022ConnectionString\u0022:\u0022AccountName=s2ggdap;AccountKey={{Secrets.AzureStorageKey}};EndpointSuffix=core.windows.net;DefaultEndpointsProtocol=https;\u0022,\u0022ContainerName\u0022:\u0022jsondata\u0022,\u0022BlobPath\u0022:\u0022schema/{{OD-FileDrop.FileName}}-schema.json\u0022,\u0022Content\u0022:\u0022{{Excel to JSON.Schema}}\u0022,\u0022ContentBase64\u0022:null,\u0022MaxFileSizeBytes\u0022:20971520,\u0022CreateContainerIfNotExists\u0022:true}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83D\uDCC1 Path: {{AzureBlob-3.BlobPath}}",
+        "\uD83D\uDCBE Bytes: {{AzureBlob-3.BytesWritten}}",
+        "\u2705 Success: {{AzureBlob-3.Success}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "8e71fde2-50f7-4222-b01e-762f2b291a14",
+      "NodeType": "Custom_PivotTable",
+      "Name": "PivotTable",
+      "X": 2220,
+      "Y": 480,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83D\uDCCA Tool: Pivot Table"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "977a883c-099b-4037-9b4a-00a0c9d81735",
+      "NodeType": "ExcelToJson",
+      "Name": "Excel to JSON",
+      "X": 1300,
+      "Y": 160,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022ContentBase64\u0022:\u0022\u0022,\u0022SheetName\u0022:\u0022\u0022,\u0022HeaderDetectionRows\u0022:10,\u0022TypeInferenceRows\u0022:4,\u0022IncludeEmptyRows\u0022:false}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\u2705 Success: {{Excel to JSON.Success}}",
+        "\uD83D\uDCCA Rows: {{Excel to JSON.RowCount}}",
+        "\uD83D\uDCD1 Sheets: {{Excel to JSON.SheetNames}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "9874749f-c914-4fd7-8ef6-4164a05c56bd",
+      "NodeType": "Custom_JsonPathQuery",
+      "Name": "JsonPathQuery",
+      "X": 2220,
+      "Y": 160,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83D\uDD0D Tool: JsonPath Query"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "abe584bb-8b29-4e3a-82a4-7dbcad6fe34e",
+      "NodeType": "AzureBlob",
+      "Name": "AzureBlob-2",
+      "X": 1300,
+      "Y": 480,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Operation\u0022:\u0022Write\u0022,\u0022ConnectionString\u0022:\u0022AccountName=s2ggdap;AccountKey={{Secrets.AzureStorageKey}};EndpointSuffix=core.windows.net;DefaultEndpointsProtocol=https;\u0022,\u0022ContainerName\u0022:\u0022jsondata\u0022,\u0022BlobPath\u0022:\u0022json/{{OD-FileDrop.FileName}}-json.json\u0022,\u0022Content\u0022:\u0022{{Excel to JSON.Json}}\u0022,\u0022ContentBase64\u0022:\u0022\u0022,\u0022MaxFileSizeBytes\u0022:20971520,\u0022CreateContainerIfNotExists\u0022:true}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83D\uDCC1 Path: {{AzureBlob-2.BlobPath}}",
+        "\uD83D\uDCBE Bytes: {{AzureBlob-2.BytesWritten}}",
+        "\u2705 Success: {{AzureBlob-2.Success}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "af40302c-13ea-4264-bc3a-7056e97049ae",
+      "NodeType": "AzureBlob",
+      "Name": "AzureBlob-1",
+      "X": 860,
+      "Y": 480,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Operation\u0022:\u0022Write\u0022,\u0022ConnectionString\u0022:\u0022AccountName=s2ggdap;AccountKey={{Secrets.AzureStorageKey}};EndpointSuffix=core.windows.net;DefaultEndpointsProtocol=https;\u0022,\u0022ContainerName\u0022:\u0022jsondata\u0022,\u0022BlobPath\u0022:\u0022files/{{OD-FileDownload.FileName}}\u0022,\u0022Content\u0022:\u0022\u0022,\u0022ContentBase64\u0022:\u0022{{OD-FileDownload.ContentBase64}}\u0022,\u0022MaxFileSizeBytes\u0022:20971520,\u0022CreateContainerIfNotExists\u0022:true}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83D\uDCC1 Path: {{AzureBlob-1.BlobPath}}",
+        "\uD83D\uDCBE Bytes: {{AzureBlob-1.BytesWritten}}",
+        "\u2705 Success: {{AzureBlob-1.Success}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "e273da62-837b-49ac-8a86-50eeab7fca66",
+      "NodeType": "OneDriveTrigger",
+      "Name": "OD-FileDrop",
+      "X": 400,
+      "Y": 160,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022ConnectionId\u0022:\u00223a933067-2597-454e-9488-af2a81632977\u0022,\u0022FolderId\u0022:\u0022985947B660A0112A!349569\u0022,\u0022FolderPath\u0022:\u0022/Scans\u0022,\u0022PollIntervalSeconds\u0022:60,\u0022MonitorModified\u0022:false,\u0022IncludeSubfolders\u0022:false}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "\uD83D\uDCC4 File: {{OD-FileDrop.FileName}}",
+        "\uD83D\uDCC2 Path: {{OD-FileDrop.FilePath}}",
+        "\uD83D\uDD14 Trigger: {{OD-FileDrop.TriggerType}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "2f02fefe-f74c-4da6-98e6-af9b1a334aae",
+      "SourceId": "44c43fd2-042b-4fb7-9a45-e9f6534bf3b1",
+      "TargetId": "af40302c-13ea-4264-bc3a-7056e97049ae",
+      "Label": null
+    },
+    {
+      "Id": "d3a470a4-b792-4370-9d37-f0c9ddfd0527",
+      "SourceId": "44c43fd2-042b-4fb7-9a45-e9f6534bf3b1",
+      "TargetId": "977a883c-099b-4037-9b4a-00a0c9d81735",
+      "Label": null
+    },
+    {
+      "Id": "39a3994d-981b-4614-a434-4d8317ab8c76",
+      "SourceId": "5d04d65a-a582-4a54-9d5a-bd911eab5236",
+      "TargetId": "8e71fde2-50f7-4222-b01e-762f2b291a14",
+      "Label": "tool:jsonpivot"
+    },
+    {
+      "Id": "6c266514-b7cd-476d-9145-8f44268b2ca2",
+      "SourceId": "5d04d65a-a582-4a54-9d5a-bd911eab5236",
+      "TargetId": "9874749f-c914-4fd7-8ef6-4164a05c56bd",
+      "Label": "tool:jsonquery"
+    },
+    {
+      "Id": "20c93787-371f-42f3-9db9-5a0730d93596",
+      "SourceId": "977a883c-099b-4037-9b4a-00a0c9d81735",
+      "TargetId": "5d04d65a-a582-4a54-9d5a-bd911eab5236",
+      "Label": null
+    },
+    {
+      "Id": "9cd78827-2786-48f2-9182-75f8076dc3eb",
+      "SourceId": "977a883c-099b-4037-9b4a-00a0c9d81735",
+      "TargetId": "83de66d8-4175-44f2-972b-6571f158e38a",
+      "Label": null
+    },
+    {
+      "Id": "1defa3cf-05cf-4a2e-a4c6-b3d27657c4de",
+      "SourceId": "977a883c-099b-4037-9b4a-00a0c9d81735",
+      "TargetId": "abe584bb-8b29-4e3a-82a4-7dbcad6fe34e",
+      "Label": null
+    },
+    {
+      "Id": "0937585c-3110-47c3-82e3-f8c317ca724b",
+      "SourceId": "e273da62-837b-49ac-8a86-50eeab7fca66",
+      "TargetId": "44c43fd2-042b-4fb7-9a45-e9f6534bf3b1",
+      "Label": null
+    }
+  ]
+}

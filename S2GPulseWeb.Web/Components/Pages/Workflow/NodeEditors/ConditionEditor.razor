@@ -1,0 +1,247 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="condition-builder">
+        <div class="condition-row">
+            <div class="form-group flex-grow">
+                <label>Left Value</label>
+                <input type="text" value="@config.LeftValue" 
+                       @onchange="@(e => UpdateConfig(c => c.LeftValue = e.Value?.ToString()))" 
+                       class="form-control" placeholder="{{Node.Property}} or value" />
+            </div>
+        </div>
+
+        <div class="condition-row">
+            <div class="form-group">
+                <label>Operator</label>
+                <select value="@config.Operator" 
+                        @onchange="@(e => UpdateConfig(c => c.Operator = e.Value?.ToString() ?? "=="))" 
+                        class="form-control">
+                    <optgroup label="Comparison">
+                        <option value="==">== (Equals)</option>
+                        <option value="!=">!= (Not Equals)</option>
+                        <option value=">">&gt; (Greater Than)</option>
+                        <option value="<">&lt; (Less Than)</option>
+                        <option value=">=">&gt;= (Greater or Equal)</option>
+                        <option value="<=">&lt;= (Less or Equal)</option>
+                    </optgroup>
+                    <optgroup label="String">
+                        <option value="contains">Contains</option>
+                        <option value="notContains">Not Contains</option>
+                        <option value="startsWith">Starts With</option>
+                        <option value="endsWith">Ends With</option>
+                        <option value="matches">Matches (Regex)</option>
+                    </optgroup>
+                    <optgroup label="Validation">
+                        <option value="isEmpty">Is Empty</option>
+                        <option value="isNotEmpty">Is Not Empty</option>
+                    </optgroup>
+                </select>
+            </div>
+        </div>
+
+        @if (!IsUnaryOperator(config.Operator))
+        {
+            <div class="condition-row">
+                <div class="form-group flex-grow">
+                    <label>Right Value</label>
+                    <input type="text" value="@config.RightValue" 
+                           @onchange="@(e => UpdateConfig(c => c.RightValue = e.Value?.ToString()))" 
+                           class="form-control" placeholder="{{Node.Property}} or value" />
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="condition-preview">
+        <label>Condition Preview</label>
+        <div class="preview-box">
+            @if (IsUnaryOperator(config.Operator))
+            {
+                <code>@(GetOperatorDisplay(config.Operator))(@(config.LeftValue ?? "value"))</code>
+            }
+            else
+            {
+                <code>@(config.LeftValue ?? "left") @(GetOperatorDisplay(config.Operator)) @(config.RightValue ?? "right")</code>
+            }
+        </div>
+    </div>
+
+    @if (AvailablePlaceholders.Any())
+    {
+        <div class="form-group">
+            <label>Available Placeholders</label>
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => InsertPlaceholder(p))" title="Click to copy">@p</span>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="connection-hint">
+        <div class="hint-box true-hint">
+            <span class="hint-icon">✓</span>
+            <span>Connect with label <strong>"true"</strong> for success path</span>
+        </div>
+        <div class="hint-box false-hint">
+            <span class="hint-icon">✗</span>
+            <span>Connect with label <strong>"false"</strong> for failure path</span>
+        </div>
+    </div>
+</div>
+
+<style>
+    .condition-builder {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .condition-row {
+        margin-bottom: 0.75rem;
+    }
+
+    .condition-row:last-child {
+        margin-bottom: 0;
+    }
+
+    .flex-grow {
+        flex: 1;
+    }
+
+    .condition-preview {
+        margin-bottom: 1rem;
+    }
+
+    .preview-box {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: var(--accent-light);
+    }
+
+    .connection-hint {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .hint-box {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .true-hint {
+        background: rgba(34, 197, 94, 0.15);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+    }
+
+    .false-hint {
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+    }
+
+    .hint-icon {
+        font-weight: bold;
+        font-size: 1rem;
+    }
+
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    private ConditionConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<ConditionConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<ConditionConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task InsertPlaceholder(string placeholder)
+    {
+        // Copy to clipboard would require JS interop, for now just set it
+        if (string.IsNullOrEmpty(config.LeftValue))
+        {
+            config.LeftValue = "{{" + placeholder + "}}";
+        }
+        else if (string.IsNullOrEmpty(config.RightValue) && !IsUnaryOperator(config.Operator))
+        {
+            config.RightValue = "{{" + placeholder + "}}";
+        }
+        await NotifyChanged();
+    }
+
+    private bool IsUnaryOperator(string? op) => 
+        op?.ToLower() is "isempty" or "isnotempty";
+
+    private string GetOperatorDisplay(string? op) => op?.ToLower() switch
+    {
+        "==" => "==",
+        "!=" => "!=",
+        ">" => ">",
+        "<" => "<",
+        ">=" => ">=",
+        "<=" => "<=",
+        "contains" => "contains",
+        "notcontains" => "not contains",
+        "startswith" => "starts with",
+        "endswith" => "ends with",
+        "isempty" => "isEmpty",
+        "isnotempty" => "isNotEmpty",
+        "matches" => "matches",
+        _ => op ?? "=="
+    };
+}

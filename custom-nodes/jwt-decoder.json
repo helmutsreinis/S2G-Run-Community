@@ -1,0 +1,128 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:38:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_JwtDecoder",
+        "displayName": "JWT Decoder",
+        "description": "Decodes a JSON Web Token (JWT) and extracts the header and payload. Does NOT verify the signature - for inspection only.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 2L2 7L12 12L22 7L12 2Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2 17L12 22L22 17\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2 12L12 17L22 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// JWT Decoder\n// Decodes JWT header and payload (does NOT verify signature)\n\nvar token = input.get(\"token\");\n\n// Base64 URL decode function using bit shifting\nvar b64chars = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";\n\nfunction base64UrlDecode(input) {\n    // Convert base64url to base64\n    var str = input.replace(/-/g, '+').replace(/_/g, '/');\n    // Add padding if needed\n    var pad = str.length % 4;\n    if (pad) {\n        if (pad === 1) throw new Error('Invalid base64 string');\n        for (var p = 0; p < 4 - pad; p++) str += '=';\n    }\n    \n    var output = \"\";\n    var buffer = 0;\n    var bits = 0;\n    \n    for (var i = 0; i < str.length; i++) {\n        var c = str.charAt(i);\n        if (c === '=') break;\n        \n        var val = b64chars.indexOf(c);\n        if (val === -1) continue;\n        \n        buffer = (buffer << 6) | val;\n        bits += 6;\n        \n        if (bits >= 8) {\n            bits -= 8;\n            output += String.fromCharCode((buffer >> bits) & 0xFF);\n        }\n    }\n    return output;\n}\n\nif (!token || token.trim() === \"\") {\n    log.error(\"JWT token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"JWT token is required\");\n    output.set(\"Header\", \"\");\n    output.set(\"Payload\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        token = token.trim();\n        \n        // Remove 'Bearer ' prefix if present\n        if (token.toLowerCase().indexOf(\"bearer \") === 0) {\n            token = token.substring(7);\n        }\n        \n        var parts = token.split('.');\n        if (parts.length !== 3) {\n            throw new Error(\"Invalid JWT format - expected 3 parts separated by dots\");\n        }\n        \n        var headerJson = base64UrlDecode(parts[0]);\n        var payloadJson = base64UrlDecode(parts[1]);\n        \n        log.debug(\"Header JSON: \" + headerJson);\n        log.debug(\"Payload JSON: \" + payloadJson);\n        \n        var header = json.parse(headerJson);\n        var payload = json.parse(payloadJson);\n        \n        output.set(\"Header\", json.stringify(header));\n        output.set(\"Payload\", json.stringify(payload));\n        output.set(\"HeaderObject\", header);\n        output.set(\"PayloadObject\", payload);\n        \n        // Extract common claims\n        output.set(\"Algorithm\", header.alg || \"\");\n        output.set(\"TokenType\", header.typ || \"\");\n        output.set(\"Subject\", payload.sub || \"\");\n        output.set(\"Issuer\", payload.iss || \"\");\n        output.set(\"Audience\", payload.aud ? (Array.isArray(payload.aud) ? json.stringify(payload.aud) : payload.aud) : \"\");\n        \n        // Handle expiration\n        if (payload.exp) {\n            var expDate = new Date(payload.exp * 1000);\n            output.set(\"ExpiresAt\", expDate.toISOString());\n            output.set(\"ExpiresAtUnix\", payload.exp);\n            output.set(\"IsExpired\", Date.now() > payload.exp * 1000);\n        } else {\n            output.set(\"ExpiresAt\", \"\");\n            output.set(\"ExpiresAtUnix\", 0);\n            output.set(\"IsExpired\", false);\n        }\n        \n        // Issued at\n        if (payload.iat) {\n            var iatDate = new Date(payload.iat * 1000);\n            output.set(\"IssuedAt\", iatDate.toISOString());\n        } else {\n            output.set(\"IssuedAt\", \"\");\n        }\n        \n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        log.info(\"Decoded JWT: alg=\" + (header.alg || \"unknown\") + \", sub=\" + (payload.sub || \"none\"));\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"JWT decode failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Header\", \"\");\n        output.set(\"Payload\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "token",
+                "displayLabel": "JWT Token",
+                "placeholderText": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "helpText": "The JWT to decode. Can include 'Bearer ' prefix which will be automatically removed.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Header",
+                "description": "The decoded JWT header as JSON string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "Payload",
+                "description": "The decoded JWT payload as JSON string",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Algorithm",
+                "description": "The signing algorithm (alg claim)",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "TokenType",
+                "description": "The token type (typ claim)",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Subject",
+                "description": "The subject (sub claim)",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Issuer",
+                "description": "The issuer (iss claim)",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "Audience",
+                "description": "The audience (aud claim)",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "ExpiresAt",
+                "description": "Token expiration time as ISO date string",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "ExpiresAtUnix",
+                "description": "Token expiration as Unix timestamp",
+                "dataType": "number",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "IsExpired",
+                "description": "Whether the token is expired",
+                "dataType": "boolean",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "IssuedAt",
+                "description": "Token issue time as ISO date string",
+                "dataType": "string",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if decoding failed",
+                "dataType": "boolean",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if decoding failed",
+                "dataType": "string",
+                "displayOrder": 13
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "JWT was decoded successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Decoding succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "JWT decoding failed",
+                "color": "#ef4444",
+                "conditionDescription": "Decoding failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

@@ -1,0 +1,79 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:48:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_StringTemplate",
+        "displayName": "String Template",
+        "description": "Mustache/Handlebars-style templating engine. Supports variable interpolation, loops ({{#each}}), conditionals ({{#if}}/{{#unless}}), and nested property access.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M7 8C7 7.44772 6.55228 7 6 7C4.34315 7 3 8.34315 3 10V11C3 11.5523 2.55228 12 2 12C2.55228 12 3 12.4477 3 13V14C3 15.6569 4.34315 17 6 17C6.55228 17 7 16.5523 7 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M17 8C17 7.44772 17.4477 7 18 7C19.6569 7 21 8.34315 21 10V11C21 11.5523 21.4477 12 22 12C21.4477 12 21 12.4477 21 13V14C21 15.6569 19.6569 17 18 17C17.4477 17 17 16.5523 17 16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><circle cx=\"9\" cy=\"12\" r=\"1\" fill=\"currentColor\"/><circle cx=\"12\" cy=\"12\" r=\"1\" fill=\"currentColor\"/><circle cx=\"15\" cy=\"12\" r=\"1\" fill=\"currentColor\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// String Template Engine\n// Mustache/Handlebars-style templating\n\nvar template = input.get(\"template\");\nvar dataInput = input.get(\"data\");\n\nif (!template) {\n    log.error(\"Template is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Template is required\");\n    output.set(\"Result\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        // Parse data input\n        var data = {};\n        if (dataInput && dataInput.trim()) {\n            data = json.parse(dataInput);\n        }\n        \n        // Get nested property value\n        function getValue(obj, path) {\n            if (!path) return obj;\n            var parts = path.split('.');\n            var current = obj;\n            for (var i = 0; i < parts.length; i++) {\n                if (current === null || current === undefined) return undefined;\n                var part = parts[i];\n                // Handle array index notation: items[0]\n                var match = part.match(/^(.+)\\[(\\d+)\\]$/);\n                if (match) {\n                    current = current[match[1]];\n                    if (Array.isArray(current)) {\n                        current = current[parseInt(match[2])];\n                    } else {\n                        return undefined;\n                    }\n                } else {\n                    current = current[part];\n                }\n            }\n            return current;\n        }\n        \n        // Check if value is truthy\n        function isTruthy(val) {\n            if (val === null || val === undefined || val === false || val === 0 || val === \"\") return false;\n            if (Array.isArray(val) && val.length === 0) return false;\n            return true;\n        }\n        \n        // Process template\n        function processTemplate(tpl, ctx) {\n            var result = tpl;\n            \n            // Process {{#each array}}...{{/each}} blocks\n            var eachRegex = /\\{\\{#each\\s+([^}]+)\\}\\}([\\s\\S]*?)\\{\\{\\/(each|\\1)\\}\\}/g;\n            var eachMatch;\n            while ((eachMatch = eachRegex.exec(result)) !== null) {\n                var arrayPath = eachMatch[1].trim();\n                var innerTemplate = eachMatch[2];\n                var fullMatch = eachMatch[0];\n                \n                var arr = getValue(ctx, arrayPath);\n                var replacement = \"\";\n                \n                if (Array.isArray(arr)) {\n                    for (var i = 0; i < arr.length; i++) {\n                        var itemCtx = {};\n                        // Copy parent context\n                        var ctxKeys = Object.keys(ctx);\n                        for (var k = 0; k < ctxKeys.length; k++) {\n                            itemCtx[ctxKeys[k]] = ctx[ctxKeys[k]];\n                        }\n                        // Add loop-specific variables\n                        itemCtx[\"this\"] = arr[i];\n                        itemCtx[\"@index\"] = i;\n                        itemCtx[\"@first\"] = i === 0;\n                        itemCtx[\"@last\"] = i === arr.length - 1;\n                        \n                        // If item is an object, merge its properties\n                        if (typeof arr[i] === \"object\" && arr[i] !== null) {\n                            var itemKeys = Object.keys(arr[i]);\n                            for (var j = 0; j < itemKeys.length; j++) {\n                                itemCtx[itemKeys[j]] = arr[i][itemKeys[j]];\n                            }\n                        }\n                        \n                        replacement += processTemplate(innerTemplate, itemCtx);\n                    }\n                }\n                \n                result = result.replace(fullMatch, replacement);\n                eachRegex.lastIndex = 0; // Reset regex for next iteration\n            }\n            \n            // Process {{#if condition}}...{{else}}...{{/if}} blocks\n            var ifElseRegex = /\\{\\{#if\\s+([^}]+)\\}\\}([\\s\\S]*?)\\{\\{else\\}\\}([\\s\\S]*?)\\{\\{\\/(if|\\1)\\}\\}/g;\n            var ifElseMatch;\n            while ((ifElseMatch = ifElseRegex.exec(result)) !== null) {\n                var condPath = ifElseMatch[1].trim();\n                var trueBlock = ifElseMatch[2];\n                var falseBlock = ifElseMatch[3];\n                var ifFullMatch = ifElseMatch[0];\n                \n                var condValue = getValue(ctx, condPath);\n                var ifReplacement = isTruthy(condValue) ? processTemplate(trueBlock, ctx) : processTemplate(falseBlock, ctx);\n                \n                result = result.replace(ifFullMatch, ifReplacement);\n                ifElseRegex.lastIndex = 0;\n            }\n            \n            // Process {{#if condition}}...{{/if}} blocks (without else)\n            var ifRegex = /\\{\\{#if\\s+([^}]+)\\}\\}([\\s\\S]*?)\\{\\{\\/(if|\\1)\\}\\}/g;\n            var ifMatch;\n            while ((ifMatch = ifRegex.exec(result)) !== null) {\n                var condPath2 = ifMatch[1].trim();\n                var content = ifMatch[2];\n                var ifFullMatch2 = ifMatch[0];\n                \n                var condValue2 = getValue(ctx, condPath2);\n                var ifReplacement2 = isTruthy(condValue2) ? processTemplate(content, ctx) : \"\";\n                \n                result = result.replace(ifFullMatch2, ifReplacement2);\n                ifRegex.lastIndex = 0;\n            }\n            \n            // Process {{#unless condition}}...{{/unless}} blocks\n            var unlessRegex = /\\{\\{#unless\\s+([^}]+)\\}\\}([\\s\\S]*?)\\{\\{\\/(unless|\\1)\\}\\}/g;\n            var unlessMatch;\n            while ((unlessMatch = unlessRegex.exec(result)) !== null) {\n                var unlessPath = unlessMatch[1].trim();\n                var unlessContent = unlessMatch[2];\n                var unlessFullMatch = unlessMatch[0];\n                \n                var unlessValue = getValue(ctx, unlessPath);\n                var unlessReplacement = !isTruthy(unlessValue) ? processTemplate(unlessContent, ctx) : \"\";\n                \n                result = result.replace(unlessFullMatch, unlessReplacement);\n                unlessRegex.lastIndex = 0;\n            }\n            \n            // Process {{variable}} interpolations\n            var varRegex = /\\{\\{([^#/}][^}]*)\\}\\}/g;\n            result = result.replace(varRegex, function(match, varPath) {\n                var val = getValue(ctx, varPath.trim());\n                if (val === undefined || val === null) return \"\";\n                if (typeof val === \"object\") return json.stringify(val);\n                return String(val);\n            });\n            \n            return result;\n        }\n        \n        var resultText = processTemplate(template, data);\n        \n        output.set(\"Result\", resultText);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        log.info(\"Template processed: \" + resultText.length + \" chars output\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Template processing failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Result\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "template",
+                "displayLabel": "Template",
+                "placeholderText": "Hello {{name}}! {{#each items}}• {{this}}{{/each}}",
+                "helpText": "The template string with Mustache/Handlebars syntax. Supports {{variable}}, {{#each array}}...{{/each}}, {{#if condition}}...{{else}}...{{/if}}, {{#unless}}.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "data",
+                "displayLabel": "Data (JSON)",
+                "placeholderText": "{\"name\": \"World\", \"items\": [\"A\", \"B\", \"C\"]}",
+                "helpText": "JSON object containing the data to use in the template.",
+                "fieldType": "TextArea",
+                "defaultValue": "{}",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The processed template output",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if template processing failed",
+                "dataType": "boolean",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if processing failed",
+                "dataType": "string",
+                "displayOrder": 3
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Template was processed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Processing succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Template processing failed",
+                "color": "#ef4444",
+                "conditionDescription": "Processing failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

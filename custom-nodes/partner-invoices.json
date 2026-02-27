@@ -1,0 +1,182 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T19:01:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_PartnerInvoices",
+        "displayName": "Partner Invoices",
+        "description": "Retrieves the partner's invoices from Microsoft Partner Center API. Returns a list of invoices with billing periods, charges, currency, and line item details.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M9 17H15M9 13H15M9 9H10M13 3H8.2C7.0799 3 6.51984 3 6.09202 3.21799C5.71569 3.40973 5.40973 3.71569 5.21799 4.09202C5 4.51984 5 5.0799 5 6.2V17.8C5 18.9201 5 19.4802 5.21799 19.908C5.40973 20.2843 5.71569 20.5903 6.09202 20.782C6.51984 21 7.0799 21 8.2 21H15.8C16.9201 21 17.4802 21 17.908 20.782C18.2843 20.5903 18.5903 20.2843 18.782 19.908C19 19.4802 19 18.9201 19 17.8V9M13 3L19 9M13 3V7.4C13 7.96005 13 8.24008 13.109 8.45399C13.2049 8.64215 13.3578 8.79513 13.546 8.89101C13.7599 9 14.0399 9 14.6 9H19\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 120,
+        "script": "// Partner Invoices Retrieval\n// Fetches partner invoices from Partner Center API\n\nvar accessToken = input.get(\"accessToken\");\n\nif (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/invoices\";\n        \n        log.info(\"Fetching partner invoices\");\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var data = json.parse(response.body);\n            \n            output.set(\"TotalCount\", data.totalCount || 0);\n            \n            var invoices = data.items || [];\n            output.set(\"Invoices\", json.stringify(invoices));\n            output.set(\"InvoiceCount\", invoices.length);\n            \n            // Extract summary data from most recent invoice (first in list)\n            if (invoices.length > 0) {\n                var latest = invoices[0];\n                output.set(\"LatestInvoiceId\", latest.id || \"\");\n                output.set(\"LatestInvoiceDate\", latest.invoiceDate || \"\");\n                output.set(\"LatestBillingPeriodStart\", latest.billingPeriodStartDate || \"\");\n                output.set(\"LatestBillingPeriodEnd\", latest.billingPeriodEndDate || \"\");\n                output.set(\"LatestTotalCharges\", latest.totalCharges || 0);\n                output.set(\"LatestPaidAmount\", latest.paidAmount || 0);\n                output.set(\"LatestCurrencyCode\", latest.currencyCode || \"\");\n                output.set(\"LatestCurrencySymbol\", latest.currencySymbol || \"\");\n                output.set(\"LatestPdfLink\", latest.pdfDownloadLink || \"\");\n                output.set(\"LatestInvoiceType\", latest.invoiceType || \"\");\n                output.set(\"LatestDocumentType\", latest.documentType || \"\");\n                \n                // Extract billing providers from invoice details\n                var details = latest.invoiceDetails || [];\n                var providers = [];\n                for (var i = 0; i < details.length; i++) {\n                    var provider = details[i].billingProvider;\n                    if (provider && providers.indexOf(provider) === -1) {\n                        providers.push(provider);\n                    }\n                }\n                output.set(\"LatestBillingProviders\", json.stringify(providers));\n            } else {\n                output.set(\"LatestInvoiceId\", \"\");\n                output.set(\"LatestInvoiceDate\", \"\");\n                output.set(\"LatestBillingPeriodStart\", \"\");\n                output.set(\"LatestBillingPeriodEnd\", \"\");\n                output.set(\"LatestTotalCharges\", 0);\n                output.set(\"LatestPaidAmount\", 0);\n                output.set(\"LatestCurrencyCode\", \"\");\n                output.set(\"LatestCurrencySymbol\", \"\");\n                output.set(\"LatestPdfLink\", \"\");\n                output.set(\"LatestInvoiceType\", \"\");\n                output.set(\"LatestDocumentType\", \"\");\n                output.set(\"LatestBillingProviders\", \"[]\");\n            }\n            \n            // Calculate totals across all invoices\n            var totalChargesSum = 0;\n            var totalPaidSum = 0;\n            for (var j = 0; j < invoices.length; j++) {\n                totalChargesSum += invoices[j].totalCharges || 0;\n                totalPaidSum += invoices[j].paidAmount || 0;\n            }\n            output.set(\"AllInvoicesTotalCharges\", totalChargesSum);\n            output.set(\"AllInvoicesPaidAmount\", totalPaidSum);\n            output.set(\"AllInvoicesOutstanding\", totalChargesSum - totalPaidSum);\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved \" + invoices.length + \" invoices\");\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve invoices: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "TotalCount",
+                "description": "Total number of invoices returned by the API",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "InvoiceCount",
+                "description": "Number of invoices in the items array",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Invoices",
+                "description": "JSON array of all invoice objects",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "LatestInvoiceId",
+                "description": "ID of the most recent invoice",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "LatestInvoiceDate",
+                "description": "Date of the most recent invoice",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "LatestBillingPeriodStart",
+                "description": "Billing period start date of the most recent invoice",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "LatestBillingPeriodEnd",
+                "description": "Billing period end date of the most recent invoice",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "LatestTotalCharges",
+                "description": "Total charges on the most recent invoice",
+                "dataType": "number",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "LatestPaidAmount",
+                "description": "Amount paid on the most recent invoice",
+                "dataType": "number",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "LatestCurrencyCode",
+                "description": "Currency code of the most recent invoice (e.g., SEK)",
+                "dataType": "string",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "LatestCurrencySymbol",
+                "description": "Currency symbol of the most recent invoice (e.g., kr)",
+                "dataType": "string",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "LatestPdfLink",
+                "description": "PDF download link for the most recent invoice",
+                "dataType": "string",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "LatestInvoiceType",
+                "description": "Type of the most recent invoice (e.g., Recurring)",
+                "dataType": "string",
+                "displayOrder": 13
+            },
+            {
+                "parameterName": "LatestDocumentType",
+                "description": "Document type of the most recent invoice",
+                "dataType": "string",
+                "displayOrder": 14
+            },
+            {
+                "parameterName": "LatestBillingProviders",
+                "description": "JSON array of billing providers on the most recent invoice (e.g., office, azure)",
+                "dataType": "string",
+                "displayOrder": 15
+            },
+            {
+                "parameterName": "AllInvoicesTotalCharges",
+                "description": "Sum of total charges across all invoices",
+                "dataType": "number",
+                "displayOrder": 16
+            },
+            {
+                "parameterName": "AllInvoicesPaidAmount",
+                "description": "Sum of paid amounts across all invoices",
+                "dataType": "number",
+                "displayOrder": 17
+            },
+            {
+                "parameterName": "AllInvoicesOutstanding",
+                "description": "Total outstanding amount (charges - paid) across all invoices",
+                "dataType": "number",
+                "displayOrder": 18
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 19
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 20
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 21
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 22
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when invoices were successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

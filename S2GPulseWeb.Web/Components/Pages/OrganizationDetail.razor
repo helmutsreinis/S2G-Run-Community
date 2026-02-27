@@ -1,0 +1,910 @@
+@page "/organizations/{OrgId:guid}"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject OrganizationService OrganizationService
+@inject UserSecretService SecretService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(organization?.Name ?? "Organization") - @PlatformSettings.SiteName</PageTitle>
+
+<div class="org-detail-page">
+    @if (isLoading)
+    {
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <p>Loading organization...</p>
+        </div>
+    }
+    else if (organization == null)
+    {
+        <div class="error-state">
+            <div class="error-icon">⚠️</div>
+            <h2>Organization Not Found</h2>
+            <p>The organization you're looking for doesn't exist or you don't have access to it.</p>
+            <button class="btn btn-primary" @onclick="GoToOrganizations">
+                Back to Organizations
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+            <div class="header-content">
+                <button class="btn-back" @onclick="GoToOrganizations">
+                    ← Back
+                </button>
+                <h1>
+                    <span class="org-icon">🏢</span>
+                    @organization.Name
+                </h1>
+                @if (!string.IsNullOrEmpty(organization.Description))
+                {
+                    <p>@organization.Description</p>
+                }
+            </div>
+            <div class="header-actions">
+                <span class="role-badge @GetRoleBadgeClass(userRole!.Value)">@userRole</span>
+                @if (userRole >= OrganizationRole.Owner)
+                {
+                    <button class="btn btn-secondary" @onclick="OpenEditModal">
+                        ✏️ Edit
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab @(activeTab == "members" ? "active" : "")" @onclick="SetMembersTab">
+                👥 Members (@members.Count)
+            </button>
+            <button class="tab @(activeTab == "workflows" ? "active" : "")" @onclick="SetWorkflowsTab">
+                ⚡ Workflows (@workflowCount)
+            </button>
+            @if (userRole == OrganizationRole.Founder)
+            {
+                <button class="tab danger @(activeTab == "settings" ? "active" : "")" @onclick="SetSettingsTab">
+                    ⚙️ Settings
+                </button>
+            }
+        </div>
+
+        <div class="tab-content">
+            @if (activeTab == "members")
+            {
+                <div class="members-section">
+                    @if (userRole >= OrganizationRole.Owner)
+                    {
+                        <div class="add-member-form">
+                            <h3>Add Member</h3>
+                            <div class="add-member-row">
+                                <input type="email" class="form-control email-input" @bind="memberEmail" 
+                                       @bind:event="oninput"
+                                       placeholder="Enter member's email address" />
+                                <select class="form-control role-select" @bind="selectedRole">
+                                    <option value="@OrganizationRole.Contributor">Contributor</option>
+                                    <option value="@OrganizationRole.Owner">Owner</option>
+                                </select>
+                                <button class="btn btn-primary" @onclick="AddMemberByEmail" disabled="@(isAddingMember || string.IsNullOrWhiteSpace(memberEmail))">
+                                    @(isAddingMember ? "Adding..." : "Add Member")
+                                </button>
+                            </div>
+                            <p class="add-member-hint">Enter the exact email address of the user you want to add.</p>
+                        </div>
+                    }
+
+                    <div class="members-list">
+                        @foreach (var member in members.OrderByDescending(m => m.Role))
+                        {
+                            <div class="member-card">
+                                <div class="member-info">
+                                    <span class="member-name">@member.DisplayName</span>
+                                    <span class="member-email">@member.Email</span>
+                                    <span class="role-badge @GetRoleBadgeClass(member.Role)">@member.Role</span>
+                                </div>
+                                <div class="member-actions">
+                                    @if (member.Role != OrganizationRole.Founder && 
+                                         userRole >= OrganizationRole.Owner && 
+                                         member.UserId != userId)
+                                    {
+                                        @if (member.Role == OrganizationRole.Contributor && userRole >= OrganizationRole.Owner)
+                                        {
+                                            <button class="btn-icon" title="Promote to Owner" 
+                                                    @onclick="() => UpdateMemberRole(member.UserId, OrganizationRole.Owner)">
+                                                ⬆️
+                                            </button>
+                                        }
+                                        @if (member.Role == OrganizationRole.Owner && userRole == OrganizationRole.Founder)
+                                        {
+                                            <button class="btn-icon" title="Demote to Contributor" 
+                                                    @onclick="() => UpdateMemberRole(member.UserId, OrganizationRole.Contributor)">
+                                                ⬇️
+                                            </button>
+                                        }
+                                        <button class="btn-icon danger" title="Remove member" 
+                                                @onclick="() => RemoveMember(member.UserId)">
+                                            ✖️
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (activeTab == "workflows")
+            {
+                <div class="workflows-section">
+                    <p class="section-info">
+                        This organization has <strong>@workflowCount</strong> workflow(s). 
+                        Open the Workflow Designer to view and manage them.
+                    </p>
+                    <button class="btn btn-primary" @onclick="GoToWorkflowDesigner">
+                        Open Workflow Designer
+                    </button>
+                </div>
+            }
+            else if (activeTab == "settings")
+            {
+                <div class="settings-section">
+                    <div class="kb-secrets-section">
+                        <h3>📚 Knowledge Base</h3>
+                        <p class="section-info">Configure the Azure Storage connection string for the organization's shared Knowledge Base. All members can use this storage when working in the organization context.</p>
+                        <div class="secret-input-group">
+                            <input type="@(showKnowledgeConn ? "text" : "password")" @bind="knowledgeConnStr" placeholder="DefaultEndpointsProtocol=https;AccountName=..." />
+                            <button class="btn-toggle" @onclick="() => showKnowledgeConn = !showKnowledgeConn" title="@(showKnowledgeConn ? "Hide" : "Show")">
+                                @(showKnowledgeConn ? "👁" : "👁‍🗨")
+                            </button>
+                            <button class="btn btn-primary" @onclick="SaveKnowledgeAccount">Save</button>
+                        </div>
+                        <small class="hint-text">Azure Storage connection string used by the Knowledge Base node when executed in this organization's workflow context.</small>
+                    </div>
+                    <div class="danger-zone">
+                        <h3>⚠️ Danger Zone</h3>
+                        <p>Once you delete an organization, there is no going back. Please be certain.</p>
+                        <button class="btn btn-danger" @onclick="OpenDeleteModal">
+                            Delete Organization
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <div class="status-message @statusClass">
+                @statusMessage
+            </div>
+        }
+    }
+</div>
+
+@if (showEditModal && organization != null)
+{
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h2>Edit Organization</h2>
+            
+            <div class="form-group">
+                <label>Organization Name *</label>
+                <input type="text" class="form-control" @bind="editName" maxlength="100" />
+            </div>
+            
+            <div class="form-group">
+                <label>Description</label>
+                <textarea class="form-control" @bind="editDescription" rows="3" maxlength="500"></textarea>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseEditModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveOrganization" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save Changes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDeleteModal && organization != null)
+{
+    <div class="modal-overlay" @onclick="CloseDeleteModal">
+        <div class="modal-content danger-modal" @onclick:stopPropagation="true">
+            <h2>⚠️ Delete Organization</h2>
+            
+            <p>Are you sure you want to delete <strong>@organization.Name</strong>?</p>
+            <p class="warning-text">This will delete all organization data including member associations.</p>
+            
+            <div class="form-group">
+                <label>What should happen to the workflows?</label>
+                <select class="form-control" @bind="deletionAction">
+                    <option value="@OrganizationDeletionAction.TransferToFounder">Transfer to my personal space</option>
+                    <option value="@OrganizationDeletionAction.DeleteAll">Delete all workflows permanently</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Type the organization name to confirm:</label>
+                <input type="text" class="form-control" @bind="deleteConfirmation" placeholder="@organization.Name" />
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseDeleteModal">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteOrganization" 
+                        disabled="@(isDeleting || deleteConfirmation != organization.Name)">
+                    @(isDeleting ? "Deleting..." : "Delete Organization")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .org-detail-page {
+        padding: 2rem;
+        max-width: 900px;
+        margin: 0 auto;
+        color: #e0e0e0;
+    }
+
+    .loading-container, .error-state {
+        text-align: center;
+        padding: 3rem;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #333;
+        border-top-color: #00f2fe;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1rem;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .error-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 2rem;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+    }
+
+    .btn-back {
+        background: none;
+        border: none;
+        color: #888;
+        cursor: pointer;
+        padding: 0;
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .btn-back:hover {
+        color: #00f2fe;
+    }
+
+    .header-content h1 {
+        color: #00f2fe;
+        margin: 0 0 0.5rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .org-icon {
+        font-size: 1.5rem;
+    }
+
+    .header-content p {
+        color: #888;
+        margin: 0;
+    }
+
+    .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .role-badge {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .role-badge.founder {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+    }
+
+    .role-badge.owner {
+        background: #f6ad55;
+        color: #1a1a2e;
+    }
+
+    .role-badge.contributor {
+        background: #4299e1;
+        color: #fff;
+    }
+
+    .tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+        padding-bottom: 0;
+    }
+
+    .tab {
+        background: transparent;
+        border: none;
+        color: #888;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: all 0.2s;
+    }
+
+    .tab:hover {
+        color: #ccc;
+    }
+
+    .tab.active {
+        color: #00f2fe;
+        border-bottom-color: #00f2fe;
+    }
+
+    .tab.danger:hover {
+        color: #dc3545;
+    }
+
+    .tab.danger.active {
+        color: #dc3545;
+        border-bottom-color: #dc3545;
+    }
+
+    .tab-content {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+
+    .add-member-form {
+        margin-bottom: 2rem;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+    }
+
+    .add-member-form h3 {
+        color: #fff;
+        margin: 0 0 1rem 0;
+        font-size: 1rem;
+    }
+
+    .add-member-row {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .email-input {
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .add-member-hint {
+        color: #666;
+        font-size: 0.8rem;
+        margin: 0.5rem 0 0 0;
+    }
+
+    .role-select {
+        width: auto;
+    }
+
+    .members-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .member-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+    }
+
+    .member-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .member-name {
+        font-weight: 600;
+        color: #fff;
+    }
+
+    .member-email {
+        color: #888;
+        font-size: 0.85rem;
+    }
+
+    .member-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn-icon {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-size: 1rem;
+        padding: 0.25rem;
+        opacity: 0.7;
+    }
+
+    .btn-icon:hover {
+        opacity: 1;
+    }
+
+    .btn-icon.danger:hover {
+        color: #dc3545;
+    }
+
+    .workflows-section, .settings-section {
+        padding: 1rem 0;
+    }
+
+    .kb-secrets-section {
+        margin-bottom: 2rem;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid #333;
+        text-align: left;
+    }
+
+    .kb-secrets-section h3 {
+        color: #fff;
+        margin: 0 0 0.5rem 0;
+        font-size: 1rem;
+    }
+
+    .secret-input-group {
+        display: flex;
+        gap: 0.5rem;
+        margin: 0.75rem 0 0.5rem 0;
+        align-items: center;
+    }
+
+    .secret-input-group input {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        color: white;
+        font-size: 0.9rem;
+    }
+
+    .secret-input-group input:focus {
+        border-color: #00f2fe;
+        outline: none;
+    }
+
+    .btn-toggle {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid #444;
+        border-radius: 6px;
+        cursor: pointer;
+        padding: 0.45rem 0.6rem;
+        color: #888;
+        font-size: 1rem;
+    }
+
+    .hint-text {
+        color: #666;
+        font-size: 0.8rem;
+    }
+
+    .section-info {
+        color: #888;
+        margin-bottom: 1.5rem;
+    }
+
+    .danger-zone {
+        background: rgba(220, 53, 69, 0.1);
+        border: 1px solid rgba(220, 53, 69, 0.3);
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 400px;
+        margin: 0 auto;
+    }
+
+    .danger-zone h3 {
+        color: #dc3545;
+        margin: 0 0 0.5rem 0;
+    }
+
+    .btn-danger {
+        background: #dc3545;
+        color: #fff;
+        border: none;
+    }
+
+    .btn-danger:hover {
+        background: #c82333;
+    }
+
+    .btn-danger:disabled {
+        background: #6c757d;
+    }
+
+    .status-message {
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 1.5rem;
+    }
+
+    .status-success {
+        background: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+        border: 1px solid #28a745;
+    }
+
+    .status-error {
+        background: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        border: 1px solid #dc3545;
+    }
+
+    /* Modal */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+    }
+
+    .modal-content {
+        background: #1a1a2e;
+        border: 1px solid #333;
+        border-radius: 12px;
+        padding: 1.5rem;
+        max-width: 450px;
+        width: 90%;
+    }
+
+    .modal-content.danger-modal {
+        border-color: rgba(220, 53, 69, 0.5);
+    }
+
+    .modal-content h2 {
+        color: #fff;
+        margin: 0 0 1.5rem 0;
+    }
+
+    .warning-text {
+        color: #f6ad55;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #ccc;
+        font-weight: 500;
+    }
+
+    .form-control {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.6rem 0.75rem;
+        color: #fff;
+        font-size: 0.95rem;
+    }
+
+    .form-control:focus {
+        border-color: #00f2fe;
+        outline: none;
+    }
+
+    textarea.form-control {
+        resize: vertical;
+        min-height: 80px;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid #333;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public Guid OrgId { get; set; }
+    
+    private string? userId;
+    private Organization? organization;
+    private OrganizationRole? userRole;
+    private List<OrganizationMemberInfo> members = new();
+    private int workflowCount = 0;
+    
+    private bool isLoading = true;
+    private string activeTab = "members";
+    
+    // Add member by email (no search to prevent user enumeration)
+    private string memberEmail = "";
+    private OrganizationRole selectedRole = OrganizationRole.Contributor;
+    private bool isAddingMember = false;
+    
+    // Edit modal
+    private bool showEditModal = false;
+    private string editName = "";
+    private string editDescription = "";
+    private bool isSaving = false;
+    
+    // Delete modal
+    private bool showDeleteModal = false;
+    private string deleteConfirmation = "";
+    private OrganizationDeletionAction deletionAction = OrganizationDeletionAction.TransferToFounder;
+    private bool isDeleting = false;
+    
+    // Knowledge Base secret
+    private string knowledgeConnStr = "";
+    private bool showKnowledgeConn = false;
+
+    // Status
+    private string statusMessage = "";
+    private string statusClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = UserManager.GetUserId(user);
+            if (userId != null)
+            {
+                await LoadOrganizationAsync();
+                knowledgeConnStr = await SecretService.GetSecretAsync(userId, "Knowledge_Account", OrgId) ?? "";
+            }
+        }
+    }
+
+    private async Task LoadOrganizationAsync()
+    {
+        isLoading = true;
+        try
+        {
+            organization = await OrganizationService.GetOrganizationAsync(OrgId, userId!);
+            if (organization != null)
+            {
+                userRole = await OrganizationService.GetUserRoleAsync(OrgId, userId!);
+                members = await OrganizationService.GetMembersAsync(OrgId, userId!);
+                workflowCount = organization.Workflows?.Count ?? 0;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void GoToOrganizations() => Navigation.NavigateTo("/organizations");
+    private void GoToWorkflowDesigner() => Navigation.NavigateTo("/workflow");
+    private void SetMembersTab() => activeTab = "members";
+    private void SetWorkflowsTab() => activeTab = "workflows";
+    private void SetSettingsTab() => activeTab = "settings";
+
+    private async Task AddMemberByEmail()
+    {
+        if (string.IsNullOrWhiteSpace(memberEmail)) return;
+        
+        // Basic email validation
+        if (!memberEmail.Contains('@') || !memberEmail.Contains('.'))
+        {
+            ShowStatus("Please enter a valid email address", false);
+            return;
+        }
+        
+        isAddingMember = true;
+        try
+        {
+            var result = await OrganizationService.AddMemberAsync(OrgId, userId!, memberEmail.Trim(), selectedRole);
+            if (result.Success)
+            {
+                ShowStatus("Member added successfully!", true);
+                memberEmail = "";
+                await LoadOrganizationAsync();
+            }
+            else
+            {
+                // Generic error message to avoid revealing if user exists
+                ShowStatus(result.Error ?? "Unable to add member. Please verify the email address.", false);
+            }
+        }
+        finally
+        {
+            isAddingMember = false;
+        }
+    }
+
+    private async Task RemoveMember(string memberUserId)
+    {
+        var result = await OrganizationService.RemoveMemberAsync(OrgId, userId!, memberUserId);
+        if (result.Success)
+        {
+            ShowStatus("Member removed", true);
+            await LoadOrganizationAsync();
+        }
+        else
+        {
+            ShowStatus(result.Error ?? "Failed to remove member", false);
+        }
+    }
+
+    private async Task UpdateMemberRole(string memberUserId, OrganizationRole newRole)
+    {
+        var result = await OrganizationService.UpdateMemberRoleAsync(OrgId, userId!, memberUserId, newRole);
+        if (result.Success)
+        {
+            ShowStatus($"Role updated to {newRole}", true);
+            await LoadOrganizationAsync();
+        }
+        else
+        {
+            ShowStatus(result.Error ?? "Failed to update role", false);
+        }
+    }
+
+    private void OpenEditModal()
+    {
+        editName = organization!.Name;
+        editDescription = organization!.Description ?? "";
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        showEditModal = false;
+    }
+
+    private async Task SaveOrganization()
+    {
+        if (string.IsNullOrWhiteSpace(editName)) return;
+        
+        isSaving = true;
+        try
+        {
+            var result = await OrganizationService.UpdateOrganizationAsync(
+                OrgId, userId!, editName.Trim(), editDescription?.Trim(), organization!.SvgLogo);
+            
+            if (result.Success)
+            {
+                ShowStatus("Organization updated!", true);
+                CloseEditModal();
+                await LoadOrganizationAsync();
+            }
+            else
+            {
+                ShowStatus(result.Error ?? "Failed to update", false);
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void OpenDeleteModal()
+    {
+        deleteConfirmation = "";
+        showDeleteModal = true;
+    }
+
+    private void CloseDeleteModal()
+    {
+        showDeleteModal = false;
+    }
+
+    private async Task DeleteOrganization()
+    {
+        if (deleteConfirmation != organization!.Name) return;
+        
+        isDeleting = true;
+        try
+        {
+            var result = await OrganizationService.DeleteOrganizationAsync(OrgId, userId!, deletionAction);
+            if (result.Success)
+            {
+                Navigation.NavigateTo("/organizations");
+            }
+            else
+            {
+                ShowStatus(result.Error ?? "Failed to delete organization", false);
+            }
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private string GetRoleBadgeClass(OrganizationRole role)
+    {
+        return role switch
+        {
+            OrganizationRole.Founder => "founder",
+            OrganizationRole.Owner => "owner",
+            OrganizationRole.Contributor => "contributor",
+            _ => ""
+        };
+    }
+
+    private async Task SaveKnowledgeAccount()
+    {
+        if (userId == null) return;
+        try
+        {
+            await SecretService.SetSecretAsync(userId, "Knowledge_Account", knowledgeConnStr, OrgId);
+            ShowStatus("Knowledge Account connection string saved!", true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error saving connection: {ex.Message}", false);
+        }
+    }
+
+    private void ShowStatus(string message, bool success)
+    {
+        statusMessage = message;
+        statusClass = success ? "status-success" : "status-error";
+        StateHasChanged();
+        
+        Task.Delay(3000).ContinueWith(_ => 
+        {
+            statusMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

@@ -1,0 +1,491 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+
+<style>
+    .blob-viewer {
+        color: #e0e0e0;
+    }
+    .blob-viewer .panel-card {
+        background: #1a1f26;
+        border: 1px solid #00a8a8;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .blob-viewer .panel-header {
+        background: linear-gradient(135deg, #0d2f2f 0%, #1a1f26 100%);
+        padding: 12px 16px;
+        border-bottom: 1px solid #00a8a8;
+        color: #00d4d4;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .blob-viewer .panel-body {
+        padding: 0;
+        max-height: 220px;
+        overflow-y: auto;
+    }
+    .blob-viewer .list-item {
+        padding: 10px 14px;
+        border-bottom: 1px solid rgba(0, 168, 168, 0.2);
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.2s ease;
+        color: #b0b0b0;
+    }
+    .blob-viewer .list-item:hover {
+        background: rgba(0, 168, 168, 0.1);
+        color: #e0e0e0;
+    }
+    .blob-viewer .list-item.active {
+        background: linear-gradient(90deg, rgba(0, 168, 168, 0.3) 0%, rgba(0, 168, 168, 0.1) 100%);
+        color: #00d4d4;
+        border-left: 3px solid #00d4d4;
+    }
+    .blob-viewer .list-item:last-child {
+        border-bottom: none;
+    }
+    .blob-viewer .size-badge {
+        background: #00a8a8;
+        color: #0d1117;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    .blob-viewer .details-table {
+        width: 100%;
+        margin: 0;
+    }
+    .blob-viewer .details-table td {
+        padding: 10px 14px;
+        border-bottom: 1px solid rgba(0, 168, 168, 0.15);
+        color: #e0e0e0;
+    }
+    .blob-viewer .details-table td:first-child {
+        color: #00d4d4;
+        font-weight: 600;
+        width: 140px;
+    }
+    .blob-viewer .details-table tr:last-child td {
+        border-bottom: none;
+    }
+    .blob-viewer .preview-section {
+        padding: 16px;
+        border-top: 1px solid rgba(0, 168, 168, 0.2);
+    }
+    .blob-viewer .preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    .blob-viewer .preview-label {
+        color: #00d4d4;
+        font-weight: 600;
+    }
+    .blob-viewer .preview-content {
+        background: #0d1117;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        border-radius: 6px;
+        padding: 14px;
+        max-height: 280px;
+        overflow-y: auto;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #b8d4d4;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    .blob-viewer .btn-teal {
+        background: transparent;
+        border: 1px solid #00a8a8;
+        color: #00d4d4;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .blob-viewer .btn-teal:hover {
+        background: #00a8a8;
+        color: #0d1117;
+    }
+    .blob-viewer .btn-teal-sm {
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+    .blob-viewer .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        color: #606060;
+    }
+    .blob-viewer .empty-state .icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+    }
+    .blob-viewer .alert-box {
+        background: rgba(0, 168, 168, 0.1);
+        border: 1px solid #00a8a8;
+        border-radius: 6px;
+        padding: 12px 16px;
+        color: #00d4d4;
+    }
+    .blob-viewer .alert-box.warning {
+        background: rgba(255, 193, 7, 0.1);
+        border-color: #ffc107;
+        color: #ffc107;
+    }
+    .blob-viewer .warning-badge {
+        background: #ffc107;
+        color: #0d1117;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 8px;
+    }
+</style>
+
+<div class="blob-viewer">
+    @if (string.IsNullOrEmpty(connectionString))
+    {
+        <div class="alert-box">
+            <strong>ℹ️ Note:</strong> Configure the connection string in the node properties to browse blob storage.
+        </div>
+    }
+    else if (isLoading)
+    {
+        <div class="empty-state">
+            <div class="spinner-border" style="color: #00a8a8;" role="status"></div>
+            <p style="margin-top: 16px; color: #00d4d4;">Loading containers...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert-box warning">
+            <strong>⚠️ Error:</strong> @errorMessage
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <!-- Left panel: Containers and Blobs -->
+            <div class="col-md-4">
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <span>📦 Containers</span>
+                        <button class="btn-teal btn-teal-sm" @onclick="RefreshContainers" title="Refresh">🔄</button>
+                    </div>
+                    <div class="panel-body">
+                        @if (containers.Any())
+                        {
+                            @foreach (var container in containers)
+                            {
+                                <div class="list-item @(selectedContainer == container ? "active" : "")"
+                                     @onclick="@(() => SelectContainer(container))">
+                                    <span>📁 @container</span>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div style="padding: 16px; color: #606060; font-size: 13px;">No containers found</div>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(selectedContainer))
+                {
+                    <div class="panel-card" style="margin-top: 12px;">
+                        <div class="panel-header">
+                            📄 Blobs in <strong style="margin-left: 4px;">@selectedContainer</strong>
+                        </div>
+                        <div class="panel-body" style="max-height: 280px;">
+                            @if (blobs.Any())
+                            {
+                                @foreach (var blob in blobs)
+                                {
+                                    <div class="list-item @(selectedBlob == blob.Name ? "active" : "")"
+                                         @onclick="@(() => SelectBlob(blob))">
+                                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px;" title="@blob.Name">
+                                            📄 @blob.Name
+                                        </span>
+                                        <span class="size-badge">@FormatFileSize(blob.Size)</span>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div style="padding: 16px; color: #606060; font-size: 13px;">No blobs in this container</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Right panel: Blob details and preview -->
+            <div class="col-md-8">
+                @if (selectedBlobInfo != null)
+                {
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            📋 Blob Details
+                        </div>
+                        <table class="details-table">
+                            <tbody>
+                                <tr>
+                                    <td>Path</td>
+                                    <td>@selectedBlobInfo.Name</td>
+                                </tr>
+                                <tr>
+                                    <td>Size</td>
+                                    <td>
+                                        @FormatFileSize(selectedBlobInfo.Size)
+                                        @if (selectedBlobInfo.Size > MaxPreviewSize)
+                                        {
+                                            <span class="warning-badge">Too large to preview</span>
+                                        }
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Content Type</td>
+                                    <td>@(selectedBlobInfo.ContentType ?? "unknown")</td>
+                                </tr>
+                                <tr>
+                                    <td>Last Modified</td>
+                                    <td>@selectedBlobInfo.LastModified?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        @if (selectedBlobInfo.Size <= MaxPreviewSize)
+                        {
+                            <div class="preview-section">
+                                <div class="preview-header">
+                                    <span class="preview-label">Content Preview</span>
+                                    @if (isLoadingPreview)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" style="color: #00a8a8;" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn-teal btn-teal-sm" @onclick="LoadBlobPreview">Load Preview</button>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrEmpty(blobPreviewContent))
+                                {
+                                    <pre class="preview-content">@blobPreviewContent</pre>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="padding: 16px;">
+                                <div class="alert-box warning">
+                                    <strong>⚠️ Note:</strong> This blob is larger than @FormatFileSize(MaxPreviewSize) and cannot be previewed in the UI.
+                                    Use the node with "Read" operation to download content programmatically.
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="panel-card">
+                        <div class="empty-state" style="min-height: 300px;">
+                            <div class="icon">🗂️</div>
+                            <p style="color: #808080;">Select a container and blob to view details</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid NodeId { get; set; }
+    [Parameter] public string? Configuration { get; set; }
+
+    private const long MaxPreviewSize = 1 * 1024 * 1024; // 1MB preview limit
+
+    private string? connectionString;
+    private bool isLoading = true;
+    private bool isLoadingPreview = false;
+    private string? errorMessage;
+    private List<string> containers = new();
+    private List<BlobInfo> blobs = new();
+    private string? selectedContainer;
+    private string? selectedBlob;
+    private BlobInfo? selectedBlobInfo;
+    private string? blobPreviewContent;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadConfiguration();
+    }
+
+    private async Task LoadConfiguration()
+    {
+        isLoading = true;
+        errorMessage = null;
+        containers.Clear();
+        blobs.Clear();
+        selectedContainer = null;
+        selectedBlob = null;
+        selectedBlobInfo = null;
+        blobPreviewContent = null;
+        StateHasChanged();
+
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                var config = JsonSerializer.Deserialize<AzureBlobConfig>(Configuration);
+                connectionString = config?.ConnectionString;
+            }
+
+            if (!string.IsNullOrEmpty(connectionString))
+            {
+                await LoadContainers();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadContainers()
+    {
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            containers.Clear();
+
+            await foreach (var container in blobServiceClient.GetBlobContainersAsync())
+            {
+                containers.Add(container.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load containers: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshContainers()
+    {
+        await LoadConfiguration();
+    }
+
+    private async Task SelectContainer(string containerName)
+    {
+        selectedContainer = containerName;
+        selectedBlob = null;
+        selectedBlobInfo = null;
+        blobPreviewContent = null;
+        blobs.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+
+            await foreach (var blobItem in containerClient.GetBlobsAsync())
+            {
+                blobs.Add(new BlobInfo
+                {
+                    Name = blobItem.Name,
+                    Size = blobItem.Properties.ContentLength ?? 0,
+                    ContentType = blobItem.Properties.ContentType,
+                    LastModified = blobItem.Properties.LastModified?.UtcDateTime
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load blobs: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private void SelectBlob(BlobInfo blob)
+    {
+        selectedBlob = blob.Name;
+        selectedBlobInfo = blob;
+        blobPreviewContent = null;
+        StateHasChanged();
+    }
+
+    private async Task LoadBlobPreview()
+    {
+        if (string.IsNullOrEmpty(selectedContainer) || string.IsNullOrEmpty(selectedBlob))
+            return;
+
+        isLoadingPreview = true;
+        blobPreviewContent = null;
+        StateHasChanged();
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(selectedContainer);
+            var blobClient = containerClient.GetBlobClient(selectedBlob);
+
+            var response = await blobClient.DownloadContentAsync();
+            blobPreviewContent = response.Value.Content.ToString();
+
+            // Truncate if too long for display
+            if (blobPreviewContent.Length > 50000)
+            {
+                blobPreviewContent = blobPreviewContent.Substring(0, 50000) + "\n\n... (truncated, content too large for preview)";
+            }
+        }
+        catch (Exception ex)
+        {
+            blobPreviewContent = $"Error loading preview: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingPreview = false;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1024 * 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+        if (bytes >= 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
+        if (bytes >= 1024)
+            return $"{bytes / 1024.0:F2} KB";
+        return $"{bytes} bytes";
+    }
+
+    private class BlobInfo
+    {
+        public string Name { get; set; } = "";
+        public long Size { get; set; }
+        public string? ContentType { get; set; }
+        public DateTime? LastModified { get; set; }
+    }
+}

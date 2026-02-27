@@ -1,0 +1,163 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T19:32:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_CustomerOrders",
+        "displayName": "Customer Orders",
+        "description": "Retrieves all orders for a customer from Microsoft Partner Center API. Returns a list of orders with line items, billing cycle, status, and transaction details.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M16 3.13C16.8604 3.35031 17.623 3.85071 18.1676 4.55232C18.7122 5.25392 19.0078 6.11683 19.0078 7.005C19.0078 7.89318 18.7122 8.75608 18.1676 9.45769C17.623 10.1593 16.8604 10.6597 16 10.88M21 21V19C20.9949 18.1172 20.6979 17.2608 20.1553 16.5644C19.6126 15.868 18.8548 15.3707 18 15.15M13 7C13 9.20914 11.2091 11 9 11C6.79086 11 5 9.20914 5 7C5 4.79086 6.79086 3 9 3C11.2091 3 13 4.79086 13 7ZM5 21V19C5 17.9391 5.42143 16.9217 6.17157 16.1716C6.92172 15.4214 7.93913 15 9 15H13C14.0609 15 15.0783 15.4214 15.8284 16.1716C16.5786 16.9217 17 17.9391 17 19V21H5Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 120,
+        "script": "// Customer Orders Retrieval\n// Fetches all orders for a customer from Partner Center API\n\nvar customerId = input.get(\"customerId\");\nvar accessToken = input.get(\"accessToken\");\n\nif (!customerId || customerId.trim() === \"\") {\n    log.error(\"Customer ID is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Customer ID is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/customers/\" + customerId.trim() + \"/orders\";\n        \n        log.info(\"Fetching orders for customer: \" + customerId);\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var data = json.parse(response.body);\n            \n            output.set(\"TotalCount\", data.totalCount || 0);\n            \n            var orders = data.items || [];\n            output.set(\"Orders\", json.stringify(orders));\n            output.set(\"OrderCount\", orders.length);\n            \n            // Track statistics\n            var statusCounts = {};\n            var billingCycles = {};\n            var transactionTypes = {};\n            var totalLineItems = 0;\n            var currencyCode = \"\";\n            var currencySymbol = \"\";\n            \n            for (var i = 0; i < orders.length; i++) {\n                var order = orders[i];\n                \n                // Count statuses\n                var status = order.status || \"unknown\";\n                if (!statusCounts[status]) statusCounts[status] = 0;\n                statusCounts[status]++;\n                \n                // Count billing cycles\n                var cycle = order.billingCycle || \"unknown\";\n                if (!billingCycles[cycle]) billingCycles[cycle] = 0;\n                billingCycles[cycle]++;\n                \n                // Count transaction types\n                var txType = order.transactionType || \"unknown\";\n                if (!transactionTypes[txType]) transactionTypes[txType] = 0;\n                transactionTypes[txType]++;\n                \n                // Count line items\n                if (order.lineItems) {\n                    totalLineItems += order.lineItems.length;\n                }\n                \n                // Capture currency from first order\n                if (!currencyCode && order.currencyCode) {\n                    currencyCode = order.currencyCode;\n                    currencySymbol = order.currencySymbol || \"\";\n                }\n            }\n            \n            output.set(\"TotalLineItems\", totalLineItems);\n            output.set(\"CurrencyCode\", currencyCode);\n            output.set(\"CurrencySymbol\", currencySymbol);\n            \n            // Build breakdown arrays\n            var statusList = [];\n            var statusKeys = Object.keys(statusCounts);\n            for (var j = 0; j < statusKeys.length; j++) {\n                statusList.push({ status: statusKeys[j], count: statusCounts[statusKeys[j]] });\n            }\n            output.set(\"StatusBreakdown\", json.stringify(statusList));\n            \n            var cycleList = [];\n            var cycleKeys = Object.keys(billingCycles);\n            for (var k = 0; k < cycleKeys.length; k++) {\n                cycleList.push({ cycle: cycleKeys[k], count: billingCycles[cycleKeys[k]] });\n            }\n            output.set(\"BillingCycleBreakdown\", json.stringify(cycleList));\n            \n            var txList = [];\n            var txKeys = Object.keys(transactionTypes);\n            for (var m = 0; m < txKeys.length; m++) {\n                txList.push({ type: txKeys[m], count: transactionTypes[txKeys[m]] });\n            }\n            output.set(\"TransactionTypeBreakdown\", json.stringify(txList));\n            \n            // Get most recent order info\n            if (orders.length > 0) {\n                var latest = orders[0];\n                output.set(\"LatestOrderId\", latest.id || \"\");\n                output.set(\"LatestOrderDate\", latest.creationDate || \"\");\n                output.set(\"LatestOrderStatus\", latest.status || \"\");\n                output.set(\"LatestOrderBillingCycle\", latest.billingCycle || \"\");\n            } else {\n                output.set(\"LatestOrderId\", \"\");\n                output.set(\"LatestOrderDate\", \"\");\n                output.set(\"LatestOrderStatus\", \"\");\n                output.set(\"LatestOrderBillingCycle\", \"\");\n            }\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved \" + orders.length + \" orders with \" + totalLineItems + \" line items\");\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve orders: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "customerId",
+                "displayLabel": "Customer ID",
+                "placeholderText": "Enter customer GUID or use {{Placeholder}}",
+                "helpText": "The unique identifier (GUID) of the customer in Partner Center.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "TotalCount",
+                "description": "Total number of orders returned by the API",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "OrderCount",
+                "description": "Number of orders in the items array",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Orders",
+                "description": "JSON array of all order objects",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "TotalLineItems",
+                "description": "Total count of line items across all orders",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "CurrencyCode",
+                "description": "Currency code (e.g., EUR, USD)",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "CurrencySymbol",
+                "description": "Currency symbol (e.g., €, $)",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "StatusBreakdown",
+                "description": "JSON array of order statuses with counts",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "BillingCycleBreakdown",
+                "description": "JSON array of billing cycles with counts (e.g., monthly, annual)",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "TransactionTypeBreakdown",
+                "description": "JSON array of transaction types with counts",
+                "dataType": "string",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "LatestOrderId",
+                "description": "ID of the most recent order",
+                "dataType": "string",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "LatestOrderDate",
+                "description": "Creation date of the most recent order",
+                "dataType": "string",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "LatestOrderStatus",
+                "description": "Status of the most recent order",
+                "dataType": "string",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "LatestOrderBillingCycle",
+                "description": "Billing cycle of the most recent order",
+                "dataType": "string",
+                "displayOrder": 13
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 14
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 15
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 16
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 17
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when orders were successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

@@ -1,0 +1,749 @@
+@page "/knowledge"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@using System.Text.Json
+@using Markdig
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject KnowledgeBaseService KbService
+@inject OrganizationService OrgService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Knowledge Base - @PlatformSettings.SiteName</PageTitle>
+
+<div class="kb-page">
+    @* ── Top Bar ──────────────────────────────────────────────────────── *@
+    <div class="kb-topbar">
+        <div class="kb-brand">🧠 Knowledge Base</div>
+        @if (activeScopeName != null)
+        {
+            <span class="kb-scope-badge">🏢 @activeScopeName</span>
+        }
+        else
+        {
+            <span class="kb-scope-badge">👤 Personal</span>
+        }
+        <div style="flex:1"></div>
+        @if (hasConnectionString)
+        {
+            <button class="btn btn-outline @(showGraph ? "btn-graph-active" : "")" @onclick="ToggleGraph"
+                    title="Toggle graph view">
+                🕸️ Graph View
+            </button>
+        }
+        <div class="kb-search-box">
+            <span class="search-icon">🔍</span>
+            <input class="kb-search-input" @bind="searchQuery" @bind:event="oninput"
+                   @onkeyup="HandleSearchKey" placeholder="Search entities..." />
+            @if (!string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="search-clear" @onclick="ClearSearch">✕</button>
+            }
+        </div>
+        <button class="btn btn-primary" @onclick="OpenCreateModal">+ New Entity</button>
+    </div>
+
+
+
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="kb-status-banner @(isError ? "error" : "success")">
+            @statusMessage
+            <button class="banner-close" @onclick="() => statusMessage = null">✕</button>
+        </div>
+    }
+
+    @if (!hasConnectionString)
+    {
+        <div class="kb-no-connection">
+            <div class="no-conn-icon">🔑</div>
+            <h3>Knowledge Account Not Configured</h3>
+            <p>Set up an Azure Storage connection string to start using the Knowledge Base.</p>
+            <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/settings")'>
+                ⚙️ Go to Settings
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="kb-body">
+            @* ── LEFT: Browser ─────────────────────────────────────────── *@
+            <div class="kb-panel kb-browser">
+                <div class="browser-section">
+                    <div class="section-title">
+                        <span>📁 Entity Types</span>
+                        <button class="btn-icon-sm" @onclick="LoadAll" title="Refresh">↺</button>
+                    </div>
+                    <div class="type-list">
+                        <div class="type-item @(selectedType == null ? "active" : "")"
+                             @onclick='() => FilterByType(null)'>
+                            All Types
+                            <span class="type-count">@allEntities.Count</span>
+                        </div>
+                        @foreach (var kv in entityTypeCounts)
+                        {
+                            <div class="type-item @(selectedType == kv.Key ? "active" : "")"
+                                 @onclick="() => FilterByType(kv.Key)">
+                                @kv.Key
+                                <span class="type-count">@kv.Value</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (tagCloud.Any())
+                {
+                    <div class="browser-section">
+                        <div class="section-title">🏷️ Tags</div>
+                        <div class="tag-cloud">
+                            @foreach (var tag in tagCloud)
+                            {
+                                <span class="tag-chip @(selectedTag == tag ? "active" : "")"
+                                      @onclick="() => FilterByTag(tag)">@tag</span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="browser-section flex-fill">
+                    <div class="section-title">
+                        <span>📄 Entities (@filteredEntities.Count)</span>
+                        @if (isLoadingEntities) { <span class="loading-dot">...</span> }
+                    </div>
+                    <div class="entity-list">
+                        @foreach (var entity in filteredEntities)
+                        {
+                            <div class="entity-item @(selectedEntityId == entity.Id ? "selected" : "")"
+                                 @onclick="() => SelectEntity(entity.Id)">
+                                <div class="entity-item-title">@entity.Title</div>
+                                <div class="entity-item-meta">
+                                    <span class="entity-type-pill">@entity.EntityType</span>
+                                    <span class="entity-date">@entity.UpdatedAt.ToString("MMM d")</span>
+                                </div>
+                            </div>
+                        }
+                        @if (!filteredEntities.Any() && !isLoadingEntities)
+                        {
+                            <div class="empty-state">
+                                <p>No entities found.</p>
+                                @if (!string.IsNullOrEmpty(searchQuery))
+                                {
+                                    <button class="btn-link" @onclick="ClearSearch">Clear search</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="OpenCreateModal">+ Create First Entity</button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* ── MIDDLE: Detail ─────────────────────────────────────────── *@
+            <div class="kb-panel kb-detail">
+                @if (selectedEntity == null)
+                {
+                    <div class="detail-placeholder">
+                        <div class="ph-icon">📖</div>
+                        <p>Select an entity to view its details.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="detail-header">
+                        <div class="detail-title-row">
+                            <h2 class="detail-title">@selectedEntity.Title</h2>
+                            <div class="detail-actions">
+                                <button class="btn btn-sm btn-outline" @onclick="OpenEditModal">✏️ Edit</button>
+                                <button class="btn btn-sm btn-outline btn-danger-outline" @onclick="ConfirmDelete">🗑️ Delete</button>
+                            </div>
+                        </div>
+                        <div class="detail-meta">
+                            <span class="entity-type-pill lg">@selectedEntity.EntityType</span>
+                            @foreach (var tag in selectedEntity.Tags)
+                            {
+                                <span class="tag-chip sm">@tag</span>
+                            }
+                            <span class="detail-date">Updated @selectedEntity.UpdatedAt.ToString("yyyy-MM-dd HH:mm")</span>
+                        </div>
+                    </div>
+
+                    <div class="detail-content">
+                        @((MarkupString)RenderContent(selectedEntity.Content ?? ""))
+                    </div>
+
+                    @if (selectedEntity.Properties.Any())
+                    {
+                        <div class="detail-section">
+                            <div class="section-label">Properties</div>
+                            <div class="properties-grid">
+                                @foreach (var kv in selectedEntity.Properties)
+                                {
+                                    <div class="prop-key">@kv.Key</div>
+                                    <div class="prop-val">@kv.Value?.ToString()</div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <div class="detail-section">
+                        <div class="section-label-row">
+                            <span class="section-label">Relations (@relations.Count)</span>
+                            <button class="btn-link sm" @onclick="OpenAddRelationModal">+ Add Relation</button>
+                        </div>
+                        @if (isLoadingRelations)
+                        {
+                            <span class="loading-dot">Loading...</span>
+                        }
+                        else
+                        {
+                            <div class="relations-list">
+                                @foreach (var rel in relations)
+                                {
+                                    var isSource = rel.SourceId == selectedEntity.Id;
+                                    var otherId = isSource ? rel.TargetId : rel.SourceId;
+                                    var otherTitle = isSource ? (rel.TargetTitle ?? GetEntityTitle(otherId)) : (rel.SourceTitle ?? GetEntityTitle(otherId));
+                                    <div class="relation-item">
+                                        <span class="rel-direction">@(isSource ? "→" : "←")</span>
+                                        <span class="rel-type">@rel.RelationType</span>
+                                        <button class="btn-link rel-target" @onclick="() => SelectEntity(otherId)">
+                                            @otherTitle
+                                        </button>
+                                        <button class="rel-remove" @onclick="() => RemoveRelationItem(rel)" title="Remove">✕</button>
+                                    </div>
+                                }
+                                @if (!relations.Any())
+                                {
+                                    <p class="empty-relations">No relations yet.</p>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+        </div>
+    }
+</div>
+
+@* ── Floating Graph Window ──────────────────────────────────────── *@
+@if (showGraph && graphData != null)
+{
+    <div class="graph-float" id="graph-float-win">
+        <div class="graph-float-header" id="graph-float-header">
+            <span>🕸️ Knowledge Graph</span>
+            <span class="graph-stats-inline">
+                @graphData.Nodes.Count nodes · @graphData.Edges.Count edges
+            </span>
+            <div style="flex:1"></div>
+            <button class="btn-icon-sm" @onclick="FitGraph" title="Fit to window">⊞</button>
+            <button class="btn-icon-sm" @onclick="RefreshGraph" title="Reload graph">↺</button>
+            <button class="btn-icon-sm" @onclick="ToggleGraph" title="Close">✕</button>
+        </div>
+        <div class="graph-float-body">
+            <S2GPulseWeb.Web.Components.Pages.KnowledgeGraphViewer
+                GraphData="@graphData"
+                SelectedEntityId="@selectedEntityId"
+                OnNodeSelected="SelectEntity" />
+        </div>
+    </div>
+}
+
+
+@* ── Entity Editor Modal ────────────────────────────────────────────── *@
+@if (showEntityModal)
+{
+    <div class="modal-backdrop" @onclick="CloseEntityModal">
+        <div class="modal-panel" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>@(editEntityId == null ? "New Entity" : "Edit Entity")</h3>
+                <button class="modal-close" @onclick="CloseEntityModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Title *</label>
+                    <input type="text" @bind="editTitle" class="form-control" placeholder="Entity title" />
+                </div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <input type="text" @bind="editEntityType" class="form-control"
+                           placeholder="Note, Project, Person, Concept..." list="known-types" />
+                    <datalist id="known-types">
+                        @foreach (var t in entityTypeCounts.Keys)
+                        {
+                            <option value="@t" />
+                        }
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label>Tags <small>(comma-separated)</small></label>
+                    <input type="text" @bind="editTags" class="form-control" placeholder="tag1, tag2" />
+                </div>
+                <div class="form-group">
+                    <label>Content <small>(Markdown; use [[Title]] for wiki-links)</small></label>
+                    <textarea @bind="editContent" class="form-control content-editor" rows="10"
+                              placeholder="Write your knowledge here..."></textarea>
+                </div>
+                @if (!string.IsNullOrEmpty(modalError))
+                {
+                    <div class="modal-error">@modalError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseEntityModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveEntity" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Add Relation Modal ─────────────────────────────────────────────── *@
+@if (showRelationModal)
+{
+    <div class="modal-backdrop" @onclick="CloseRelationModal">
+        <div class="modal-panel modal-sm" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Add Relation</h3>
+                <button class="modal-close" @onclick="CloseRelationModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Relation Type</label>
+                    <input type="text" @bind="relationType" class="form-control"
+                           placeholder="related_to, references, depends_on..." list="known-relation-types" />
+                    <datalist id="known-relation-types">
+                        <option value="related_to" />
+                        <option value="references" />
+                        <option value="depends_on" />
+                        <option value="contradicts" />
+                        <option value="supports" />
+                        <option value="part_of" />
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label>Target Entity</label>
+                    <input type="text" @bind="relationTargetSearch" @bind:event="oninput"
+                           class="form-control" placeholder="Search entity..." />
+                    <div class="entity-search-results">
+                        @foreach (var e in SearchEntitiesForRelation())
+                        {
+                            <div class="entity-search-item @(relationTargetId == e.Id ? "selected" : "")"
+                                 @onclick="() => SelectRelationTarget(e)">
+                                <span class="entity-type-pill sm">@e.EntityType</span>
+                                @e.Title
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" id="bidirectional" @bind="relationBidirectional" />
+                    <label for="bidirectional">Create reverse relation too</label>
+                </div>
+                @if (!string.IsNullOrEmpty(modalError))
+                {
+                    <div class="modal-error">@modalError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseRelationModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="AddRelation"
+                        disabled="@(relationTargetId == null || string.IsNullOrEmpty(relationType) || isSaving)">
+                    @(isSaving ? "Adding..." : "Add Relation")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Delete Confirmation Modal ──────────────────────────────────────── *@
+@if (showDeleteConfirm)
+{
+    <div class="modal-backdrop" @onclick="() => showDeleteConfirm = false">
+        <div class="modal-panel modal-sm" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Delete Entity</h3>
+                <button class="modal-close" @onclick="() => showDeleteConfirm = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <strong>@selectedEntity?.Title</strong>?</p>
+                <p class="delete-warning">This will also remove all incoming and outgoing relations.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteEntity" disabled="@isSaving">
+                    @(isSaving ? "Deleting..." : "Delete")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ── State ───────────────────────────────────────────────────────────
+    private string currentUserId = "";
+    private Guid? activeOrgId = null;
+    private string? activeScopeName = null;
+
+    private bool hasConnectionString = false;
+    private bool isLoadingEntities = false;
+    private bool isLoadingRelations = false;
+    private bool isSaving = false;
+
+    private List<KbEntity> allEntities = new();
+    private List<KbEntity> filteredEntities = new();
+    private Dictionary<string, int> entityTypeCounts = new();
+    private List<string> tagCloud = new();
+
+    private string? selectedType = null;
+    private string? selectedTag = null;
+    private string searchQuery = "";
+
+    private string? selectedEntityId = null;
+    private KbEntity? selectedEntity = null;
+    private List<KbRelation> relations = new();
+
+    private KbGraph? graphData = null;
+
+    // Modals
+    private bool showEntityModal = false;
+    private bool showRelationModal = false;
+    private bool showDeleteConfirm = false;
+    private string? modalError = null;
+    private string? statusMessage = null;
+    private bool isError = false;
+
+    // Graph floating window
+    private bool showGraph = false;
+    private double graphLeft = 80;
+    private double graphTop = 80;
+    private double graphWidth = 720;
+    private double graphHeight = 500;
+
+    // Entity form
+    private string? editEntityId = null;
+    private string editTitle = "";
+    private string editEntityType = "";
+    private string editTags = "";
+    private string editContent = "";
+
+    // Relation form
+    private string relationType = "related_to";
+    private string relationTargetSearch = "";
+    private string? relationTargetId = null;
+    private bool relationBidirectional = false;
+
+    // Cached connection string and scope prefix for the session
+    private string? _cs = null;
+    private string _scope = "";
+
+    // ── Lifecycle ───────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var appUser = await UserManager.GetUserAsync(authState.User);
+        if (appUser == null) return;
+        currentUserId = appUser.Id;
+
+        var activeId = await OrgService.GetActiveOrganizationIdAsync(currentUserId);
+        var userOrgs = await OrgService.GetUserOrganizationsAsync(currentUserId);
+        activeOrgId = userOrgs.Any(o => o.Id == activeId) ? activeId : null;
+        activeScopeName = activeOrgId.HasValue
+            ? (userOrgs.FirstOrDefault(o => o.Id == activeOrgId)?.Name ?? "Organization")
+            : null;
+
+        await CheckConnectionAndLoad();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // (Re-)attach the JS drag listener every time the graph window is rendered.
+        // This is a no-op if the element doesn't exist yet (graph hidden).
+        if (showGraph)
+        {
+            try { await JS.InvokeVoidAsync("KbGraphDrag.initDrag", "graph-float-win", "graph-float-header"); }
+            catch { }
+        }
+    }
+
+    private async Task CheckConnectionAndLoad()
+    {
+        _cs = await KbService.GetConnectionStringAsync(currentUserId, activeOrgId);
+        _scope = KbService.GetScopePrefix(currentUserId, activeOrgId);
+        hasConnectionString = !string.IsNullOrEmpty(_cs);
+        if (hasConnectionString) await LoadAll();
+    }
+
+    // ── Load ────────────────────────────────────────────────────────────
+    private async Task LoadAll()
+    {
+        if (string.IsNullOrEmpty(_cs)) return;
+        isLoadingEntities = true;
+        StatusClear();
+        try
+        {
+            await KbService.InitializeTablesAsync(_cs, _scope);
+            allEntities = await KbService.ListEntitiesAsync(_cs, _scope, null, null, 1000);
+            BuildBrowserData();
+            ApplyFilters();
+        }
+        catch (Exception ex) { SetStatus($"Error loading: {ex.Message}", error: true); }
+        finally { isLoadingEntities = false; }
+    }
+
+    private void BuildBrowserData()
+    {
+        entityTypeCounts = allEntities
+            .GroupBy(e => e.EntityType)
+            .ToDictionary(g => g.Key, g => g.Count());
+        tagCloud = allEntities
+            .SelectMany(e => e.Tags)
+            .GroupBy(t => t)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .Take(30)
+            .ToList();
+    }
+
+    private void ApplyFilters()
+    {
+        var result = allEntities.AsEnumerable();
+        if (selectedType != null)
+            result = result.Where(e => e.EntityType == selectedType);
+        if (selectedTag != null)
+            result = result.Where(e => e.Tags.Contains(selectedTag));
+        if (!string.IsNullOrEmpty(searchQuery))
+        {
+            var lower = searchQuery.ToLower();
+            result = result.Where(e =>
+                e.Title.ToLower().Contains(lower) ||
+                (e.Summary?.ToLower().Contains(lower) ?? false));
+        }
+        filteredEntities = result.OrderByDescending(e => e.UpdatedAt).ToList();
+    }
+
+    private async Task SelectEntity(string entityId)
+    {
+        selectedEntityId = entityId;
+        // Always fetch the full entity from service — the list cache (allEntities) has
+        // Content=null since ListEntitiesAsync doesn't load blob content.
+        if (!string.IsNullOrEmpty(_cs))
+            selectedEntity = await KbService.GetEntityAsync(_cs, _scope, entityId);
+        // Fallback to cache if service call fails (e.g. not yet initialized)
+        if (selectedEntity == null)
+            selectedEntity = allEntities.FirstOrDefault(e => e.Id == entityId);
+        await LoadRelationsAsync();
+        // Reload graph scoped to 2-hop neighbourhood of the newly selected entity.
+        // Fast because it fetches ~5-20 nodes instead of up to 200.
+        if (showGraph)
+            await LoadGraph();
+    }
+
+    private async Task LoadRelationsAsync()
+    {
+        if (selectedEntityId == null || string.IsNullOrEmpty(_cs)) return;
+        isLoadingRelations = true;
+        try { relations = await KbService.GetRelationsAsync(_cs, _scope, selectedEntityId, "both"); }
+        finally { isLoadingRelations = false; }
+    }
+
+    private async Task LoadGraph()
+    {
+        if (string.IsNullOrEmpty(_cs)) return;
+        try
+        {
+            if (!string.IsNullOrEmpty(selectedEntityId))
+            {
+                // 2-hop neighbourhood only — far fewer Table Storage reads
+                graphData = await KbService.GetNeighborhoodGraphAsync(_cs, _scope, selectedEntityId, depth: 2);
+            }
+            else
+            {
+                // No entity selected — show a compact overview (50 nodes max)
+                graphData = await KbService.GetGraphAsync(_cs, _scope, null, null, 50);
+            }
+        }
+        catch { /* graph is optional */ }
+    }
+
+    private async Task ToggleGraph()
+    {
+        showGraph = !showGraph;
+        if (showGraph && graphData == null)
+            await LoadGraph();
+    }
+
+    private async Task FitGraph()
+    {
+        try { await JS.InvokeVoidAsync("KnowledgeGraph.fitGraph", "kg-viewer"); }
+        catch { }
+    }
+
+    private async Task RefreshGraph()
+    {
+        // Explicitly reload graph data — this is the ONLY place where we
+        // intentionally replace graphData (new reference → triggers D3 rebuild).
+        await LoadGraph();
+    }
+
+    // ── Filters ─────────────────────────────────────────────────────────
+    private void FilterByType(string? type) { selectedType = type; selectedTag = null; ApplyFilters(); }
+    private void FilterByTag(string tag) { selectedTag = selectedTag == tag ? null : tag; ApplyFilters(); }
+    private void HandleSearchKey(KeyboardEventArgs _) => ApplyFilters();
+    private void ClearSearch() { searchQuery = ""; ApplyFilters(); }
+
+    // ── Entity CRUD ─────────────────────────────────────────────────────
+    private void OpenCreateModal()
+    {
+        editEntityId = null; editTitle = ""; editEntityType = ""; editTags = ""; editContent = "";
+        modalError = null; showEntityModal = true;
+    }
+
+    private void OpenEditModal()
+    {
+        if (selectedEntity == null) return;
+        editEntityId = selectedEntity.Id;
+        editTitle = selectedEntity.Title;
+        editEntityType = selectedEntity.EntityType;
+        editTags = string.Join(", ", selectedEntity.Tags);
+        editContent = selectedEntity.Content ?? "";
+        modalError = null; showEntityModal = true;
+    }
+
+    private void CloseEntityModal() { showEntityModal = false; modalError = null; }
+
+    private async Task SaveEntity()
+    {
+        if (string.IsNullOrWhiteSpace(editTitle)) { modalError = "Title is required."; return; }
+        if (string.IsNullOrEmpty(_cs)) { modalError = "No connection string configured."; return; }
+        isSaving = true; modalError = null;
+        try
+        {
+            var tags = editTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            var type = string.IsNullOrWhiteSpace(editEntityType) ? "Note" : editEntityType.Trim();
+
+            if (editEntityId == null)
+            {
+                var entity = await KbService.AddEntityAsync(_cs, _scope,
+                    editTitle.Trim(), editContent, type, tags, null, currentUserId);
+                allEntities.Insert(0, entity);
+                SetStatus($"✅ Entity '{entity.Title}' created.");
+                CloseEntityModal();
+                await SelectEntity(entity.Id);
+            }
+            else
+            {
+                var updated = await KbService.UpdateEntityAsync(_cs, _scope,
+                    editEntityId, editTitle.Trim(), editContent, type, tags, null, currentUserId);
+                var idx = allEntities.FindIndex(e => e.Id == editEntityId);
+                if (idx >= 0) allEntities[idx] = updated;
+                selectedEntity = updated;
+                SetStatus($"✅ Entity '{updated.Title}' updated.");
+                CloseEntityModal();
+            }
+
+            BuildBrowserData();
+            ApplyFilters();
+        }
+        catch (Exception ex) { modalError = $"Save failed: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private void ConfirmDelete() { showDeleteConfirm = true; }
+
+    private async Task DeleteEntity()
+    {
+        if (selectedEntity == null || string.IsNullOrEmpty(_cs)) return;
+        isSaving = true;
+        try
+        {
+            await KbService.DeleteEntityAsync(_cs, _scope, selectedEntity.Id);
+            allEntities.RemoveAll(e => e.Id == selectedEntity.Id);
+            BuildBrowserData(); ApplyFilters();
+            SetStatus($"🗑️ Entity '{selectedEntity.Title}' deleted.");
+            selectedEntity = null; selectedEntityId = null;
+            relations.Clear(); graphData = null;
+        }
+        catch (Exception ex) { SetStatus($"Delete failed: {ex.Message}", error: true); }
+        finally { isSaving = false; showDeleteConfirm = false; }
+    }
+
+    // ── Relations ────────────────────────────────────────────────────────
+    private void OpenAddRelationModal()
+    {
+        relationType = "related_to"; relationTargetSearch = ""; relationTargetId = null;
+        relationBidirectional = false; modalError = null; showRelationModal = true;
+    }
+
+    private void CloseRelationModal() { showRelationModal = false; modalError = null; }
+
+    private IEnumerable<KbEntity> SearchEntitiesForRelation()
+    {
+        if (string.IsNullOrWhiteSpace(relationTargetSearch)) return Enumerable.Empty<KbEntity>();
+        var lower = relationTargetSearch.ToLower();
+        return allEntities
+            .Where(e => e.Id != selectedEntityId && e.Title.ToLower().Contains(lower))
+            .Take(8);
+    }
+
+    private void SelectRelationTarget(KbEntity entity)
+    {
+        relationTargetId = entity.Id;
+        relationTargetSearch = entity.Title;
+    }
+
+    private async Task AddRelation()
+    {
+        if (selectedEntityId == null || relationTargetId == null || string.IsNullOrEmpty(_cs)) return;
+        isSaving = true; modalError = null;
+        try
+        {
+            await KbService.AddRelationAsync(_cs, _scope,
+                selectedEntityId, relationTargetId, relationType.Trim(),
+                relationBidirectional, null, currentUserId);
+            SetStatus("✅ Relation added.");
+            CloseRelationModal();
+            await LoadRelationsAsync();
+            await LoadGraph();
+        }
+        catch (Exception ex) { modalError = $"Failed: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task RemoveRelationItem(KbRelation rel)
+    {
+        if (string.IsNullOrEmpty(_cs)) return;
+        try
+        {
+            await KbService.RemoveRelationAsync(_cs, _scope, rel.SourceId, rel.TargetId, rel.RelationType);
+            relations.RemoveAll(r => r.SourceId == rel.SourceId && r.TargetId == rel.TargetId && r.RelationType == rel.RelationType);
+            await LoadGraph();
+        }
+        catch (Exception ex) { SetStatus($"Remove failed: {ex.Message}", error: true); }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    private string GetEntityTitle(string id)
+        => allEntities.FirstOrDefault(e => e.Id == id)?.Title ?? id[..Math.Min(id.Length, 8)];
+
+    private static readonly MarkdownPipeline _mdPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()   // tables, strikethrough, task lists, figures, footers, citations, math, abbreviations
+        .Build();
+
+    private string RenderContent(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return "<em style='color:#888'>No content yet.</em>";
+        return Markdown.ToHtml(markdown, _mdPipeline);
+    }
+
+    private void SetStatus(string msg, bool error = false) { statusMessage = msg; isError = error; }
+    private void StatusClear() { statusMessage = null; isError = false; }
+}

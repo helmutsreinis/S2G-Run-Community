@@ -1,0 +1,628 @@
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic.Nodes
+@using System.Text.Json
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<div class="remote-editor">
+    <!-- Client ID Section -->
+    <div class="mb-3">
+        <label class="form-label">🔑 Client ID</label>
+        <div class="input-group">
+            <input type="text" class="form-control font-monospace" value="@config.ClientId" readonly />
+            <button type="button" class="btn btn-outline-secondary" @onclick="CopyClientId" title="Copy to clipboard">
+                📋
+            </button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="RegenerateClientId" title="Generate new ID">
+                🔄
+            </button>
+        </div>
+        <small class="text-muted">Unique identifier for the remote client. Include this in all requests.</small>
+    </div>
+
+    <!-- Command to Queue -->
+    <div class="mb-3">
+        <label class="form-label">⚡ Command to Queue</label>
+        <input type="text" class="form-control" @bind="config.Command" 
+               placeholder="e.g., systeminfo, df -h, Get-Process (supports {{placeholders}})" />
+        <small class="text-muted">Shell command to execute on the remote machine. Leave empty to just check status.</small>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-6">
+            <label class="form-label">⏱️ Timeout (seconds)</label>
+            <input type="number" class="form-control" @bind="config.TimeoutSeconds" min="5" max="3600" />
+            <small class="text-muted">Max execution time</small>
+        </div>
+        <div class="col-6">
+            <label class="form-label">🗑️ Expiration (minutes)</label>
+            <input type="number" class="form-control" @bind="config.ExpirationMinutes" min="1" max="1440" />
+            <small class="text-muted">Queue expiration</small>
+        </div>
+    </div>
+
+    <!-- Source Listener (required for multi-listener workflows) -->
+    @if (UpstreamListeners != null && UpstreamListeners.Count > 0)
+    {
+        <div class="mb-3">
+            <label class="form-label">🔗 Source Listener</label>
+            <select class="form-select" @bind="sourceListenerIdString">
+                <option value="">All listeners (default)</option>
+                @foreach (var listener in UpstreamListeners)
+                {
+                    <option value="@listener.Id.ToString()">@listener.Name</option>
+                }
+            </select>
+            <small class="text-muted">Choose which listener this node receives requests from. Required when workflow has multiple listeners.</small>
+        </div>
+    }
+
+    @if (AvailablePlaceholders != null && AvailablePlaceholders.Any())
+    {
+        <PlaceholderList Placeholders="@AvailablePlaceholders" />
+    }
+
+    <!-- Curl Examples (Collapsible) -->
+    <details class="mb-3">
+        <summary class="curl-summary">📡 Curl Examples</summary>
+        <div class="curl-examples">
+            <p class="text-muted small mb-2">Replace <code>&lt;LISTENER-ID&gt;</code> with your HttpListener node ID:</p>
+            
+            <div class="curl-block">
+                <label>Fetch Commands:</label>
+                <code class="d-block">curl -X POST "https://listener.s2g.run/api?nodeId=&lt;LISTENER-ID&gt;" -H "Content-Type: application/json" -d '{"action":"fetch","clientId":"@config.ClientId"}'</code>
+            </div>
+            
+            <div class="curl-block">
+                <label>Submit Output:</label>
+                <code class="d-block">curl -X POST "https://listener.s2g.run/api?nodeId=&lt;LISTENER-ID&gt;" -H "Content-Type: application/json" -d '{"action":"submit","clientId":"@config.ClientId","executionId":"&lt;ID&gt;","output":"result","exitCode":0,"hostname":"PC1","cpu":25.5,"memory":62.0}'</code>
+            </div>
+        </div>
+    </details>
+
+    <!-- Quick Deploy One-Liners -->
+    <details class="mb-3">
+        <summary class="deploy-summary">🚀 Quick Deploy</summary>
+        <div class="deploy-section">
+            @if (UpstreamListeners != null && UpstreamListeners.Count > 0)
+            {
+                <div class="mb-2">
+                    <label class="small text-muted">Listener:</label>
+                    <select class="form-select form-select-sm" @bind="selectedDeployListenerId">
+                        @foreach (var listener in UpstreamListeners)
+                        {
+                            <option value="@listener.Id.ToString()">@listener.Name (@listener.Id.ToString().Substring(0, 8))...</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="deploy-block">
+                    <label>🐧 Linux / macOS:</label>
+                    <div class="deploy-code-row">
+                        <code class="deploy-code">curl -sL "@(GetDeployUrl("python"))" -o remote_client.py && python3 remote_client.py</code>
+                        <button type="button" class="btn btn-sm btn-outline-secondary deploy-copy" @onclick="CopyLinuxOneLiner" title="Copy">📋</button>
+                    </div>
+                </div>
+
+                <div class="deploy-block">
+                    <label>🪟 Windows (PowerShell):</label>
+                    <div class="deploy-code-row">
+                        <code class="deploy-code">iwr "@(GetDeployUrl("powershell"))" -UseBasicParsing -OutFile RemoteClient.ps1; .\RemoteClient.ps1</code>
+                        <button type="button" class="btn btn-sm btn-outline-secondary deploy-copy" @onclick="CopyWindowsOneLiner" title="Copy">📋</button>
+                    </div>
+                </div>
+
+                <small class="text-muted d-block mt-2">Downloads a pre-configured client script and starts it immediately.</small>
+            }
+            else
+            {
+                <div class="text-muted small">
+                    ⚠️ Add an <strong>HttpListener</strong> node to your workflow first — the deploy command needs a listener ID to route traffic.
+                </div>
+            }
+        </div>
+    </details>
+
+    <!-- Client Status -->
+    <div class="status-section mb-3">
+        <h6>📊 Client Status</h6>
+        <div class="status-grid">
+            @if (clientMetadata != null)
+            {
+                <div class="status-item">
+                    <span class="status-label">Hostname</span>
+                    <span class="status-value">@(string.IsNullOrEmpty(clientMetadata.Hostname) ? "—" : clientMetadata.Hostname)</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">OS</span>
+                    <span class="status-value">@(string.IsNullOrEmpty(clientMetadata.OS) ? "—" : clientMetadata.OS)</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">CPU</span>
+                    <span class="status-value">@(clientMetadata.CpuUsage > 0 ? $"{clientMetadata.CpuUsage:F1}%" : "—")</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Memory</span>
+                    <span class="status-value">@(clientMetadata.MemoryUsage > 0 ? $"{clientMetadata.MemoryUsage:F1}%" : "—")</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Last Seen</span>
+                    <span class="status-value @(IsOnline ? "online" : "offline")">
+                        @if (IsOnline)
+                        {
+                            <text>🟢 @clientMetadata.LastSeen.ToString("HH:mm:ss")</text>
+                        }
+                        else if (clientMetadata.LastSeen > DateTime.MinValue)
+                        {
+                            <text>🔴 @clientMetadata.LastSeen.ToString("yyyy-MM-dd HH:mm")</text>
+                        }
+                        else
+                        {
+                            <text>⚪ Never</text>
+                        }
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Queued</span>
+                    <span class="status-value">@queuedCount</span>
+                </div>
+            }
+            else
+            {
+                <div class="status-item full-width">
+                    <span class="text-muted">No client connected yet. Run the client script to connect.</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Performance History Chart -->
+    @if (clientMetadata?.MetricsHistory?.Count > 1)
+    {
+        <details class="mb-3" open>
+            <summary class="chart-summary">📈 Performance History</summary>
+            <div class="chart-container">
+                <svg viewBox="0 0 400 150" class="metrics-chart">
+                    <!-- Grid lines -->
+                    <line x1="40" y1="10" x2="40" y2="120" stroke="#333" stroke-width="1"/>
+                    <line x1="40" y1="120" x2="390" y2="120" stroke="#333" stroke-width="1"/>
+                    <line x1="40" y1="65" x2="390" y2="65" stroke="#333" stroke-width="0.5" stroke-dasharray="4"/>
+                    <line x1="40" y1="10" x2="390" y2="10" stroke="#333" stroke-width="0.5" stroke-dasharray="4"/>
+                    
+                    <!-- Y-axis labels -->
+                    <text x="35" y="15" class="axis-label">100%</text>
+                    <text x="35" y="68" class="axis-label">50%</text>
+                    <text x="35" y="123" class="axis-label">0%</text>
+                    
+                    <!-- CPU line (cyan) -->
+                    <polyline fill="none" stroke="#00bcd4" stroke-width="2" points="@GetChartPoints(m => m.CpuUsage)"/>
+                    
+                    <!-- Memory line (purple) -->
+                    <polyline fill="none" stroke="#9c27b0" stroke-width="2" points="@GetChartPoints(m => m.MemoryUsage)"/>
+                    
+                    <!-- Disk line (orange) -->
+                    <polyline fill="none" stroke="#ff9800" stroke-width="2" points="@GetChartPoints(m => m.DiskUsage)"/>
+                </svg>
+                
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-color" style="background:#00bcd4"></span> CPU</span>
+                    <span class="legend-item"><span class="legend-color" style="background:#9c27b0"></span> Memory</span>
+                    <span class="legend-item"><span class="legend-color" style="background:#ff9800"></span> Disk</span>
+                    <span class="legend-time">@GetTimeRange()</span>
+                </div>
+            </div>
+        </details>
+    }
+
+    <!-- Output Parameters -->
+    <div class="output-preview">
+        <h6>📤 Output Parameters</h6>
+        <ul class="small text-muted mb-0">
+            <li><code>Response</code> - JSON response for HttpResponse node</li>
+            <li><code>CommandOutput</code> - Executed command output</li>
+            <li><code>ExitCode</code> - Command exit code (0 = success)</li>
+            <li><code>Hostname</code>, <code>OS</code>, <code>CpuUsage</code>, <code>MemoryUsage</code> - System info</li>
+            <li><code>IsOnline</code>, <code>LastSeen</code> - Connection status</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+    .remote-editor {
+        padding: 0.5rem 0;
+    }
+
+    .remote-editor .form-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .remote-editor .text-muted,
+    .remote-editor small.text-muted {
+        color: var(--text-secondary, #b0b0b0) !important;
+    }
+
+    .remote-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.85em;
+    }
+
+    .curl-summary {
+        cursor: pointer;
+        color: var(--accent-color, #00a8a8);
+        font-weight: 500;
+        padding: 8px 0;
+    }
+
+    .curl-examples {
+        padding: 12px;
+        background: var(--background-dark, #1a1a2e);
+        border-radius: 6px;
+        margin-top: 8px;
+    }
+
+    .curl-block {
+        margin-bottom: 12px;
+    }
+
+    .curl-block label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+
+    .curl-block code {
+        display: block;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+        word-break: break-all;
+        font-size: 0.75rem;
+    }
+
+    .status-section {
+        padding: 12px;
+        background: var(--background-dark, #1a1a2e);
+        border-radius: 6px;
+    }
+
+    .status-section h6 {
+        margin-bottom: 12px;
+        color: var(--text-primary);
+    }
+
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+
+    .status-item {
+        display: flex;
+        flex-direction: column;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+    }
+
+    .status-item.full-width {
+        grid-column: 1 / -1;
+    }
+
+    .status-label {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+    }
+
+    .status-value {
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        font-weight: 500;
+    }
+
+    .status-value.online {
+        color: #4caf50;
+    }
+
+    .status-value.offline {
+        color: #f44336;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview h6 {
+        margin-bottom: 8px;
+        color: var(--accent-color);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+    }
+
+    .output-preview li {
+        color: var(--text-secondary, #b0b0b0);
+    }
+
+    .chart-summary {
+        cursor: pointer;
+        color: var(--accent-color, #00a8a8);
+        font-weight: 500;
+        padding: 8px 0;
+    }
+
+    .chart-container {
+        padding: 12px;
+        background: var(--background-dark, #1a1a2e);
+        border-radius: 6px;
+        margin-top: 8px;
+    }
+
+    .metrics-chart {
+        width: 100%;
+        height: 150px;
+    }
+
+    .axis-label {
+        font-size: 8px;
+        fill: #666;
+        text-anchor: end;
+    }
+
+    .chart-legend {
+        display: flex;
+        gap: 16px;
+        margin-top: 8px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .legend-color {
+        width: 12px;
+        height: 3px;
+        border-radius: 1px;
+    }
+
+    .legend-time {
+        margin-left: auto;
+        opacity: 0.7;
+    }
+
+    .deploy-summary {
+        cursor: pointer;
+        color: #4caf50;
+        font-weight: 500;
+        padding: 8px 0;
+    }
+
+    .deploy-section {
+        padding: 12px;
+        background: var(--background-dark, #1a1a2e);
+        border-radius: 6px;
+        margin-top: 8px;
+    }
+
+    .deploy-block {
+        margin-bottom: 10px;
+    }
+
+    .deploy-block label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+
+    .deploy-code-row {
+        display: flex;
+        align-items: stretch;
+        gap: 4px;
+    }
+
+    .deploy-code {
+        flex: 1;
+        display: block;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+        word-break: break-all;
+        font-size: 0.72rem;
+        line-height: 1.4;
+        color: #4caf50;
+    }
+
+    .deploy-copy {
+        flex-shrink: 0;
+        align-self: center;
+    }
+</style>
+
+@code {
+    [Parameter] public WorkflowNode? Node { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    /// <summary>List of upstream listener nodes: (Id, Name)</summary>
+    [Parameter] public List<(Guid Id, string Name)>? UpstreamListeners { get; set; }
+
+    private RemoteNodeConfig config = new();
+    private RemoteClientMetadata? clientMetadata;
+    private int queuedCount = 0;
+    private bool IsOnline => clientMetadata != null && (DateTime.UtcNow - clientMetadata.LastSeen).TotalMinutes < 2;
+    private System.Threading.Timer? _refreshTimer;
+    private string selectedDeployListenerId = "";
+    
+    // Binding helper for SourceListenerId dropdown
+    private string sourceListenerIdString
+    {
+        get => config.SourceListenerId?.ToString() ?? "";
+        set
+        {
+            if (Guid.TryParse(value, out var id))
+                config.SourceListenerId = id;
+            else
+                config.SourceListenerId = null;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Node != null && !string.IsNullOrEmpty(Node.Configuration))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<RemoteNodeConfig>(Node.Configuration) ?? new();
+            }
+            catch
+            {
+                config = new();
+            }
+        }
+
+        // Auto-generate ClientId if empty
+        if (string.IsNullOrEmpty(config.ClientId))
+        {
+            config.ClientId = Guid.NewGuid().ToString();
+        }
+
+        RefreshClientStatus();
+
+        // Auto-select first listener for deploy one-liner
+        if (string.IsNullOrEmpty(selectedDeployListenerId) && UpstreamListeners != null && UpstreamListeners.Count > 0)
+        {
+            selectedDeployListenerId = UpstreamListeners[0].Id.ToString();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // Start timer to refresh client status every 5 seconds
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            RefreshClientStatus();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private void RefreshClientStatus()
+    {
+        if (Node != null && !string.IsNullOrEmpty(config.ClientId))
+        {
+            clientMetadata = RemoteNode.GetClientStatus(Node.Id, config.ClientId);
+            queuedCount = RemoteNode.GetQueuedCommandCount(Node.Id);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await SaveConfiguration();
+    }
+
+    private async Task SaveConfiguration()
+    {
+        var json = JsonSerializer.Serialize(config);
+        if (Node != null && Node.Configuration != json)
+        {
+            Node.Configuration = json;
+            await OnConfigurationChanged.InvokeAsync(json);
+        }
+    }
+
+    private async Task CopyClientId()
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", config.ClientId ?? "");
+    }
+
+    private async Task RegenerateClientId()
+    {
+        config.ClientId = Guid.NewGuid().ToString();
+        await SaveConfiguration();
+    }
+
+    private string GetChartPoints(Func<MetricsSample, double> valueSelector)
+    {
+        if (clientMetadata?.MetricsHistory == null || clientMetadata.MetricsHistory.Count < 2)
+            return "";
+
+        var samples = clientMetadata.MetricsHistory;
+        var points = new List<string>();
+        var chartWidth = 350.0; // 390 - 40 (left margin)
+        var chartHeight = 110.0; // 120 - 10 (top margin)
+        var xOffset = 40.0;
+        var yOffset = 10.0;
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            var x = xOffset + (i * chartWidth / (samples.Count - 1));
+            var value = Math.Min(100, Math.Max(0, valueSelector(samples[i])));
+            var y = yOffset + chartHeight - (value / 100.0 * chartHeight);
+            points.Add($"{x:F1},{y:F1}");
+        }
+
+        return string.Join(" ", points);
+    }
+
+    private string GetTimeRange()
+    {
+        if (clientMetadata?.MetricsHistory == null || clientMetadata.MetricsHistory.Count < 2)
+            return "";
+
+        var first = clientMetadata.MetricsHistory.First().Timestamp;
+        var last = clientMetadata.MetricsHistory.Last().Timestamp;
+        var duration = last - first;
+
+        if (duration.TotalHours >= 1)
+            return $"Last {duration.TotalHours:F1}h";
+        return $"Last {duration.TotalMinutes:F0}m";
+    }
+
+    private string GetDeployUrl(string type)
+    {
+        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
+        return $"{baseUri}/api/remote-client/{type}?listenerId={selectedDeployListenerId}&clientId={config.ClientId}";
+    }
+
+    private async Task CopyLinuxOneLiner()
+    {
+        var url = GetDeployUrl("python");
+        var cmd = $"curl -sL \"{url}\" -o remote_client.py && python3 remote_client.py";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", cmd);
+    }
+
+    private async Task CopyWindowsOneLiner()
+    {
+        var url = GetDeployUrl("powershell");
+        var cmd = $"iwr \"{url}\" -UseBasicParsing -OutFile RemoteClient.ps1; .\\RemoteClient.ps1";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", cmd);
+    }
+
+    public class RemoteNodeConfig
+    {
+        public string? ClientId { get; set; }
+        public string? Command { get; set; }
+        public int TimeoutSeconds { get; set; } = 60;
+        public int ExpirationMinutes { get; set; } = 5;
+        public Guid? SourceListenerId { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+

@@ -1,0 +1,104 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>Conn Str:</label>
+        <input type="password" value="@Config.ConnectionString" @onchange="OnConnChanged" class="form-control" placeholder="mongodb://localhost:27017" />
+    </div>
+    <div class="node-property">
+        <label>Database:</label>
+        <input type="text" value="@Config.Database" @onchange="OnDbChanged" class="form-control" placeholder="myDatabase" />
+    </div>
+    <div class="node-property">
+        <label>Collection:</label>
+        <input type="text" value="@Config.Collection" @onchange="OnCollChanged" class="form-control" placeholder="myCollection" />
+    </div>
+    <div class="node-property">
+        <label>Operation:</label>
+        <select value="@Config.Operation" @onchange="OnOpChanged" class="form-control">
+            <option value="find">Find</option>
+            <option value="insert">Insert</option>
+            <option value="update">Update</option>
+            <option value="delete">Delete</option>
+        </select>
+    </div>
+    @if (Config.Operation == "find")
+    {
+        <div class="node-property">
+            <label>Filter (JSON):</label>
+            <textarea value="@Config.Filter" @onchange="OnFilterChanged" class="form-control" rows="3" placeholder='{ "field": "value" }'></textarea>
+        </div>
+    }
+    @if (Config.Operation == "insert" || Config.Operation == "update")
+    {
+        <div class="node-property">
+            <label>Document (JSON):</label>
+            <textarea value="@Config.Document" @onchange="OnDocChanged" class="form-control" rows="3" placeholder='{ "key": "val" }'></textarea>
+        </div>
+    }
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private MongoDbConfig Config { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<MongoDbConfig>(Configuration) ?? new();
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnConnChanged(ChangeEventArgs e)
+    {
+        Config.ConnectionString = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnDbChanged(ChangeEventArgs e)
+    {
+        Config.Database = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnCollChanged(ChangeEventArgs e)
+    {
+        Config.Collection = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnOpChanged(ChangeEventArgs e)
+    {
+        Config.Operation = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnFilterChanged(ChangeEventArgs e)
+    {
+        Config.Filter = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnDocChanged(ChangeEventArgs e)
+    {
+        Config.Document = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+}

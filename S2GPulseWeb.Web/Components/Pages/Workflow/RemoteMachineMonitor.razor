@@ -1,0 +1,1022 @@
+@using S2GPulseWeb.Web.Logic.Nodes
+@using S2GPulseWeb.Web.Data
+@using System.Text.Json
+@implements IDisposable
+
+<div class="remote-machine-monitor">
+    <!-- Header -->
+    <div class="monitor-header">
+        <div class="client-info">
+            @if (clientMetadata != null)
+            {
+                <span class="status-badge @(IsOnline ? "online" : "offline")">
+                    @(IsOnline ? "🟢 Online" : "🔴 Offline")
+                </span>
+                <span class="hostname">@(clientMetadata.Hostname)</span>
+                <span class="os-badge">@(clientMetadata.OS)</span>
+            }
+            else
+            {
+                <span class="status-badge offline">⚪ Not Connected</span>
+            }
+        </div>
+        <button class="btn btn-sm btn-outline-primary" @onclick="Refresh">🔄 Refresh</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="monitor-tabs">
+        <button class="tab-btn @(activeTab == "commands" ? "active" : "")" @onclick="@(() => activeTab = "commands")">
+            ⚡ Commands
+        </button>
+        <button class="tab-btn @(activeTab == "performance" ? "active" : "")" @onclick="@(() => activeTab = "performance")">
+            📈 Performance
+        </button>
+        <button class="tab-btn @(activeTab == "reports" ? "active" : "")" @onclick="@(() => activeTab = "reports")">
+            📊 Reports @(HasCustomReports ? $"({CustomReportsCount})" : "")
+        </button>
+    </div>
+
+    <!-- Commands Tab -->
+    @if (activeTab == "commands")
+    {
+        <div class="tab-content">
+            <!-- Queue New Command -->
+            <div class="command-input-section">
+                <h6>Queue New Command</h6>
+                <div class="input-row">
+                    <input type="text" class="form-control" @bind="newCommand" 
+                           placeholder="Enter command to execute on remote machine..." />
+                    <input type="number" class="form-control timeout-input" @bind="newTimeout" 
+                           min="5" max="3600" title="Timeout in seconds" />
+                    <button class="btn btn-primary" @onclick="QueueCommand" disabled="@string.IsNullOrWhiteSpace(newCommand)">
+                        ▶ Queue
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pending Commands -->
+            <div class="pending-commands-section">
+                <h6>Pending Commands <span class="badge">@pendingCommands.Count</span></h6>
+                @if (pendingCommands.Any())
+                {
+                    <div class="command-list">
+                        @foreach (var cmd in pendingCommands)
+                        {
+                            <div class="command-item @(cmd.Dispatched ? "dispatched" : "pending")">
+                                <div class="command-info">
+                                    <code class="command-text">@cmd.Command</code>
+                                    <div class="command-meta">
+                                        <span title="Execution ID">🔑 @cmd.ExecutionId.ToString().Substring(0, 8)...</span>
+                                        <span title="Timeout">⏱️ @cmd.TimeoutSeconds s</span>
+                                        <span title="Expires">🗑️ @cmd.ExpiresAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                                        @if (cmd.Dispatched)
+                                        {
+                                            <span class="dispatched-badge">✓ Dispatched</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No pending commands</p>
+                        <small>Queue a command above to send it to the remote machine</small>
+                    </div>
+                }
+            </div>
+
+            <!-- Recent Results -->
+            <div class="results-section">
+                <h6>Recent Results</h6>
+                @if (completedCommands.Any())
+                {
+                    <div class="command-list results-list">
+                        @foreach (var cmd in completedCommands.OrderByDescending(c => c.CompletedAt))
+                        {
+                            var isExpanded = expandedOutputId == cmd.ExecutionId;
+                            <div class="command-item completed @(cmd.ExitCode == 0 ? "success" : "error")">
+                                <div class="command-header" @onclick="@(() => ToggleOutput(cmd.ExecutionId))">
+                                    <code class="command-text">@cmd.Command</code>
+                                    <div class="command-meta">
+                                        <span class="exit-badge @(cmd.ExitCode == 0 ? "success" : "error")">
+                                            Exit: @cmd.ExitCode
+                                        </span>
+                                        <span>@cmd.CompletedAt?.ToLocalTime().ToString("HH:mm:ss")</span>
+                                        @if (!string.IsNullOrEmpty(cmd.Output))
+                                        {
+                                            <span class="output-size">@(cmd.Output.Length) chars</span>
+                                            <span class="expand-btn">@(isExpanded ? "▼" : "▶") Output</span>
+                                        }
+                                    </div>
+                                </div>
+                                @if (isExpanded && !string.IsNullOrEmpty(cmd.Output))
+                                {
+                                    <div class="command-output-container">
+                                        <pre class="command-output-full">@cmd.Output</pre>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state small">
+                        <p>No completed commands yet</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Performance Tab -->
+    @if (activeTab == "performance")
+    {
+        <div class="tab-content">
+            <!-- Current Metrics -->
+            <div class="current-metrics">
+                <div class="metric-card">
+                    <span class="metric-label">CPU</span>
+                    <span class="metric-value cpu">@(clientMetadata?.CpuUsage.ToString("F1") ?? "—")%</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">Memory</span>
+                    <span class="metric-value memory">@(clientMetadata?.MemoryUsage.ToString("F1") ?? "—")%</span>
+                </div>
+                <div class="metric-card disk-card" @onclick="() => showDiskBreakdown = !showDiskBreakdown" style="cursor: pointer;">
+                    <span class="metric-label">Disk @(HasDiskBreakdown ? "▾" : "")</span>
+                    <span class="metric-value disk">@(clientMetadata?.DiskUsage.ToString("F1") ?? "—")%</span>
+                    @if (showDiskBreakdown && HasDiskBreakdown)
+                    {
+                        <div class="disk-breakdown" @onclick:stopPropagation="true">
+                            @foreach (var disk in ParseDiskBreakdown())
+                            {
+                                <div class="disk-item">
+                                    <div class="disk-header">
+                                        <span class="disk-drive">@disk.Drive</span>
+                                        <span class="disk-usage">@disk.UsedPercent.ToString("F1")% (@disk.UsedGB GB / @disk.TotalGB GB)</span>
+                                    </div>
+                                    <div class="disk-bar">
+                                        <div class="disk-bar-fill" style="width: @(Math.Min(disk.UsedPercent, 100))%; background-color: @GetDiskColor(disk.UsedPercent);"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">Last Seen</span>
+                    <span class="metric-value">@(clientMetadata?.LastSeen.ToLocalTime().ToString("HH:mm:ss") ?? "—")</span>
+                </div>
+            </div>
+
+            <!-- Performance Chart -->
+            <div class="chart-section">
+                <h6>Performance History (Last 1 Hour)</h6>
+                @if (metricsHistory.Count > 1)
+                {
+                    <svg viewBox="0 0 600 200" class="performance-chart">
+                        <!-- Grid -->
+                        <line x1="50" y1="10" x2="50" y2="170" stroke="#333" stroke-width="1"/>
+                        <line x1="50" y1="170" x2="590" y2="170" stroke="#333" stroke-width="1"/>
+                        <line x1="50" y1="90" x2="590" y2="90" stroke="#333" stroke-width="0.5" stroke-dasharray="4"/>
+                        <line x1="50" y1="10" x2="590" y2="10" stroke="#333" stroke-width="0.5" stroke-dasharray="4"/>
+                        
+                        <!-- Y-axis labels -->
+                        <text x="45" y="15" class="axis-label">100%</text>
+                        <text x="45" y="93" class="axis-label">50%</text>
+                        <text x="45" y="173" class="axis-label">0%</text>
+                        
+                        <!-- CPU line -->
+                        <polyline fill="none" stroke="#00bcd4" stroke-width="2" points="@GetChartPoints(m => m.CpuUsage)"/>
+                        
+                        <!-- Memory line -->
+                        <polyline fill="none" stroke="#9c27b0" stroke-width="2" points="@GetChartPoints(m => m.MemoryUsage)"/>
+                        
+                        <!-- Disk line -->
+                        <polyline fill="none" stroke="#ff9800" stroke-width="2" points="@GetChartPoints(m => m.DiskUsage)"/>
+                    </svg>
+                    
+                    <div class="chart-legend">
+                        <span class="legend-item"><span class="legend-dot cpu"></span> CPU</span>
+                        <span class="legend-item"><span class="legend-dot memory"></span> Memory</span>
+                        <span class="legend-item"><span class="legend-dot disk"></span> Disk</span>
+                        <span class="time-range">@GetTimeRange()</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>Not enough data for chart</p>
+                        <small>Performance history will appear as the client reports metrics</small>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Reports Tab -->
+    @if (activeTab == "reports")
+    {
+        <div class="tab-content">
+            <!-- Add New Report Section -->
+            <div class="add-report-section">
+                <h6>Add Custom Report</h6>
+                <div class="report-form">
+                    <input type="text" class="form-control" @bind="newReportName" 
+                           placeholder="Report name (e.g., Get-Users)" />
+                    <input type="number" class="form-control interval-input" @bind="newReportInterval" 
+                           min="30" max="3600" title="Run every N seconds" />
+                    <span class="interval-label">sec</span>
+                </div>
+                <textarea class="form-control script-input" @bind="newReportScript" rows="3"
+                          placeholder="Script must output JSON array. Windows: PowerShell (Get-LocalUser | ConvertTo-Json). Linux: bash (cat /etc/passwd | jq -R -s -c 'split(&quot;\n&quot;)')"></textarea>
+                <button class="btn btn-primary" @onclick="AddReport" 
+                        disabled="@(string.IsNullOrWhiteSpace(newReportName) || string.IsNullOrWhiteSpace(newReportScript))">
+                    ➕ Add Report
+                </button>
+            </div>
+
+            <!-- Reports List -->
+            @if (customReports.Any())
+            {
+                <div class="reports-list-section">
+                    <h6>Custom Reports <span class="badge">@customReports.Count</span></h6>
+                    
+                    <!-- Report Selector -->
+                    <div class="report-selector">
+                        <select class="form-control" @bind="selectedReportName">
+                            <option value="">-- Select a report --</option>
+                            @foreach (var report in customReports)
+                            {
+                                <option value="@report.Name">@report.Name @(report.Enabled ? "" : "(disabled)")</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Selected Report Details -->
+                    @if (!string.IsNullOrEmpty(selectedReportName))
+                    {
+                        var selectedReport = customReports.FirstOrDefault(r => r.Name == selectedReportName);
+                        if (selectedReport != null)
+                        {
+                            <div class="report-details">
+                                <div class="report-header">
+                                    <span class="report-name">@selectedReport.Name</span>
+                                    <span class="report-status @(selectedReport.Enabled ? "enabled" : "disabled")">
+                                        @(selectedReport.Enabled ? "Enabled" : "Disabled")
+                                    </span>
+                                    <span class="report-updated">Last: @(selectedReport.LastUpdated?.ToLocalTime().ToString("HH:mm:ss") ?? "Never")</span>
+                                    <div class="report-actions">
+                                        <button class="btn btn-sm btn-outline" @onclick="() => ToggleReport(selectedReport.Name)" title="Toggle enabled">
+                                            @(selectedReport.Enabled ? "⏸️" : "▶️")
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteReport(selectedReport.Name)" title="Delete">
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(selectedReport.Error))
+                                {
+                                    <div class="report-error">
+                                        ⚠️ @selectedReport.Error
+                                    </div>
+                                }
+
+                                @if (selectedReport.Data != null && selectedReport.Data.Any())
+                                {
+                                    <div class="report-table-container">
+                                        <table class="report-table">
+                                            <thead>
+                                                <tr>
+                                                    @foreach (var column in GetReportColumns(selectedReport.Data))
+                                                    {
+                                                        <th>@column</th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var row in selectedReport.Data.Take(100))
+                                                {
+                                                    <tr>
+                                                        @foreach (var column in GetReportColumns(selectedReport.Data))
+                                                        {
+                                                            <td>@GetCellValue(row, column)</td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                        @if (selectedReport.Data.Count > 100)
+                                        {
+                                            <div class="table-overflow">Showing first 100 of @selectedReport.Data.Count rows</div>
+                                        }
+                                    </div>
+                                }
+                                else if (string.IsNullOrEmpty(selectedReport.Error))
+                                {
+                                    <div class="empty-state">
+                                        <p>No data yet</p>
+                                        <small>Report will run on the next scheduled interval</small>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-state">
+                    <p>No custom reports configured</p>
+                    <small>Add a report above to start collecting data</small>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .remote-machine-monitor {
+        background: var(--background-dark, #0a1a1a);
+        border-radius: 8px;
+        overflow: hidden;
+        min-height: 400px;
+    }
+
+    .monitor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color, #1a4040);
+        background: var(--background-medium, #0f2424);
+    }
+
+    .client-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .status-badge {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .status-badge.online { background: rgba(76, 175, 80, 0.2); color: #4caf50; }
+    .status-badge.offline { background: rgba(244, 67, 54, 0.2); color: #f44336; }
+
+    .hostname {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 1rem;
+    }
+
+    .os-badge {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        background: rgba(255,255,255,0.1);
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
+
+    .monitor-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .tab-btn {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+    }
+
+    .tab-btn:hover { background: rgba(0, 168, 168, 0.1); }
+    .tab-btn.active {
+        color: var(--accent-color);
+        border-bottom: 2px solid var(--accent-color);
+        background: rgba(0, 168, 168, 0.05);
+    }
+
+    .tab-content {
+        padding: 1rem;
+    }
+
+    .command-input-section, .pending-commands-section, .results-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .command-input-section h6, .pending-commands-section h6, .results-section h6, .chart-section h6 {
+        color: var(--text-primary);
+        margin-bottom: 0.75rem;
+        font-size: 0.9rem;
+    }
+
+    .input-row {
+        display: flex;
+        gap: 8px;
+    }
+
+    .input-row .form-control { flex: 1; }
+    .timeout-input { max-width: 80px; text-align: center; }
+
+    .command-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .command-item {
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.2);
+        border-left: 3px solid var(--border-color);
+    }
+
+    .command-item.pending { border-left-color: #ff9800; }
+    .command-item.dispatched { border-left-color: #2196f3; }
+    .command-item.success { border-left-color: #4caf50; }
+    .command-item.error { border-left-color: #f44336; }
+
+    .command-text {
+        display: block;
+        color: var(--accent-color);
+        font-size: 0.85rem;
+        margin-bottom: 4px;
+        word-break: break-all;
+    }
+
+    .command-meta {
+        display: flex;
+        gap: 12px;
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+    }
+
+    .dispatched-badge {
+        color: #2196f3;
+        font-weight: 500;
+    }
+
+    .command-output {
+        margin-top: 8px;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        max-height: 100px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-secondary);
+    }
+
+    .empty-state.small { padding: 1rem; }
+
+    .current-metrics {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 1.5rem;
+    }
+
+    .metric-card {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 16px;
+        border-radius: 8px;
+        text-align: center;
+    }
+
+    .metric-label {
+        display: block;
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+
+    .metric-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .metric-value.cpu { color: #00bcd4; }
+    .metric-value.memory { color: #9c27b0; }
+    .metric-value.disk { color: #ff9800; }
+
+    /* Disk breakdown styles */
+    .disk-card { position: relative; }
+    .disk-breakdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--background-dark, #1a1a2e);
+        border: 1px solid var(--border-color, #333);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin-top: 4px;
+        z-index: 100;
+        min-width: 280px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .disk-item { margin-bottom: 0.5rem; }
+    .disk-item:last-child { margin-bottom: 0; }
+    .disk-header {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+        margin-bottom: 4px;
+    }
+    .disk-drive { font-weight: 600; color: #fff; }
+    .disk-usage { color: #999; font-size: 0.75rem; }
+    .disk-bar {
+        height: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    .disk-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s ease;
+    }
+
+    .chart-section { margin-top: 1rem; }
+
+    .performance-chart {
+        width: 100%;
+        height: 200px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+    }
+
+    .axis-label {
+        font-size: 10px;
+        fill: #666;
+        text-anchor: end;
+    }
+
+    .chart-legend {
+        display: flex;
+        gap: 20px;
+        margin-top: 12px;
+        justify-content: center;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-dot { width: 12px; height: 4px; border-radius: 2px; }
+    .legend-dot.cpu { background: #00bcd4; }
+    .legend-dot.memory { background: #9c27b0; }
+    .legend-dot.disk { background: #ff9800; }
+    .time-range { margin-left: auto; opacity: 0.7; }
+
+    .badge {
+        background: var(--accent-color);
+        color: #000;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.75rem;
+        margin-left: 6px;
+    }
+
+    .results-list {
+        max-height: 350px;
+    }
+
+    .command-header {
+        cursor: pointer;
+    }
+
+    .command-header:hover {
+        background: rgba(0, 168, 168, 0.05);
+    }
+
+    .exit-badge {
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .exit-badge.success { background: rgba(76, 175, 80, 0.2); color: #4caf50; }
+    .exit-badge.error { background: rgba(244, 67, 54, 0.2); color: #f44336; }
+
+    .output-size {
+        opacity: 0.6;
+        font-size: 0.65rem;
+    }
+
+    .expand-btn {
+        color: var(--accent-color);
+        cursor: pointer;
+        font-weight: 500;
+    }
+
+    .command-output-container {
+        margin-top: 8px;
+        border-top: 1px solid var(--border-color);
+        padding-top: 8px;
+    }
+
+    .command-output-full {
+        margin: 0;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 6px;
+        font-size: 0.8rem;
+        color: var(--text-primary);
+        max-height: 300px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+
+    /* Custom Reports styles */
+    .add-report-section {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+    .add-report-section h6 { margin-bottom: 0.75rem; }
+    .report-form {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .report-form input:first-child { flex: 1; }
+    .interval-input { width: 80px !important; }
+    .interval-label { 
+        color: var(--text-secondary); 
+        align-self: center;
+        font-size: 0.8rem;
+    }
+    .script-input {
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.85rem;
+        margin-bottom: 8px;
+    }
+    
+    .reports-list-section {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem;
+        border-radius: 8px;
+    }
+    .reports-list-section h6 { margin-bottom: 0.75rem; }
+    
+    .report-selector {
+        margin-bottom: 1rem;
+    }
+    .report-selector select {
+        width: 100%;
+        padding: 8px;
+    }
+    
+    .report-details {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    .report-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+    .report-name {
+        font-weight: 600;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+    .report-status {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+    .report-status.enabled { background: #4caf50; color: #fff; }
+    .report-status.disabled { background: #666; color: #fff; }
+    .report-updated {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+    .report-actions {
+        margin-left: auto;
+        display: flex;
+        gap: 4px;
+    }
+    .report-error {
+        background: rgba(244, 67, 54, 0.2);
+        border: 1px solid #f44336;
+        padding: 8px;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        color: #f44336;
+    }
+    
+    .report-table-container {
+        overflow-x: auto;
+        max-height: 400px;
+    }
+    .report-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+    .report-table th, .report-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .report-table th {
+        background: rgba(0, 0, 0, 0.3);
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+    }
+    .report-table tr:hover td {
+        background: rgba(255, 255, 255, 0.05);
+    }
+    .table-overflow {
+        text-align: center;
+        padding: 8px;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    [Parameter] public Guid RemoteNodeId { get; set; }
+    [Parameter] public string? ClientId { get; set; }
+
+    private RemoteClientMetadata? clientMetadata;
+    private List<RemoteCommand> pendingCommands = new();
+    private List<RemoteCommand> completedCommands = new();
+    private List<MetricsSample> metricsHistory = new();
+    private string activeTab = "commands";
+    private string newCommand = "";
+    private int newTimeout = 60;
+    private System.Threading.Timer? _refreshTimer;
+    private Guid? expandedOutputId;
+    private bool showDiskBreakdown = false;
+    
+    private bool IsOnline => clientMetadata != null && (DateTime.UtcNow - clientMetadata.LastSeen).TotalMinutes < 2;
+    private bool HasDiskBreakdown => !string.IsNullOrEmpty(clientMetadata?.DiskBreakdown) && clientMetadata.DiskBreakdown != "[]";
+
+    // Disk breakdown model
+    private record DiskInfo(string Drive, double UsedPercent, double UsedGB, double FreeGB, double TotalGB);
+    
+    private List<DiskInfo> ParseDiskBreakdown()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(clientMetadata?.DiskBreakdown)) return new();
+            var breakdown = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(clientMetadata.DiskBreakdown);
+            if (breakdown == null) return new();
+            
+            return breakdown.Select(d => new DiskInfo(
+                d.TryGetProperty("drive", out var drive) ? drive.GetString() ?? "" : "",
+                d.TryGetProperty("usedPercent", out var up) ? up.GetDouble() : 0,
+                d.TryGetProperty("usedGB", out var ug) ? ug.GetDouble() : 0,
+                d.TryGetProperty("freeGB", out var fg) ? fg.GetDouble() : 0,
+                d.TryGetProperty("totalGB", out var tg) ? tg.GetDouble() : 0
+            )).ToList();
+        }
+        catch { return new(); }
+    }
+    
+    private string GetDiskColor(double usedPercent)
+    {
+        if (usedPercent >= 90) return "#f44336"; // Red - critical
+        if (usedPercent >= 75) return "#ff9800"; // Orange - warning
+        return "#4caf50"; // Green - healthy
+    }
+
+    // Custom Reports state
+    private List<CustomReportData> customReports = new();
+    private string newReportName = "";
+    private string newReportScript = "";
+    private int newReportInterval = 60;
+    private string selectedReportName = "";
+    
+    private bool HasCustomReports => customReports.Any();
+    private int CustomReportsCount => customReports.Count;
+
+    // Custom Report model
+    private record CustomReportData(
+        string Name, 
+        bool Enabled, 
+        List<System.Text.Json.JsonElement>? Data, 
+        string? Error, 
+        DateTime? LastUpdated);
+
+    private void ParseCustomReports()
+    {
+        customReports.Clear();
+        try
+        {
+            if (string.IsNullOrEmpty(clientMetadata?.CustomReports) || clientMetadata.CustomReports == "[]") return;
+            
+            var reports = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(clientMetadata.CustomReports);
+            if (reports == null) return;
+
+            foreach (var r in reports)
+            {
+                var name = r.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                var enabled = r.TryGetProperty("enabled", out var e) && e.GetBoolean();
+                var error = r.TryGetProperty("error", out var err) ? err.GetString() : null;
+                var lastUpdated = r.TryGetProperty("lastUpdated", out var lu) ? 
+                    DateTime.TryParse(lu.GetString(), out var dt) ? dt : (DateTime?)null : null;
+                
+                List<System.Text.Json.JsonElement>? data = null;
+                if (r.TryGetProperty("data", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    data = d.EnumerateArray().ToList();
+                }
+
+                customReports.Add(new CustomReportData(name, enabled, data, error, lastUpdated));
+            }
+        }
+        catch { }
+    }
+
+    private List<string> GetReportColumns(List<System.Text.Json.JsonElement> data)
+    {
+        if (data == null || !data.Any()) return new();
+        var first = data.First();
+        if (first.ValueKind != System.Text.Json.JsonValueKind.Object) return new();
+        return first.EnumerateObject().Select(p => p.Name).ToList();
+    }
+
+    private string GetCellValue(System.Text.Json.JsonElement row, string column)
+    {
+        if (row.TryGetProperty(column, out var val))
+        {
+            return val.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => val.GetString() ?? "",
+                System.Text.Json.JsonValueKind.Number => val.GetDouble().ToString(),
+                System.Text.Json.JsonValueKind.True => "✓",
+                System.Text.Json.JsonValueKind.False => "✗",
+                System.Text.Json.JsonValueKind.Null => "",
+                _ => val.GetRawText()
+            };
+        }
+        return "";
+    }
+
+    private async Task AddReport()
+    {
+        if (string.IsNullOrWhiteSpace(newReportName) || string.IsNullOrWhiteSpace(newReportScript)) return;
+        
+        var reportCmd = new
+        {
+            action = "add",
+            name = newReportName.Replace(" ", "-"),
+            script = newReportScript,
+            intervalSeconds = newReportInterval
+        };
+        
+        var command = "__REPORT__" + System.Text.Json.JsonSerializer.Serialize(reportCmd);
+        RemoteNode.QueueCommandExternal(RemoteNodeId, command, 5);
+        
+        newReportName = "";
+        newReportScript = "";
+        newReportInterval = 60;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleReport(string reportName)
+    {
+        var reportCmd = new { action = "toggle", name = reportName };
+        var command = "__REPORT__" + System.Text.Json.JsonSerializer.Serialize(reportCmd);
+        RemoteNode.QueueCommandExternal(RemoteNodeId, command, 5);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DeleteReport(string reportName)
+    {
+        var reportCmd = new { action = "delete", name = reportName };
+        var command = "__REPORT__" + System.Text.Json.JsonSerializer.Serialize(reportCmd);
+        RemoteNode.QueueCommandExternal(RemoteNodeId, command, 5);
+        
+        if (selectedReportName == reportName) selectedReportName = "";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleOutput(Guid executionId)
+    {
+        expandedOutputId = expandedOutputId == executionId ? null : executionId;
+    }
+
+    protected override void OnInitialized()
+    {
+        LoadData();
+        // Auto-refresh every 5 seconds
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            LoadData();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private void LoadData()
+    {
+        if (!string.IsNullOrEmpty(ClientId))
+        {
+            clientMetadata = RemoteNode.GetClientStatus(RemoteNodeId, ClientId);
+            if (clientMetadata != null)
+            {
+                // Filter metrics to last 1 hour
+                var oneHourAgo = DateTime.UtcNow.AddHours(-1);
+                metricsHistory = clientMetadata.MetricsHistory
+                    .Where(m => m.Timestamp > oneHourAgo)
+                    .ToList();
+                
+                // Parse custom reports
+                ParseCustomReports();
+            }
+        }
+        
+        // Get commands (both pending and completed)
+        var allCommands = RemoteNode.GetAllCommands(RemoteNodeId);
+        pendingCommands = allCommands.Where(c => c.CompletedAt == null).ToList();
+        completedCommands = allCommands.Where(c => c.CompletedAt != null).Take(10).ToList();
+    }
+
+    private void Refresh()
+    {
+        LoadData();
+        StateHasChanged();
+    }
+
+    private void QueueCommand()
+    {
+        if (string.IsNullOrWhiteSpace(newCommand)) return;
+        
+        RemoteNode.QueueCommandExternal(RemoteNodeId, newCommand, newTimeout);
+        newCommand = "";
+        LoadData();
+        StateHasChanged();
+    }
+
+    private string GetChartPoints(Func<MetricsSample, double> valueSelector)
+    {
+        if (metricsHistory.Count < 2) return "";
+
+        var points = new List<string>();
+        var chartWidth = 540.0;
+        var chartHeight = 160.0;
+        var xOffset = 50.0;
+        var yOffset = 10.0;
+
+        for (int i = 0; i < metricsHistory.Count; i++)
+        {
+            var x = xOffset + (i * chartWidth / (metricsHistory.Count - 1));
+            var value = Math.Min(100, Math.Max(0, valueSelector(metricsHistory[i])));
+            var y = yOffset + chartHeight - (value / 100.0 * chartHeight);
+            points.Add($"{x:F1},{y:F1}");
+        }
+
+        return string.Join(" ", points);
+    }
+
+    private string GetTimeRange()
+    {
+        if (metricsHistory.Count < 2) return "";
+        var first = metricsHistory.First().Timestamp;
+        var last = metricsHistory.Last().Timestamp;
+        var duration = last - first;
+        return duration.TotalMinutes >= 60 
+            ? $"Last {duration.TotalHours:F1}h" 
+            : $"Last {duration.TotalMinutes:F0}m";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

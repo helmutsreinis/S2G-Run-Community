@@ -1,0 +1,113 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:09:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_LoremIpsum",
+        "displayName": "Lorem Ipsum Generator",
+        "description": "Generates placeholder Lorem Ipsum text with configurable length. Supports paragraphs, sentences, or words output.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 6H20M4 10H20M4 14H14M4 18H10\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// Lorem Ipsum Generator\n\nvar count = parseInt(input.get(\"count\") || \"3\");\nvar unit = input.get(\"unit\") || \"paragraphs\";\nvar startWithLorem = input.get(\"startWithLorem\") !== \"false\";\n\n// Lorem ipsum word bank\nvar words = [\n    \"lorem\", \"ipsum\", \"dolor\", \"sit\", \"amet\", \"consectetur\", \"adipiscing\", \"elit\",\n    \"sed\", \"do\", \"eiusmod\", \"tempor\", \"incididunt\", \"ut\", \"labore\", \"et\", \"dolore\",\n    \"magna\", \"aliqua\", \"enim\", \"ad\", \"minim\", \"veniam\", \"quis\", \"nostrud\",\n    \"exercitation\", \"ullamco\", \"laboris\", \"nisi\", \"aliquip\", \"ex\", \"ea\", \"commodo\",\n    \"consequat\", \"duis\", \"aute\", \"irure\", \"in\", \"reprehenderit\", \"voluptate\",\n    \"velit\", \"esse\", \"cillum\", \"fugiat\", \"nulla\", \"pariatur\", \"excepteur\", \"sint\",\n    \"occaecat\", \"cupidatat\", \"non\", \"proident\", \"sunt\", \"culpa\", \"qui\", \"officia\",\n    \"deserunt\", \"mollit\", \"anim\", \"id\", \"est\", \"laborum\", \"perspiciatis\", \"unde\",\n    \"omnis\", \"iste\", \"natus\", \"error\", \"voluptatem\", \"accusantium\", \"doloremque\",\n    \"laudantium\", \"totam\", \"rem\", \"aperiam\", \"eaque\", \"ipsa\", \"quae\", \"ab\", \"illo\",\n    \"inventore\", \"veritatis\", \"quasi\", \"architecto\", \"beatae\", \"vitae\", \"dicta\",\n    \"explicabo\", \"nemo\", \"ipsam\", \"quia\", \"voluptas\", \"aspernatur\", \"aut\", \"odit\",\n    \"fugit\", \"consequuntur\", \"magni\", \"dolores\", \"eos\", \"ratione\", \"sequi\",\n    \"nesciunt\", \"neque\", \"porro\", \"quisquam\", \"numquam\", \"eius\", \"modi\", \"tempora\",\n    \"incidunt\", \"magnam\", \"quaerat\", \"minima\", \"nostrum\", \"exercitationem\",\n    \"ullam\", \"corporis\", \"suscipit\", \"laboriosam\", \"aliquid\", \"commodi\"\n];\n\nvar firstSentence = \"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\";\n\nfunction randomInt(min, max) {\n    return Math.floor(Math.random() * (max - min + 1)) + min;\n}\n\nfunction capitalize(str) {\n    return str.charAt(0).toUpperCase() + str.slice(1);\n}\n\nfunction generateWord() {\n    return words[randomInt(0, words.length - 1)];\n}\n\nfunction generateSentence(wordCount) {\n    var count = wordCount || randomInt(8, 15);\n    var sentence = [];\n    for (var i = 0; i < count; i++) {\n        sentence.push(generateWord());\n    }\n    return capitalize(sentence.join(' ')) + '.';\n}\n\nfunction generateParagraph(sentenceCount) {\n    var count = sentenceCount || randomInt(4, 8);\n    var sentences = [];\n    for (var i = 0; i < count; i++) {\n        sentences.push(generateSentence());\n    }\n    return sentences.join(' ');\n}\n\ntry {\n    var result = \"\";\n    var wordCount = 0;\n    var sentenceCount = 0;\n    var paragraphCount = 0;\n    \n    if (unit === \"words\") {\n        var wordList = [];\n        if (startWithLorem) {\n            wordList = [\"Lorem\", \"ipsum\"];\n            for (var i = 2; i < count; i++) {\n                wordList.push(generateWord());\n            }\n        } else {\n            for (var i = 0; i < count; i++) {\n                wordList.push(generateWord());\n            }\n        }\n        result = wordList.join(' ');\n        wordCount = count;\n    } else if (unit === \"sentences\") {\n        var sentences = [];\n        for (var i = 0; i < count; i++) {\n            if (i === 0 && startWithLorem) {\n                sentences.push(firstSentence);\n            } else {\n                sentences.push(generateSentence());\n            }\n        }\n        result = sentences.join(' ');\n        sentenceCount = count;\n        wordCount = result.split(/\\s+/).length;\n    } else {\n        // paragraphs\n        var paragraphs = [];\n        for (var i = 0; i < count; i++) {\n            if (i === 0 && startWithLorem) {\n                paragraphs.push(firstSentence + ' ' + generateParagraph(randomInt(3, 6)));\n            } else {\n                paragraphs.push(generateParagraph());\n            }\n        }\n        result = paragraphs.join('\\n\\n');\n        paragraphCount = count;\n        sentenceCount = result.split(/[.!?]+/).length - 1;\n        wordCount = result.split(/\\s+/).length;\n    }\n    \n    output.set(\"Text\", result);\n    output.set(\"WordCount\", wordCount);\n    output.set(\"SentenceCount\", sentenceCount);\n    output.set(\"ParagraphCount\", paragraphCount);\n    output.set(\"CharacterCount\", result.length);\n    output.set(\"HasErrors\", false);\n    output.set(\"ErrorMessage\", \"\");\n    \n    log.info(\"Generated \" + count + \" \" + unit + \" (\" + wordCount + \" words)\");\n    tags.trigger(\"success\");\n    \n} catch (ex) {\n    log.error(\"Generation failed: \" + ex.message);\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", ex.message);\n    output.set(\"Text\", \"\");\n    tags.trigger(\"error\");\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "count",
+                "displayLabel": "Count",
+                "placeholderText": "3",
+                "helpText": "Number of paragraphs, sentences, or words to generate.",
+                "fieldType": "Text",
+                "defaultValue": "3",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "unit",
+                "displayLabel": "Unit",
+                "helpText": "What to generate: paragraphs, sentences, or words.",
+                "fieldType": "Dropdown",
+                "defaultValue": "paragraphs",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "paragraphs,sentences,words"
+            },
+            {
+                "fieldName": "startWithLorem",
+                "displayLabel": "Start with 'Lorem ipsum'",
+                "helpText": "Begin the text with the classic 'Lorem ipsum dolor sit amet...'",
+                "fieldType": "Boolean",
+                "defaultValue": "true",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Text",
+                "description": "The generated Lorem Ipsum text",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "WordCount",
+                "description": "Total word count",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "SentenceCount",
+                "description": "Total sentence count",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "ParagraphCount",
+                "description": "Total paragraph count",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "CharacterCount",
+                "description": "Total character count",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if generation failed",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if generation failed",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Text generated successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Generation succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Generation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Generation failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

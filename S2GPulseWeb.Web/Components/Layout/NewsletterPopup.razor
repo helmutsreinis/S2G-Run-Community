@@ -1,0 +1,204 @@
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject DeveloperNoteService DeveloperNoteService
+
+@rendermode InteractiveServer
+
+@if (showPopup && currentNote != null)
+{
+    <div class="newsletter-overlay" @onclick="DismissNote">
+        <div class="newsletter-modal" @onclick:stopPropagation="true">
+            <div class="newsletter-header">
+                <span class="newsletter-badge">📬 What's New</span>
+                <button class="newsletter-close" @onclick="DismissNote">×</button>
+            </div>
+            <h2>@currentNote.Title</h2>
+            <div class="newsletter-content">
+                @((MarkupString)currentNote.Content)
+            </div>
+            <div class="newsletter-footer">
+                <button class="btn btn-primary" @onclick="DismissNote">Got it!</button>
+                @if (remainingNotes > 0)
+                {
+                    <span class="remaining-notes">@remainingNotes more update(s)</span>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .newsletter-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        padding: 2rem;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .newsletter-modal {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 16px;
+        padding: 2rem;
+        width: 600px;
+        max-width: 95vw;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 80px rgba(102, 126, 234, 0.2);
+        animation: slideUp 0.3s ease;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @@keyframes slideUp {
+        from { 
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to { 
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .newsletter-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .newsletter-badge {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        padding: 0.4rem 1rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .newsletter-close {
+        background: transparent;
+        border: none;
+        color: #666;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.5rem;
+        line-height: 1;
+    }
+
+    .newsletter-close:hover {
+        color: #fff;
+    }
+
+    .newsletter-modal h2 {
+        color: #fff;
+        font-size: 1.5rem;
+        font-weight: 500;
+        margin: 0 0 1rem 0;
+    }
+
+    .newsletter-content {
+        flex: 1;
+        overflow-y: auto;
+        color: #bbb;
+        font-size: 0.95rem;
+        line-height: 1.7;
+        margin-bottom: 1.5rem;
+    }
+
+    .newsletter-content h2,
+    .newsletter-content h3 {
+        color: #fff;
+        font-size: 1.1rem;
+        margin: 1rem 0 0.5rem;
+    }
+
+    .newsletter-content ul,
+    .newsletter-content ol {
+        padding-left: 1.5rem;
+    }
+
+    .newsletter-content li {
+        margin: 0.3rem 0;
+    }
+
+    .newsletter-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .newsletter-footer .btn-primary {
+        padding: 0.6rem 2rem;
+        font-size: 0.95rem;
+    }
+
+    .remaining-notes {
+        color: #667eea;
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string? UserId { get; set; }
+    
+    [Parameter]
+    public string CurrentPage { get; set; } = "Home";
+
+    private List<DeveloperNote> unseenNotes = new();
+    private DeveloperNote? currentNote;
+    private int remainingNotes = 0;
+    private bool showPopup = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(UserId))
+        {
+            unseenNotes = await DeveloperNoteService.GetUnseenNewsletterNotesAsync(UserId, CurrentPage);
+            
+            if (unseenNotes.Any())
+            {
+                currentNote = unseenNotes.First();
+                remainingNotes = unseenNotes.Count - 1;
+                showPopup = true;
+            }
+        }
+    }
+
+    private async Task DismissNote()
+    {
+        if (currentNote != null && !string.IsNullOrEmpty(UserId))
+        {
+            await DeveloperNoteService.DismissNoteForUserAsync(UserId, currentNote.Id);
+            unseenNotes.Remove(currentNote);
+            
+            if (unseenNotes.Any())
+            {
+                currentNote = unseenNotes.First();
+                remainingNotes = unseenNotes.Count - 1;
+            }
+            else
+            {
+                showPopup = false;
+                currentNote = null;
+            }
+        }
+    }
+}

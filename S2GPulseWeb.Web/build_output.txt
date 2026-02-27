@@ -1,0 +1,12 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  S2GPulseWeb.ServiceDefaults -> D:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.ServiceDefaults\bin\Debug\net9.0\S2GPulseWeb.ServiceDefaults.dll
+  S2GPulseWeb.Web -> D:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\bin\Debug\net9.0\S2GPulseWeb.Web.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:26.17
+
+Workload updates are available. Run `dotnet workload list` for more information.

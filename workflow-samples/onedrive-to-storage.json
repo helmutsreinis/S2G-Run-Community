@@ -1,0 +1,115 @@
+{
+  "Name": "OneDrive -\u003E Storage",
+  "ExportedAt": "2026-02-12T20:29:03.3704450Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "480fee8f-b62d-4171-b1e6-c65b3a9a2da2",
+      "NodeType": "S2GStorage",
+      "Name": "My Storage - Markdown",
+      "X": 500,
+      "Y": 720,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Operation\u0022:\u0022Write\u0022,\u0022FilePath\u0022:\u0022mistral/markdown.md\u0022,\u0022FolderPath\u0022:\u0022\u0022,\u0022Content\u0022:\u0022{{PDF OCR (Mistral).Markdown}}\u0022,\u0022ContentBase64\u0022:null,\u0022MaxFileSizeBytes\u0022:20971520}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "524e27a4-929d-4ec2-ba93-55f5f8010501",
+      "NodeType": "S2GStorage",
+      "Name": "My Storage - Tables",
+      "X": 100,
+      "Y": 720,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Operation\u0022:\u0022Write\u0022,\u0022FilePath\u0022:\u0022mistral/tableoutput.txt\u0022,\u0022FolderPath\u0022:\u0022\u0022,\u0022Content\u0022:\u0022{{PDF OCR (Mistral).Tables}}\u0022,\u0022ContentBase64\u0022:null,\u0022MaxFileSizeBytes\u0022:20971520}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "bcfae511-2247-4a50-ae3f-3db9b130d0ec",
+      "NodeType": "PdfOcr",
+      "Name": "PDF OCR (Mistral)",
+      "X": 100,
+      "Y": 380,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022DocumentSource\u0022:\u0022https://example.onedrive.com/download?file=sample.pdf",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "fa01e0e1-97c1-45bf-ba5d-fc00878d03f2",
+      "NodeType": "OneDriveTrigger",
+      "Name": "OneDrive File Monitor",
+      "X": 120,
+      "Y": 80,
+      "Width": 280,
+      "Height": 160,
+      "Configuration": "{\u0022ConnectionId\u0022:\u002200000000-0000-0000-0000-000000000000\u0022,\u0022FolderId\u0022:\u0022EXAMPLE_FOLDER_ID\u0022,\u0022FolderPath\u0022:\u0022/Scans\u0022,\u0022PollIntervalSeconds\u0022:60,\u0022MonitorModified\u0022:true,\u0022IncludeSubfolders\u0022:false}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "File Size: {{OneDrive File Monitor.FileSize}}",
+        "{{OneDrive File Monitor.FileName}}",
+        "Trigger Type: {{OneDrive File Monitor.TriggerType}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "ef2665e3-73f5-48c6-b243-c85a0ad874b3",
+      "SourceId": "bcfae511-2247-4a50-ae3f-3db9b130d0ec",
+      "TargetId": "480fee8f-b62d-4171-b1e6-c65b3a9a2da2",
+      "Label": null
+    },
+    {
+      "Id": "144e6873-0087-48cd-88b0-530a37b62c8e",
+      "SourceId": "bcfae511-2247-4a50-ae3f-3db9b130d0ec",
+      "TargetId": "524e27a4-929d-4ec2-ba93-55f5f8010501",
+      "Label": null
+    },
+    {
+      "Id": "64a0d7b5-8d68-471a-8472-3248d1d4d33e",
+      "SourceId": "fa01e0e1-97c1-45bf-ba5d-fc00878d03f2",
+      "TargetId": "bcfae511-2247-4a50-ae3f-3db9b130d0ec",
+      "Label": null
+    }
+  ]
+}

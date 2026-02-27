@@ -1,0 +1,148 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T23:37:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_TextChunker",
+        "displayName": "Text Chunker",
+        "description": "Splits large text documents into smaller chunks for embedding and RAG workflows. Respects paragraph boundaries to avoid cutting mid-sentence. Each chunk includes auto-generated metadata (index, character count, word count) that can be merged with custom metadata for use with Vector Store nodes.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 6H20M4 10H20M4 14H14M4 18H10\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "var text = input.get('text') || '';\nvar maxTokens = parseInt(input.get('maxTokens') || '500');\nvar overlap = parseInt(input.get('overlap') || '50');\nvar customMetaJson = input.get('customMetadata') || '{}';\nvar sourceId = input.get('sourceId') || '';\n\nif (!text) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Text input is required');\n    tags.trigger('error');\n} else {\n    try {\n        var customMeta = {};\n        try { customMeta = json.parse(customMetaJson); } catch(e) {}\n        \n        var charsPerToken = 4;\n        var maxChars = maxTokens * charsPerToken;\n        var overlapChars = overlap * charsPerToken;\n        \n        var paragraphs = text.split(/\\n\\n+/);\n        var chunks = [];\n        var currentChunk = '';\n        var currentTokens = 0;\n        \n        for (var i = 0; i < paragraphs.length; i++) {\n            var para = paragraphs[i].trim();\n            if (!para) continue;\n            \n            var paraTokens = Math.ceil(para.length / charsPerToken);\n            \n            if (currentTokens + paraTokens <= maxTokens) {\n                currentChunk += (currentChunk ? '\\n\\n' : '') + para;\n                currentTokens += paraTokens;\n            } else {\n                if (currentChunk) {\n                    chunks.push(currentChunk);\n                }\n                \n                if (paraTokens > maxTokens) {\n                    var sentences = para.split(/(?<=[.!?])\\s+/);\n                    var sentenceChunk = '';\n                    var sentenceTokens = 0;\n                    \n                    for (var j = 0; j < sentences.length; j++) {\n                        var sent = sentences[j].trim();\n                        var sentTokens = Math.ceil(sent.length / charsPerToken);\n                        \n                        if (sentenceTokens + sentTokens <= maxTokens) {\n                            sentenceChunk += (sentenceChunk ? ' ' : '') + sent;\n                            sentenceTokens += sentTokens;\n                        } else {\n                            if (sentenceChunk) chunks.push(sentenceChunk);\n                            sentenceChunk = sent;\n                            sentenceTokens = sentTokens;\n                        }\n                    }\n                    if (sentenceChunk) {\n                        currentChunk = sentenceChunk;\n                        currentTokens = sentenceTokens;\n                    } else {\n                        currentChunk = '';\n                        currentTokens = 0;\n                    }\n                } else {\n                    currentChunk = para;\n                    currentTokens = paraTokens;\n                }\n            }\n        }\n        \n        if (currentChunk) {\n            chunks.push(currentChunk);\n        }\n        \n        var result = [];\n        for (var k = 0; k < chunks.length; k++) {\n            var chunkText = chunks[k];\n            var wordCount = chunkText.split(/\\s+/).length;\n            var charCount = chunkText.length;\n            var estTokens = Math.ceil(charCount / charsPerToken);\n            \n            var meta = {\n                chunkIndex: k,\n                totalChunks: chunks.length,\n                charCount: charCount,\n                wordCount: wordCount,\n                estimatedTokens: estTokens\n            };\n            \n            if (sourceId) meta.sourceId = sourceId;\n            \n            for (var key in customMeta) {\n                if (customMeta.hasOwnProperty(key)) {\n                    meta[key] = customMeta[key];\n                }\n            }\n            \n            result.push({\n                text: chunkText,\n                metadata: meta\n            });\n        }\n        \n        output.set('Chunks', json.stringify(result));\n        output.set('ChunkCount', chunks.length);\n        output.set('FirstChunk', chunks.length > 0 ? chunks[0] : '');\n        output.set('FirstChunkMetadata', chunks.length > 0 ? json.stringify(result[0].metadata) : '{}');\n        output.set('TotalCharacters', text.length);\n        output.set('TotalWords', text.split(/\\s+/).length);\n        output.set('EstimatedTotalTokens', Math.ceil(text.length / charsPerToken));\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Chunked text into ' + chunks.length + ' chunks (max ' + maxTokens + ' tokens each)');\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Chunking failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "text",
+                "displayLabel": "Text to Chunk",
+                "placeholderText": "Paste or use placeholder for large text...",
+                "helpText": "The full text content to split into chunks. Can be from a file, API response, or any text source. Paragraphs are detected by double newlines (\\n\\n).",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "maxTokens",
+                "displayLabel": "Max Tokens per Chunk",
+                "placeholderText": "500",
+                "helpText": "Maximum tokens per chunk. OpenAI ada-002 supports 8191 tokens, but smaller chunks (256-512) often give better retrieval results. Uses ~4 characters per token estimate.",
+                "fieldType": "Text",
+                "defaultValue": "500",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "overlap",
+                "displayLabel": "Overlap Tokens",
+                "placeholderText": "50",
+                "helpText": "Number of tokens to overlap between chunks (not yet implemented - reserved for future use).",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "sourceId",
+                "displayLabel": "Source ID",
+                "placeholderText": "document.pdf or unique-id",
+                "helpText": "Optional identifier for the source document. Added to each chunk's metadata as 'sourceId'. Useful for filtering during retrieval.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 4
+            },
+            {
+                "fieldName": "customMetadata",
+                "displayLabel": "Custom Metadata (JSON)",
+                "placeholderText": "{\"category\": \"legal\", \"author\": \"John\"}",
+                "helpText": "Optional JSON object with custom metadata to merge into each chunk. These fields are added alongside the auto-generated metadata (chunkIndex, charCount, etc.).",
+                "fieldType": "TextArea",
+                "defaultValue": "{}",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 5
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Chunks",
+                "description": "JSON array of chunks, each with {text, metadata}. Ready for use with Vector Store node in a loop.",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ChunkCount",
+                "description": "Total number of chunks created.",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "FirstChunk",
+                "description": "Text of the first chunk. Useful for preview or single-chunk use cases.",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "FirstChunkMetadata",
+                "description": "Metadata JSON for the first chunk.",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "TotalCharacters",
+                "description": "Total character count of input text.",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "TotalWords",
+                "description": "Total word count of input text.",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "EstimatedTotalTokens",
+                "description": "Estimated total tokens in input (chars / 4).",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if chunking failed.",
+                "dataType": "boolean",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if failed.",
+                "dataType": "string",
+                "displayOrder": 9
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Chunking completed",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Chunking failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

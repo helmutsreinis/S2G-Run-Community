@@ -1,0 +1,316 @@
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic.Nodes
+@using System.Text.Json
+
+<div class="remote-command-editor">
+    <!-- Command Input -->
+    <div class="mb-3">
+        <label class="form-label">⚡ Command</label>
+        <input type="text" class="form-control" @bind="config.Command" 
+               placeholder="e.g., hostname, systeminfo, df -h (supports {{placeholders}})" />
+        <small class="text-muted">Shell command to execute on connected Remote Machine nodes.</small>
+    </div>
+
+    <!-- Timeout -->
+    <div class="mb-3">
+        <label class="form-label">⏱️ Timeout (seconds)</label>
+        <input type="number" class="form-control" @bind="config.TimeoutSeconds" min="5" max="3600" />
+        <small class="text-muted">Maximum time to wait for all results.</small>
+    </div>
+
+    <!-- Target Tags -->
+    <div class="mb-3">
+        <label class="form-label">🎯 Target Tags</label>
+        <input type="text" class="form-control" @bind="targetTagsInput" 
+               placeholder="e.g., rm-01, rm-02 (leave empty for all)" />
+        <small class="text-muted">Comma-separated list of connection tags to target. Empty = all connected machines.</small>
+    </div>
+
+    @if (AvailablePlaceholders != null && AvailablePlaceholders.Any())
+    {
+        <PlaceholderList Placeholders="@AvailablePlaceholders" />
+    }
+
+    <!-- Connected Machines -->
+    <div class="connected-machines-section mb-3">
+        <h6>🖥️ Connected Machines</h6>
+        @if (connectedRemotes.Any())
+        {
+            <div class="machine-list">
+                @foreach (var remote in connectedRemotes)
+                {
+                    var metadata = GetRemoteStatus(remote.RemoteNodeId);
+                    var isOnline = metadata?.LastSeen > DateTime.UtcNow.AddMinutes(-2);
+                    
+                    <div class="machine-item">
+                        <span class="machine-tag">@remote.ConnectionTag</span>
+                        <span class="machine-name">@remote.RemoteNodeName</span>
+                        @if (metadata != null)
+                        {
+                            <span class="machine-lastseen">@metadata.LastSeen.ToString("HH:mm:ss")</span>
+                        }
+                        <span class="machine-status @(isOnline == true ? "online" : "offline")">
+                            @if (isOnline == true)
+                            {
+                                <text>🟢</text>
+                            }
+                            else
+                            {
+                                <text>🔴</text>
+                            }
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="no-machines">
+                <span class="text-muted">No Remote Machine nodes connected yet.</span>
+                <small class="d-block text-muted">Draw a connection from this node to Remote Machine nodes to add targets.</small>
+            </div>
+        }
+    </div>
+
+    <!-- Output Parameters -->
+    <div class="output-preview">
+        <h6>📤 Output Parameters</h6>
+        <ul class="small text-muted mb-0">
+            <li><code>Results</code> - Array of execution results</li>
+            <li><code>ResultsJson</code> - JSON string of all results</li>
+            <li><code>SuccessCount</code> - Number of successful executions</li>
+            <li><code>TimeoutCount</code> - Number of timed out executions</li>
+            <li><code>TotalCount</code> - Total machines targeted</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+    .remote-command-editor {
+        padding: 0.5rem 0;
+    }
+
+    .remote-command-editor .form-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .remote-command-editor .text-muted,
+    .remote-command-editor small.text-muted {
+        color: var(--text-secondary, #b0b0b0) !important;
+    }
+
+    .remote-command-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.85em;
+    }
+
+    .connected-machines-section {
+        padding: 12px;
+        background: var(--background-dark, #1a1a2e);
+        border-radius: 6px;
+    }
+
+    .connected-machines-section h6 {
+        margin-bottom: 12px;
+        color: var(--text-primary);
+    }
+
+    .machine-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .machine-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+    }
+
+    .machine-tag {
+        background: rgba(59, 130, 246, 0.2);
+        color: #3b82f6;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        font-family: monospace;
+    }
+
+    .machine-name {
+        flex: 1;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .machine-status {
+        font-size: 0.8rem;
+    }
+
+    .machine-status.online {
+        color: #4caf50;
+    }
+
+    .machine-status.offline {
+        color: #f44336;
+    }
+
+    .machine-lastseen {
+        font-size: 0.7rem;
+        color: var(--text-secondary, #888);
+        font-family: monospace;
+    }
+
+    .no-machines {
+        padding: 12px;
+        text-align: center;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview h6 {
+        margin-bottom: 8px;
+        color: var(--accent-color);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+    }
+
+    .output-preview li {
+        color: var(--text-secondary, #b0b0b0);
+    }
+</style>
+
+@code {
+    [Parameter] public WorkflowNode? Node { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<(Guid SourceId, Guid TargetId, string? Label)>? Connections { get; set; }
+    [Parameter] public object? CanvasNodes { get; set; }
+
+    private RemoteCommandNodeConfig config = new();
+    private List<ConnectedRemote> connectedRemotes = new();
+    private string targetTagsInput = "";
+
+    protected override void OnParametersSet()
+    {
+        if (Node != null && !string.IsNullOrEmpty(Node.Configuration))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<RemoteCommandNodeConfig>(Node.Configuration) ?? new();
+                targetTagsInput = config.TargetConnectionTags != null 
+                    ? string.Join(", ", config.TargetConnectionTags) 
+                    : "";
+            }
+            catch
+            {
+                config = new();
+            }
+        }
+
+        DiscoverConnectedRemotes();
+    }
+
+    private void DiscoverConnectedRemotes()
+    {
+        connectedRemotes.Clear();
+        
+        if (Node == null || Connections == null || CanvasNodes == null) return;
+
+        // Find connections where this node is source and label starts with "run:rm-"
+        var runConnections = Connections
+            .Where(c => c.SourceId == Node.Id && 
+                       c.Label?.StartsWith("run:rm-", StringComparison.OrdinalIgnoreCase) == true)
+            .ToList();
+
+        foreach (var conn in runConnections)
+        {
+            var tag = conn.Label!.Replace("run:", "");
+            
+            // Find target node name using reflection since we have an anonymous type
+            string nodeName = "Remote";
+            if (CanvasNodes is System.Collections.IEnumerable nodesList)
+            {
+                foreach (var node in nodesList)
+                {
+                    var idProp = node?.GetType().GetProperty("Id");
+                    var nameProp = node?.GetType().GetProperty("Name");
+                    if (idProp != null && nameProp != null)
+                    {
+                        var nodeId = (Guid?)idProp.GetValue(node);
+                        if (nodeId == conn.TargetId)
+                        {
+                            nodeName = nameProp.GetValue(node)?.ToString() ?? "Remote";
+                            break;
+                        }
+                    }
+                }
+            }
+
+            connectedRemotes.Add(new ConnectedRemote
+            {
+                RemoteNodeId = conn.TargetId,
+                RemoteNodeName = nodeName,
+                ConnectionTag = tag
+            });
+        }
+
+        // Update config with discovered connections
+        config.ConnectedRemotes = connectedRemotes;
+    }
+
+    private RemoteClientMetadata? GetRemoteStatus(Guid nodeId)
+    {
+        return RemoteNode.GetClientStatusByNodeId(nodeId);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await SaveConfiguration();
+    }
+
+    private async Task SaveConfiguration()
+    {
+        // Parse target tags from comma-separated input
+        config.TargetConnectionTags = string.IsNullOrWhiteSpace(targetTagsInput) 
+            ? new List<string>() 
+            : targetTagsInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+
+        var json = JsonSerializer.Serialize(config);
+        if (Node != null && Node.Configuration != json)
+        {
+            Node.Configuration = json;
+            await OnConfigurationChanged.InvokeAsync(json);
+        }
+    }
+
+    public class RemoteCommandNodeConfig
+    {
+        public string? Command { get; set; }
+        public List<string>? TargetConnectionTags { get; set; }
+        public int TimeoutSeconds { get; set; } = 60;
+        public List<ConnectedRemote>? ConnectedRemotes { get; set; }
+    }
+
+    public class ConnectedRemote
+    {
+        public Guid RemoteNodeId { get; set; }
+        public string RemoteNodeName { get; set; } = "";
+        public string ConnectionTag { get; set; } = "";
+    }
+}

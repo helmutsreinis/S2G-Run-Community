@@ -1,0 +1,309 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>URL:</label>
+        <input type="text" value="@Config.BaseUrl" @onchange="OnUrlChanged" class="form-control" placeholder="https://api.example.com/endpoint" />
+    </div>
+    <div class="node-property">
+        <label>Method:</label>
+        <select value="@Config.Method" @onchange="OnMethodChanged" class="form-control">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="PATCH">PATCH</option>
+        </select>
+    </div>
+
+    @* Query Parameters - Postman Style *@
+    <div class="node-property mt-2">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="color: #00d4d4;">📋 Query Params</label>
+            <button type="button" class="btn btn-xs" style="background: #0d2828; border: 1px solid #00d4d4; color: #00d4d4; padding: 2px 8px; font-size: 0.75rem;" @onclick="AddQueryParam">
+                + Add
+            </button>
+        </div>
+        <div style="background: #1a3a3a; border: 1px solid #00a8a8; border-radius: 6px; padding: 8px; margin-top: 4px;">
+            @if (queryParams.Any())
+            {
+                <table style="width: 100%; border-collapse: collapse; background: transparent;">
+                    <thead style="background: transparent;">
+                        <tr style="font-size: 0.7rem; color: #00d4d4; border-bottom: 1px solid #00a8a8;">
+                            <th style="padding: 4px; width: 30px; background: transparent;"></th>
+                            <th style="padding: 4px; text-align: left; background: transparent;">Key</th>
+                            <th style="padding: 4px; text-align: left; background: transparent;">Value</th>
+                            <th style="padding: 4px; width: 30px; background: transparent;"></th>
+                        </tr>
+                    </thead>
+                    <tbody style="background: transparent;">
+                        @for (var i = 0; i < queryParams.Count; i++)
+                        {
+                            var idx = i;
+                            var param = queryParams[i];
+                            <tr style="border-bottom: 1px solid rgba(0, 168, 168, 0.2); background: transparent;">
+                                <td style="padding: 4px; background: transparent; text-align: center;">
+                                    <input type="checkbox" checked="@param.Enabled" @onchange="@(async e => { param.Enabled = (bool)(e.Value ?? false); await NotifyChanged(); })" 
+                                           style="width: 16px; height: 16px;" />
+                                </td>
+                                <td style="padding: 4px; background: transparent;">
+                                    <input type="text" value="@param.Key" @onchange="@(async e => { param.Key = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                           class="form-control form-control-sm"
+                                           style="background: #0d2828; border: 1px solid #00a8a8; color: #fff; font-size: 0.85rem; padding: 4px 6px;"
+                                           placeholder="key" />
+                                </td>
+                                <td style="padding: 4px; background: transparent;">
+                                    <input type="text" value="@param.Value" @onchange="@(async e => { param.Value = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                           class="form-control form-control-sm"
+                                           style="background: #0d2828; border: 1px solid #00a8a8; color: #fff; font-size: 0.85rem; padding: 4px 6px;"
+                                           placeholder="value or {placeholder}" />
+                                </td>
+                                <td style="padding: 4px; background: transparent; text-align: center;">
+                                    <button type="button" @onclick="@(() => RemoveQueryParam(idx))" 
+                                            style="background: transparent; border: none; color: #e74c3c; cursor: pointer; font-size: 1rem;">×</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="color: #666; font-size: 0.8rem; text-align: center; padding: 8px;">No query parameters</div>
+            }
+        </div>
+    </div>
+
+    @* Headers - Postman Style *@
+    <div class="node-property mt-2">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="color: #9b59b6;">📨 Headers</label>
+            <button type="button" class="btn btn-xs" style="background: #1a1a2e; border: 1px solid #9b59b6; color: #9b59b6; padding: 2px 8px; font-size: 0.75rem;" @onclick="AddHeader">
+                + Add
+            </button>
+        </div>
+        <div style="background: #1a1a2e; border: 1px solid #9b59b6; border-radius: 6px; padding: 8px; margin-top: 4px;">
+            @if (headers.Any())
+            {
+                <table style="width: 100%; border-collapse: collapse; background: transparent;">
+                    <thead style="background: transparent;">
+                        <tr style="font-size: 0.7rem; color: #9b59b6; border-bottom: 1px solid #9b59b6;">
+                            <th style="padding: 4px; width: 30px; background: transparent;"></th>
+                            <th style="padding: 4px; text-align: left; background: transparent;">Key</th>
+                            <th style="padding: 4px; text-align: left; background: transparent;">Value</th>
+                            <th style="padding: 4px; width: 30px; background: transparent;"></th>
+                        </tr>
+                    </thead>
+                    <tbody style="background: transparent;">
+                        @for (var i = 0; i < headers.Count; i++)
+                        {
+                            var idx = i;
+                            var header = headers[i];
+                            <tr style="border-bottom: 1px solid rgba(155, 89, 182, 0.2); background: transparent;">
+                                <td style="padding: 4px; background: transparent; text-align: center;">
+                                    <input type="checkbox" checked="@header.Enabled" @onchange="@(async e => { header.Enabled = (bool)(e.Value ?? false); await NotifyChanged(); })" 
+                                           style="width: 16px; height: 16px;" />
+                                </td>
+                                <td style="padding: 4px; background: transparent;">
+                                    <input type="text" value="@header.Key" @onchange="@(async e => { header.Key = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                           class="form-control form-control-sm"
+                                           style="background: #0d0d1a; border: 1px solid #9b59b6; color: #fff; font-size: 0.85rem; padding: 4px 6px;"
+                                           placeholder="Header-Name" />
+                                </td>
+                                <td style="padding: 4px; background: transparent;">
+                                    <input type="text" value="@header.Value" @onchange="@(async e => { header.Value = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                           class="form-control form-control-sm"
+                                           style="background: #0d0d1a; border: 1px solid #9b59b6; color: #fff; font-size: 0.85rem; padding: 4px 6px;"
+                                           placeholder="value or {placeholder}" />
+                                </td>
+                                <td style="padding: 4px; background: transparent; text-align: center;">
+                                    <button type="button" @onclick="@(() => RemoveHeader(idx))" 
+                                            style="background: transparent; border: none; color: #e74c3c; cursor: pointer; font-size: 1rem;">×</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="color: #666; font-size: 0.8rem; text-align: center; padding: 8px;">No headers</div>
+            }
+        </div>
+    </div>
+
+    <div class="node-property mt-2">
+        <label>Body:</label>
+        <textarea value="@Config.Body" @onchange="OnBodyChanged" class="form-control" rows="3" placeholder='{"key": "value"}'></textarea>
+    </div>
+
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+    
+    @if (!string.IsNullOrWhiteSpace(Config.LastResponseSample))
+    {
+        <div class="node-property mt-2">
+            <div class="small" style="background: rgba(0,200,100,0.1); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(0,200,100,0.3);">
+                <strong style="color: #00c864;">🔍 Detected Response Properties:</strong>
+                <div style="margin-top: 0.3rem;">
+                    @foreach (var prop in GetResponseProperties())
+                    {
+                        <span style="display: inline-block; margin: 0.1rem 0.2rem; padding: 0.1rem 0.4rem; background: rgba(0,168,168,0.2); border-radius: 3px; font-size: 0.75rem;">
+                            <code>@prop.Path</code>
+                            <small style="color: #888; margin-left: 0.2rem;">@prop.TypeBadge</small>
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>For downstream nodes use:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>@("{HttpRequest.Body}")</code> - Response body content</li>
+                    <li><code>@("{HttpRequest.Body.propertyPath}")</code> - Nested JSON property</li>
+                    <li><code>@("{HttpRequest.StatusCode}")</code> - HTTP status code</li>
+                    <li><code>@("{HttpRequest.IsSuccess}")</code> - Whether request succeeded</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private HttpRequestConfig Config { get; set; } = new();
+    private List<HttpParam> queryParams = new();
+    private List<HttpHeader> headers = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<HttpRequestConfig>(Configuration) ?? new();
+                
+                // Migrate legacy Url to BaseUrl
+                #pragma warning disable CS0618 // Accessing obsolete Url for migration
+                if (string.IsNullOrEmpty(Config.BaseUrl) && !string.IsNullOrEmpty(Config.Url))
+                {
+                    Config.BaseUrl = Config.Url;
+                }
+                #pragma warning restore CS0618
+                
+                queryParams = Config.QueryParams ?? new();
+                headers = Config.Headers ?? new();
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnUrlChanged(ChangeEventArgs e)
+    {
+        var fullUrl = e.Value?.ToString() ?? "";
+        
+        // Check if URL contains query string - parse and extract to table
+        if (fullUrl.Contains('?'))
+        {
+            var parts = fullUrl.Split('?', 2);
+            Config.BaseUrl = parts[0];
+            
+            if (parts.Length > 1 && !string.IsNullOrEmpty(parts[1]))
+            {
+                // Parse query string and add to params table
+                var queryString = parts[1];
+                var pairs = queryString.Split('&', StringSplitOptions.RemoveEmptyEntries);
+                
+                foreach (var pair in pairs)
+                {
+                    var kv = pair.Split('=', 2);
+                    var key = kv[0];
+                    // URL-decode the value from pasted URL to store as plain text
+                    // This prevents double-encoding when the URL is rebuilt
+                    var value = kv.Length > 1 ? Uri.UnescapeDataString(kv[1]) : "";
+                    
+                    // Only add if not already exists with same key
+                    if (!queryParams.Any(p => p.Key.Equals(key, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        queryParams.Add(new HttpParam { Enabled = true, Key = key, Value = value });
+                    }
+                }
+            }
+        }
+        else
+        {
+            Config.BaseUrl = fullUrl;
+        }
+        
+        await NotifyChanged();
+    }
+
+    private async Task OnMethodChanged(ChangeEventArgs e)
+    {
+        Config.Method = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnBodyChanged(ChangeEventArgs e)
+    {
+        Config.Body = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task AddQueryParam()
+    {
+        queryParams.Add(new HttpParam { Enabled = true, Key = "", Value = "" });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveQueryParam(int index)
+    {
+        if (index >= 0 && index < queryParams.Count)
+        {
+            queryParams.RemoveAt(index);
+            await NotifyChanged();
+        }
+    }
+
+    private async Task AddHeader()
+    {
+        headers.Add(new HttpHeader { Enabled = true, Key = "", Value = "" });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveHeader(int index)
+    {
+        if (index >= 0 && index < headers.Count)
+        {
+            headers.RemoveAt(index);
+            await NotifyChanged();
+        }
+    }
+
+    private async Task NotifyChanged()
+    {
+        Config.QueryParams = queryParams.Count > 0 ? queryParams : null;
+        Config.Headers = headers.Count > 0 ? headers : null;
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    private List<(string Path, string TypeBadge)> GetResponseProperties()
+    {
+        if (string.IsNullOrWhiteSpace(Config.LastResponseSample))
+            return new();
+        
+        var properties = JsonPropertyExtractor.ExtractPropertyPaths(Config.LastResponseSample);
+        return JsonPropertyExtractor.GetPropertySummary(properties);
+    }
+}

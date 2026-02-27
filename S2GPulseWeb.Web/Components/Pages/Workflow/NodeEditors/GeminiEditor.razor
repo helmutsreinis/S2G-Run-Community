@@ -1,0 +1,297 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+@using Microsoft.AspNetCore.Components.Authorization
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey"
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))"
+                   class="form-control" placeholder="Enter API Key (overrides settings)"
+                   autocomplete="new-password" />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" @onclick="CopyApiKey" title="Copy API Key">📋</button>
+            </div>
+        </div>
+        <small class="form-text text-muted">Leave empty to use global setting (Gemini_ApiKey).</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <div class="d-flex align-items-center">
+            <select value="@config.Model" @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString()))" class="form-control" style="flex: 1;">
+                @if (isLoadingModels)
+                {
+                    <option value="">Loading models...</option>
+                }
+                else if (availableModels.Any())
+                {
+                    @foreach (var model in availableModels)
+                    {
+                        <option value="@model.Id">@model.DisplayName</option>
+                    }
+                }
+                else
+                {
+                    <option value="">No models available</option>
+                }
+            </select>
+            <button class="btn btn-sm btn-outline-secondary ml-2" @onclick="RefreshModels" disabled="@isLoadingModels" title="Refresh models">
+                @if (isLoadingModels)
+                {
+                    <span>⏳</span>
+                }
+                else
+                {
+                    <span>🔄</span>
+                }
+            </button>
+        </div>
+        <div class="model-pricing small mt-1" style="color: var(--teal-light);">
+            @GetPricingInfo()
+        </div>
+    </div>
+
+    @if (config.Cost > 0 || config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Cumulative Cost:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">$@config.Cost.ToString("F4")</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens in / @config.OutputTokens out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetCost" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or output format..."></textarea>
+        <small class="form-text text-muted">Optional. Sets instruction context for Gemini.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="4" placeholder="Enter your prompt here..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Max Tokens</label>
+        <input type="number" value="@config.MaxTokens" 
+               @onchange="@(e => UpdateConfig(c => c.MaxTokens = int.TryParse(e.Value?.ToString(), out var v) ? v : 8192))" 
+               class="form-control" min="1" max="1000000" />
+        <small class="form-text text-muted">Maximum tokens in the response (default: 8192).</small>
+    </div>
+
+    <div class="form-group">
+        <label>Temperature</label>
+        <input type="number" value="@config.Temperature" step="0.1"
+               @onchange="@(e => UpdateConfig(c => c.Temperature = double.TryParse(e.Value?.ToString(), out var v) ? v : 1.0))" 
+               class="form-control" min="0" max="2" />
+        <small class="form-text text-muted">Controls randomness (0 = deterministic, 2 = very random).</small>
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s = 5 minutes)</small>
+    </div>
+
+    <div class="form-group">
+        <label>Output Properties</label>
+        <div class="output-properties">
+            <span class="output-chip" title="The AI's text response">{{Gemini.AIResponse}}</span>
+            <span class="output-chip" title="The model that was used">{{Gemini.ModelUsed}}</span>
+            <span class="output-chip" title="Why the response ended (STOP, MAX_TOKENS, etc)">{{Gemini.FinishReason}}</span>
+        </div>
+        <small class="form-text text-muted">Use these placeholders in downstream nodes.</small>
+    </div>
+
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .output-properties {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .output-chip {
+        background: rgba(0, 168, 168, 0.15);
+        border: 1px solid var(--teal-medium);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        font-family: monospace;
+        color: var(--teal-light);
+        cursor: help;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    [Inject] IJSRuntime JSRuntime { get; set; } = default!;
+    [Inject] GeminiModelService ModelService { get; set; } = default!;
+    [Inject] AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+
+    private GeminiConfig config = new();
+    private List<GeminiModelInfo> availableModels = new();
+    private bool isLoadingModels = false;
+    private string? currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadModels();
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<GeminiConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task LoadModels()
+    {
+        if (isLoadingModels || string.IsNullOrEmpty(currentUserId)) return;
+        
+        isLoadingModels = true;
+        StateHasChanged();
+        
+        try
+        {
+            availableModels = await ModelService.GetModelsAsync(currentUserId, config.ApiKey);
+        }
+        catch
+        {
+            availableModels = new();
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshModels()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+        ModelService.InvalidateCache();
+        await LoadModels();
+    }
+
+    private async Task UpdateConfig(Action<GeminiConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task CopyApiKey()
+    {
+        if (!string.IsNullOrEmpty(config.ApiKey))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", config.ApiKey);
+        }
+    }
+
+    private async Task ResetCost()
+    {
+        config.Cost = 0;
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private string GetPricingInfo()
+    {
+        return config.Model switch
+        {
+            // Gemini 2.5
+            var m when m != null && m.Contains("2.5-pro") => "$1.25 / 1M in, $10.00 / 1M out",
+            var m when m != null && m.Contains("2.5-flash-lite") => "$0.10 / 1M in, $0.40 / 1M out",
+            var m when m != null && m.Contains("2.5-flash") => "$0.15 / 1M in, $0.60 / 1M out",
+            // Gemini 2.0
+            var m when m != null && m.Contains("2.0-flash-lite") => "$0.075 / 1M in, $0.30 / 1M out",
+            var m when m != null && m.Contains("2.0-flash") => "$0.10 / 1M in, $0.40 / 1M out",
+            // Gemini 1.5
+            var m when m != null && m.Contains("1.5-pro") => "$1.25 / 1M in, $5.00 / 1M out",
+            var m when m != null && m.Contains("1.5-flash") => "$0.075 / 1M in, $0.30 / 1M out",
+            _ => "Select a model to see pricing"
+        };
+    }
+}

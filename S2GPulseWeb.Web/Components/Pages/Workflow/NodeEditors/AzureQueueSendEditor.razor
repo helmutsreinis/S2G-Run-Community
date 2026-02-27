@@ -1,0 +1,127 @@
+@using System.Text.Json
+
+<div class="node-editor-fields">
+    <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.PlaceholderList 
+        Placeholders="@AvailablePlaceholders" />
+
+    <div class="node-property">
+        <label>Connection String:</label>
+        <input type="password" 
+               value="@Config.ConnectionString" 
+               @onchange="OnConnectionStringChanged"
+               class="form-control" 
+               autocomplete="new-password"
+               placeholder="DefaultEndpointsProtocol=https;AccountName=..." />
+    </div>
+
+    <div class="node-property">
+        <label>Queue Name:</label>
+        <input type="text" 
+               value="@Config.QueueName" 
+               @onchange="OnQueueNameChanged"
+               class="form-control" 
+               autocomplete="off"
+               placeholder="my-queue" />
+    </div>
+
+    <div class="node-property">
+        <label>Message Content:</label>
+        <textarea value="@Config.Message" 
+                  @onchange="OnMessageChanged"
+                  class="form-control" 
+                  rows="4"
+                  placeholder="Enter message content. Supports placeholders like {{NodeName.Property}}"></textarea>
+        <small class="text-muted">Supports workflow placeholders</small>
+    </div>
+
+    <div class="node-property">
+        <label>Time to Live (seconds):</label>
+        <input type="number" 
+               value="@Config.TimeToLiveSeconds" 
+               @onchange="OnTtlChanged"
+               class="form-control" 
+               min="0"
+               placeholder="Optional - leave empty for default (7 days)" />
+        <small class="text-muted">Optional. Message expires after this time. Default is 7 days.</small>
+    </div>
+
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>After sending a message:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{{QueueSend.MessageId}}</code> - ID of the sent message</li>
+                    <li><code>{{QueueSend.InsertionTime}}</code> - When message was inserted</li>
+                    <li><code>{{QueueSend.ExpirationTime}}</code> - When message expires</li>
+                    <li><code>{{QueueSend.Success}}</code> - Whether send succeeded</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private AzureQueueSendConfig Config { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<AzureQueueSendConfig>(Configuration) ?? new();
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnConnectionStringChanged(ChangeEventArgs e)
+    {
+        Config.ConnectionString = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnQueueNameChanged(ChangeEventArgs e)
+    {
+        Config.QueueName = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnMessageChanged(ChangeEventArgs e)
+    {
+        Config.Message = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnTtlChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int ttl) && ttl > 0)
+        {
+            Config.TimeToLiveSeconds = ttl;
+        }
+        else
+        {
+            Config.TimeToLiveSeconds = null;
+        }
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    public class AzureQueueSendConfig
+    {
+        public string? ConnectionString { get; set; }
+        public string? QueueName { get; set; }
+        public string? Message { get; set; }
+        public int? TimeToLiveSeconds { get; set; }
+    }
+}

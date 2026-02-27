@@ -1,0 +1,360 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label class="form-label">Input Item</label>
+        <textarea class="form-control" rows="2" 
+                  value="@config.InputItem"
+                  placeholder="{{Loop.CurrentItem}} or {{HttpRequest.Body}}"
+                  @onchange="@(e => UpdateConfig(c => c.InputItem = e.Value?.ToString()))"></textarea>
+        <small class="form-text text-muted">JSON object to aggregate. Use a placeholder from upstream node.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders.Take(8))
+                {
+                    <span class="chip" @onclick="@(() => InsertPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Threshold Count</label>
+        <input type="text" class="form-control" 
+               value="@config.ThresholdCount"
+               placeholder="10 or {{Listener.Body.count}}"
+               @onchange="@(e => UpdateConfig(c => c.ThresholdCount = e.Value?.ToString() ?? "10"))" />
+        <small class="form-text text-muted">Number of items to collect before triggering. Accepts placeholders.</small>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Schema Definition</label>
+        <div class="schema-section">
+            <textarea class="form-control schema-sample" rows="4" 
+                      @bind="sampleInput"
+                      placeholder='Paste sample JSON:
+[{"id": 1, "name": "John", "active": true}]'></textarea>
+            <button class="btn btn-sm btn-primary mt-2" @onclick="DetectSchema">🔍 Detect Schema</button>
+        </div>
+        
+        @if (detectedSchema.Any())
+        {
+            <div class="schema-display">
+                <table class="schema-table">
+                    <thead>
+                        <tr>
+                            <th>Property</th>
+                            <th>Type</th>
+                            <th>Required</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var prop in detectedSchema)
+                        {
+                            <tr>
+                                <td><code>@prop.Name</code></td>
+                                <td>
+                                    <span class="type-badge @prop.Type">@prop.Type</span>
+                                </td>
+                                <td>
+                                    <input type="checkbox" checked="@prop.Required" 
+                                           @onchange="@(e => ToggleRequired(prop.Name, (bool)(e.Value ?? false)))" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <button class="btn btn-sm btn-secondary mt-2" @onclick="ClearSchema">❌ Clear Schema</button>
+            </div>
+        }
+        <small class="form-text text-muted">Paste a sample JSON array to detect schema. Items not matching will be routed to the "invalid" connection.</small>
+    </div>
+
+    <div class="form-group">
+        <label class="form-check">
+            <input type="checkbox" class="form-check-input" 
+                   checked="@config.KeepInvalidItems"
+                   @onchange="@(e => UpdateConfig(c => c.KeepInvalidItems = (bool)(e.Value ?? false)))" />
+            <span class="form-check-label">Keep invalid items in buffer</span>
+        </label>
+        <small class="form-text text-muted">If enabled, invalid items still count toward the threshold.</small>
+    </div>
+
+    <div class="connection-hint">
+        <div class="hint-box valid-hint">
+            <span class="hint-icon">✓</span>
+            <span>Connect with label <strong>"valid"</strong> (or no label) for aggregated output</span>
+        </div>
+        <div class="hint-box invalid-hint">
+            <span class="hint-icon">✗</span>
+            <span>Connect with label <strong>"invalid"</strong> for schema validation failures</span>
+        </div>
+    </div>
+
+    <details class="help-section">
+        <summary>📖 Output Placeholders</summary>
+        <div class="help-content">
+            <p>When threshold is reached, the following placeholders are available:</p>
+            <ul>
+                <li><code>{{Aggregator.AggregatedItems}}</code> - JSON array of collected items</li>
+                <li><code>{{Aggregator.ItemCount}}</code> - Number of items in output</li>
+                <li><code>{{Aggregator.BufferSize}}</code> - Current buffer size</li>
+                <li><code>{{Aggregator.IsThresholdReached}}</code> - True when threshold met</li>
+            </ul>
+            <p>For invalid items (routed to "invalid" connection):</p>
+            <ul>
+                <li><code>{{Aggregator.InvalidItem}}</code> - The invalid JSON item</li>
+                <li><code>{{Aggregator.InvalidReason}}</code> - Why validation failed</li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+<style>
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        color: var(--text-primary);
+        font-weight: 500;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .form-text.text-muted {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem;
+    }
+
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .schema-section {
+        margin-bottom: 0.5rem;
+    }
+
+    .schema-sample {
+        font-family: monospace;
+        font-size: 0.8rem;
+    }
+
+    .schema-display {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+    }
+
+    .schema-table {
+        width: 100%;
+        font-size: 0.8rem;
+    }
+
+    .schema-table th {
+        text-align: left;
+        padding: 0.25rem 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
+    }
+
+    .schema-table td {
+        padding: 0.25rem 0.5rem;
+    }
+
+    .type-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 500;
+    }
+
+    .type-badge.string { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+    .type-badge.number { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+    .type-badge.boolean { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .type-badge.object { background: rgba(249, 115, 22, 0.2); color: #f97316; }
+    .type-badge.array { background: rgba(236, 72, 153, 0.2); color: #ec4899; }
+    .type-badge.null { background: rgba(107, 114, 128, 0.2); color: #6b7280; }
+
+    .connection-hint {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .hint-box {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .valid-hint {
+        background: rgba(34, 197, 94, 0.15);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+    }
+
+    .invalid-hint {
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+    }
+
+    .hint-icon {
+        font-weight: bold;
+        font-size: 1rem;
+    }
+
+    .help-section {
+        margin-top: 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .help-section summary {
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .help-content {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .help-content code {
+        color: var(--accent-color);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .help-content ul {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+    }
+
+    .help-content li {
+        margin: 0.25rem 0;
+    }
+
+    .form-check {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .form-check-label {
+        color: var(--text-primary);
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    private AggregatorConfig config = new();
+    private string sampleInput = "";
+    private List<SchemaProperty> detectedSchema = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<AggregatorConfig>(Configuration ?? "{}") ?? new();
+            // Load existing schema if present
+            if (!string.IsNullOrEmpty(config.SchemaJson))
+            {
+                detectedSchema = JsonSerializer.Deserialize<List<SchemaProperty>>(config.SchemaJson) ?? new();
+            }
+            if (!string.IsNullOrEmpty(config.SampleJson))
+            {
+                sampleInput = config.SampleJson;
+            }
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<AggregatorConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task InsertPlaceholder(string placeholder)
+    {
+        var current = config.InputItem ?? "";
+        if (placeholder.StartsWith("{{") && placeholder.EndsWith("}}"))
+            config.InputItem = current + placeholder;
+        else
+            config.InputItem = current + "{{" + placeholder + "}}";
+        await NotifyChanged();
+    }
+
+    private async Task DetectSchema()
+    {
+        if (string.IsNullOrWhiteSpace(sampleInput)) return;
+
+        detectedSchema = AggregatorNode.DetectSchemaFromSample(sampleInput);
+        config.SampleJson = sampleInput;
+        config.SchemaJson = JsonSerializer.Serialize(detectedSchema);
+        await NotifyChanged();
+        StateHasChanged();
+    }
+
+    private async Task ClearSchema()
+    {
+        detectedSchema.Clear();
+        config.SchemaJson = "";
+        config.SampleJson = "";
+        sampleInput = "";
+        await NotifyChanged();
+        StateHasChanged();
+    }
+
+    private async Task ToggleRequired(string propertyName, bool required)
+    {
+        var prop = detectedSchema.FirstOrDefault(p => p.Name == propertyName);
+        if (prop != null)
+        {
+            prop.Required = required;
+            config.SchemaJson = JsonSerializer.Serialize(detectedSchema);
+            await NotifyChanged();
+        }
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+}

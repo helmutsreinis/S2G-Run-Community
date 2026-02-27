@@ -1,0 +1,253 @@
+@using System.Text.Json
+
+<div class="storage-table-editor">
+    <div class="mb-3">
+        <label class="form-label">Table Columns</label>
+        <small class="text-muted d-block mb-2">
+            Define the columns for your storage table. A <code>Timestamp</code> column is automatically included.
+        </small>
+        
+        <div class="columns-list">
+            @for (int i = 0; i < config.Columns.Count; i++)
+            {
+                var index = i;
+                <div class="column-row">
+                    <input type="text" class="form-control form-control-sm column-name" 
+                           value="@config.Columns[index].Name"
+                           placeholder="Column name"
+                           @onchange="@(e => UpdateColumnName(index, e.Value?.ToString() ?? ""))" />
+                    <select class="form-select form-select-sm column-type" 
+                            value="@config.Columns[index].Type"
+                            @onchange="@(e => UpdateColumnType(index, e.Value?.ToString() ?? "String"))">
+                        <option value="String">String</option>
+                        <option value="Int">Int</option>
+                        <option value="Double">Double</option>
+                        <option value="Boolean">Boolean</option>
+                        <option value="DateTime">DateTime</option>
+                        <option value="Guid">Guid</option>
+                    </select>
+                    <div class="column-actions">
+                        @if (index > 0)
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => MoveColumnUp(index))" title="Move Up">↑</button>
+                        }
+                        @if (index < config.Columns.Count - 1)
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => MoveColumnDown(index))" title="Move Down">↓</button>
+                        }
+                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveColumn(index))" title="Remove">×</button>
+                    </div>
+                </div>
+            }
+        </div>
+        
+        <button type="button" class="btn btn-sm btn-outline-primary mt-2" @onclick="AddColumn">
+            ➕ Add Column
+        </button>
+    </div>
+
+    <div class="mb-3">
+        <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="enableRetention" @bind="config.EnableRetention" />
+            <label class="form-check-label" for="enableRetention">Enable Data Retention</label>
+        </div>
+        <small class="text-muted">When enabled, records older than the retention period will be automatically deleted.</small>
+    </div>
+
+    @if (config.EnableRetention)
+    {
+        <div class="mb-3">
+            <label class="form-label">Retention Period (days)</label>
+            <input type="number" class="form-control" style="width: 120px;" @bind="config.RetentionDays" min="1" />
+            <small class="text-muted">Records older than this will be deleted when the node executes.</small>
+        </div>
+    }
+
+    <div class="alert alert-info py-2 small mt-3">
+        <strong>💡 Usage:</strong> Connect a <strong>Storage Client</strong> node to this table using a <code>storage</code> connection 
+        to insert, update, query, or delete records.
+    </div>
+
+    <div class="output-preview mt-4">
+        <h6>📤 Output Parameters</h6>
+        <ul class="small text-muted mb-0">
+            <li><code>ColumnsJson</code> - JSON array of column definitions</li>
+            <li><code>RecordCount</code> - Number of records in the table</li>
+            <li><code>TableNodeId</code> - The node ID for reference</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+    .storage-table-editor {
+        padding: 0.5rem 0;
+    }
+
+    .storage-table-editor .form-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .storage-table-editor .text-muted,
+    .storage-table-editor small.text-muted {
+        color: var(--text-secondary, #b0b0b0) !important;
+    }
+
+    .storage-table-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .columns-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .column-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .column-name {
+        flex: 1;
+        min-width: 100px;
+    }
+
+    .column-type {
+        width: 120px;
+    }
+
+    .column-actions {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    .column-actions .btn {
+        padding: 0.15rem 0.4rem;
+        font-size: 0.75rem;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview h6 {
+        margin-bottom: 8px;
+        color: var(--accent-color);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+        color: var(--text-secondary, #b0b0b0);
+    }
+
+    .output-preview code {
+        color: var(--accent-color);
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public Guid NodeId { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private StorageTableConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Configuration))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<StorageTableConfig>(Configuration) ?? new();
+            }
+            catch
+            {
+                config = new();
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await SaveConfiguration();
+    }
+
+    private async Task SaveConfiguration()
+    {
+        var json = JsonSerializer.Serialize(config);
+        if (Configuration != json)
+        {
+            await OnConfigurationChanged.InvokeAsync(json);
+        }
+    }
+
+    private void AddColumn()
+    {
+        config.Columns.Add(new StorageTableColumnDef { Name = $"Column{config.Columns.Count + 1}", Type = "String" });
+        StateHasChanged();
+    }
+
+    private void RemoveColumn(int index)
+    {
+        if (index >= 0 && index < config.Columns.Count)
+        {
+            config.Columns.RemoveAt(index);
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateColumnName(int index, string name)
+    {
+        if (index >= 0 && index < config.Columns.Count)
+        {
+            config.Columns[index].Name = name;
+        }
+    }
+
+    private void UpdateColumnType(int index, string type)
+    {
+        if (index >= 0 && index < config.Columns.Count)
+        {
+            config.Columns[index].Type = type;
+        }
+    }
+
+    private void MoveColumnUp(int index)
+    {
+        if (index > 0 && index < config.Columns.Count)
+        {
+            (config.Columns[index], config.Columns[index - 1]) = (config.Columns[index - 1], config.Columns[index]);
+            StateHasChanged();
+        }
+    }
+
+    private void MoveColumnDown(int index)
+    {
+        if (index >= 0 && index < config.Columns.Count - 1)
+        {
+            (config.Columns[index], config.Columns[index + 1]) = (config.Columns[index + 1], config.Columns[index]);
+            StateHasChanged();
+        }
+    }
+
+    private class StorageTableConfig
+    {
+        public List<StorageTableColumnDef> Columns { get; set; } = new();
+        public bool EnableRetention { get; set; } = false;
+        public int RetentionDays { get; set; } = 30;
+    }
+
+    private class StorageTableColumnDef
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Type { get; set; } = "String";
+    }
+}

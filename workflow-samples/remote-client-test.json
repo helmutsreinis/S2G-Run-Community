@@ -1,0 +1,152 @@
+{
+  "Name": "Remote Client Tests",
+  "ExportedAt": "2026-02-12T20:29:45.4623717Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "142be5ac-8e24-4a0a-938d-0cac8d7a75d8",
+      "NodeType": "RemoteCommand",
+      "Name": "Remote Command",
+      "X": 480,
+      "Y": 520,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Command\u0022:\u0022{{CmdListener.Body}}\u0022,\u0022TargetConnectionTags\u0022:[\u0022{{CmdListener.rm}}\u0022],\u0022TimeoutSeconds\u0022:120,\u0022ConnectedRemotes\u0022:[{\u0022RemoteNodeId\u0022:\u002247a23f6e-cf2e-4a1c-898f-8a1c5714505f\u0022,\u0022RemoteNodeName\u0022:\u0022RemoteMachine\u0022,\u0022ConnectionTag\u0022:\u0022rm-01\u0022}],\u0022Label\u0022:\u0022Execute Remote Command\u0022,\u0022SurfaceLabel\u0022:\u0022Execute Remote Command\u0022}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Total Count: {{Remote Command.TotalCount}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "1faf5cb4-31b0-4c55-896d-d8dcb842a281",
+      "NodeType": "HttpListener",
+      "Name": "Listener",
+      "X": 100,
+      "Y": 140,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Method\u0022:\u0022POST\u0022,\u0022Path\u0022:\u0022/api\u0022,\u0022Port\u0022:8080,\u0022Host\u0022:\u0022localhost\u0022,\u0022DefaultResponse\u0022:\u0022OK\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022,\u0022DefaultStatusCode\u0022:200,\u0022TimeoutSeconds\u0022:300,\u0022LastBodySample\u0022:\u0022{\\r\\n    \\u0022clientId\\u0022:  \\u0022147ce557-bf3a-4b6d-b230-f6f9321fd151\\u0022,\\r\\n    \\u0022action\\u0022:  \\u0022fetch\\u0022\\r\\n}\u0022,\u0022LastQueryParams\u0022:\u0022nodeId\u0022,\u0022UseProxyMode\u0022:true}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "{{Listener.Body}}",
+        "{{Listener.RequestId}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "27b430cb-8636-4f6b-a14e-9b7230b82014",
+      "NodeType": "HttpResponse",
+      "Name": "CmdResponse",
+      "X": 860,
+      "Y": 520,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022StatusCode\u0022:200,\u0022Body\u0022:\u0022{\\u0022executionStatus\\u0022: \\u0022{{Remote Command.SuccessCount}} out of {{Remote Command.TotalCount}} succeeded\\u0022, \\u0022outputs\\u0022: {{Remote Command.ResultsJson}}, \\u0022timeoutCount\\u0022: {{Remote Command.TimeoutCount}}}\u0022,\u0022ContentType\u0022:\u0022application/json\u0022,\u0022Headers\u0022:null,\u0022Label\u0022:\u0022Command Execution Response\u0022,\u0022SurfaceLabel\u0022:\u0022Command Execution Response\u0022}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "47a23f6e-cf2e-4a1c-898f-8a1c5714505f",
+      "NodeType": "Remote",
+      "Name": "RemoteMachine",
+      "X": 480,
+      "Y": 140,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022ClientId\u0022:\u0022147ce557-bf3a-4b6d-b230-f6f9321fd151\u0022,\u0022Command\u0022:\u0022\u0022,\u0022TimeoutSeconds\u0022:60,\u0022ExpirationMinutes\u0022:5,\u0022SourceListenerId\u0022:\u00221faf5cb4-31b0-4c55-896d-d8dcb842a281\u0022}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "OS: {{RemoteMachine.OS}}",
+        "CPU: {{RemoteMachine.CpuUsage}}",
+        "Last Seen: {{RemoteMachine.LastSeen}}",
+        "Host: {{RemoteMachine.Hostname}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "e3b1c6bf-3a6c-44c4-97a9-ce5f7b0b388e",
+      "NodeType": "HttpListener",
+      "Name": "CmdListener",
+      "X": 100,
+      "Y": 520,
+      "Width": 300,
+      "Height": 200,
+      "Configuration": "{\u0022Method\u0022:\u0022GET\u0022,\u0022Path\u0022:\u0022/api\u0022,\u0022Port\u0022:8080,\u0022DefaultResponse\u0022:\u0022OK\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022,\u0022DefaultStatusCode\u0022:200,\u0022LastQueryParams\u0022:\u0022rm,cmd\u0022,\u0022LastBodySample\u0022:\u0022Get-LocalUser | Select-Object Name, Enabled, Description | ConvertTo-Json\u0022}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "{{CmdListener.rm}}",
+        "{{CmdListener.Body}}",
+        "{{CmdListener.RequestId}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "2be1e00e-9c52-4dda-a800-c85411d5bde8",
+      "SourceId": "142be5ac-8e24-4a0a-938d-0cac8d7a75d8",
+      "TargetId": "47a23f6e-cf2e-4a1c-898f-8a1c5714505f",
+      "Label": "run:rm-01"
+    },
+    {
+      "Id": "2f5d626b-9b1f-4baa-8d44-f947225c44c3",
+      "SourceId": "142be5ac-8e24-4a0a-938d-0cac8d7a75d8",
+      "TargetId": "27b430cb-8636-4f6b-a14e-9b7230b82014",
+      "Label": null
+    },
+    {
+      "Id": "d4250811-0aac-46ef-8b00-d8ab4b53e4e1",
+      "SourceId": "1faf5cb4-31b0-4c55-896d-d8dcb842a281",
+      "TargetId": "47a23f6e-cf2e-4a1c-898f-8a1c5714505f",
+      "Label": null
+    },
+    {
+      "Id": "421cd8d5-365c-46a3-97d9-c6d68c73b06f",
+      "SourceId": "e3b1c6bf-3a6c-44c4-97a9-ce5f7b0b388e",
+      "TargetId": "142be5ac-8e24-4a0a-938d-0cac8d7a75d8",
+      "Label": null
+    }
+  ]
+}

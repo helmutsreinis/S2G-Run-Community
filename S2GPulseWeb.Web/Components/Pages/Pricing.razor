@@ -1,0 +1,481 @@
+@page "/pricing"
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject MembershipPlanService MembershipPlanService
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IConfiguration Configuration
+@rendermode InteractiveServer
+
+<PageTitle>Pricing - @PlatformSettings.SiteName</PageTitle>
+
+<div class="pricing-page">
+    <div class="pricing-header">
+        <a href="/" class="back-link">← Back to Home</a>
+        <h1>Choose Your Plan</h1>
+        <p class="pricing-subtitle">Scale your automation with the plan that fits your needs</p>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading">
+            <p>Loading plans...</p>
+        </div>
+    }
+    else if (plans == null || !plans.Any())
+    {
+        <div class="no-plans">
+            <p>Pricing plans are not available at the moment. Please check back later.</p>
+        </div>
+    }
+    else
+    {
+        <div class="plans-container">
+            @foreach (var plan in plans.OrderBy(p => p.DisplayOrder))
+            {
+                <div class="plan-card @(plan.IsFree ? "free" : "") @(plan.Name == "Pro" ? "popular" : "") @(plan.IsContactSales ? "enterprise" : "")">
+                    @if (plan.Name == "Pro")
+                    {
+                        <div class="popular-badge">Most Popular</div>
+                    }
+                    
+                    <div class="plan-header">
+                        <div class="plan-badge" style="@GetBadgeStyle(plan)">
+                            @if (!string.IsNullOrEmpty(plan.SvgIcon))
+                            {
+                                @((MarkupString)plan.SvgIcon)
+                            }
+                            <span>@plan.Name</span>
+                        </div>
+                        <p class="plan-description">@plan.Description</p>
+                    </div>
+                    
+                    <div class="plan-price">
+                        @if (plan.IsFree)
+                        {
+                            <span class="price">€0</span>
+                            <span class="period">/month</span>
+                        }
+                        else if (plan.IsContactSales)
+                        {
+                            <span class="custom-price">Custom</span>
+                        }
+                        else
+                        {
+                            <span class="price">€@plan.MonthlyPrice</span>
+                            <span class="period">/month</span>
+                        }
+                    </div>
+                    
+                    <ul class="plan-features">
+                        <li>
+                            <span class="feature-icon">⚡</span>
+                            <span class="feature-text">@FormatNumber(plan.MaxExecutionsPerMonth) executions/month</span>
+                        </li>
+                        <li>
+                            <span class="feature-icon">💾</span>
+                            <span class="feature-text">@FormatBytes(plan.MaxStorageBytes) storage</span>
+                        </li>
+                        <li>
+                            <span class="feature-icon">🔄</span>
+                            <span class="feature-text">@FormatLimit(plan.MaxWorkflows) workflows</span>
+                        </li>
+                        <li>
+                            <span class="feature-icon">🧩</span>
+                            <span class="feature-text">@FormatLimit(plan.MaxNodesPerWorkflow) nodes per workflow</span>
+                        </li>
+                        <li>
+                            <span class="feature-icon">🧠</span>
+                            <span class="feature-text">@FormatLimit(plan.MaxVectorDocs) vector documents</span>
+                        </li>
+                        <li>
+                            <span class="feature-icon">📋</span>
+                            <span class="feature-text">@FormatHours(plan.LogRetentionHours) log retention</span>
+                        </li>
+                        <li class="@(plan.CanImportExport ? "" : "disabled")">
+                            <span class="feature-icon">@(plan.CanImportExport ? "✅" : "❌")</span>
+                            <span class="feature-text">Import/Export</span>
+                        </li>
+                        <li class="@(plan.CanUseScheduling ? "" : "disabled")">
+                            <span class="feature-icon">@(plan.CanUseScheduling ? "✅" : "❌")</span>
+                            <span class="feature-text">Scheduling</span>
+                        </li>
+                        <li>
+                            <span class="feature-icon">📡</span>
+                            <span class="feature-text">@FormatLimit(plan.MaxHttpListeners) HTTP listeners</span>
+                        </li>
+                    </ul>
+                    
+                    <div class="plan-cta">
+                        @if (plan.IsFree)
+                        {
+                            @if (isAuthenticated)
+                            {
+                                <a href="/workflow" class="btn btn-cta btn-outline">Current Plan</a>
+                            }
+                            else
+                            {
+                                <a href="/account/login" class="btn btn-cta btn-outline">Get Started Free</a>
+                            }
+                        }
+                        else if (plan.IsContactSales)
+                        {
+                            <a href="mailto:sales@s2g-pulse.com" class="btn btn-cta btn-outline">Contact Sales</a>
+                        }
+                        else
+                        {
+                            @if (isAuthenticated)
+                            {
+                                <button class="btn btn-cta btn-primary" @onclick="() => SelectPlan(plan.Id)">
+                                    Upgrade to @plan.Name
+                                </button>
+                            }
+                            else
+                            {
+                                <a href="/account/login?returnUrl=/pricing" class="btn btn-cta btn-primary">
+                                    Sign Up for @plan.Name
+                                </a>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    
+    <div class="pricing-faq">
+        <h2>Frequently Asked Questions</h2>
+        <div class="faq-grid">
+            <div class="faq-item">
+                <h3>Can I upgrade or downgrade anytime?</h3>
+                <p>Yes! You can upgrade your plan instantly and changes take effect immediately. Downgrades take effect at the end of your billing period.</p>
+            </div>
+            <div class="faq-item">
+                <h3>What happens if I exceed my limits?</h3>
+                <p>You'll receive a notification when approaching limits. Executions beyond your limit are paused until the next billing cycle or until you upgrade.</p>
+            </div>
+            <div class="faq-item">
+                <h3>Is there a free trial?</h3>
+                <p>Our Free plan is unlimited in duration. When you're ready for more power, upgrade to a paid plan to unlock more features.</p>
+            </div>
+            <div class="faq-item">
+                <h3>How does billing work?</h3>
+                <p>Plans are billed monthly. You can cancel anytime from your account settings, and you'll retain access until the end of your billing period.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .pricing-page {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 3rem 2rem;
+    }
+    
+    .pricing-header {
+        text-align: center;
+        margin-bottom: 3rem;
+    }
+
+    .back-link {
+        display: inline-block;
+        color: var(--accent-color, #00a8a8);
+        text-decoration: none;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+        transition: all 0.2s ease;
+    }
+
+    .back-link:hover {
+        color: #00d4d4;
+        transform: translateX(-4px);
+    }
+    
+    .pricing-header h1 {
+        font-size: 2.5rem;
+        background: linear-gradient(135deg, var(--accent-color, #00a8a8) 0%, #00d4d4 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 0.5rem;
+    }
+    
+    .pricing-subtitle {
+        color: #888;
+        font-size: 1.1rem;
+    }
+    
+    .plans-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 4rem;
+    }
+    
+    .plan-card {
+        background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.03) 0%,
+            rgba(15, 36, 36, 0.9) 50%,
+            rgba(0, 0, 0, 0.1) 100%);
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        border-radius: 20px;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        transition: all 0.3s;
+    }
+    
+    .plan-card:hover {
+        border-color: var(--accent-color, #00a8a8);
+        transform: translateY(-4px);
+        box-shadow: 0 6px 24px rgba(0, 168, 168, 0.12);
+    }
+    
+    .plan-card.popular {
+        border: 2px solid #667eea;
+        background: rgba(102, 126, 234, 0.08);
+    }
+    
+    .popular-badge {
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        padding: 0.25rem 1rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .plan-header {
+        margin-bottom: 1.5rem;
+    }
+    
+    .plan-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.75rem;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .plan-badge :deep(svg) {
+        width: 18px;
+        height: 18px;
+    }
+    
+    .plan-description {
+        color: #888;
+        font-size: 0.9rem;
+        margin: 0;
+    }
+    
+    .plan-price {
+        margin-bottom: 1.5rem;
+    }
+    
+    .price {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #fff;
+    }
+    
+    .period {
+        color: #888;
+        font-size: 0.95rem;
+    }
+    
+    .custom-price {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #ed8936;
+    }
+    
+    .plan-features {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 2rem;
+        flex-grow: 1;
+    }
+    
+    .plan-features li {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 0.9rem;
+    }
+    
+    .plan-features li.disabled {
+        color: #555;
+    }
+    
+    .feature-icon {
+        font-size: 0.9rem;
+    }
+    
+    .feature-text {
+        color: #ccc;
+    }
+    
+    .plan-features li.disabled .feature-text {
+        color: #555;
+    }
+    
+    .plan-cta {
+        margin-top: auto;
+    }
+    
+    .btn-cta {
+        display: block;
+        width: 100%;
+        padding: 0.85rem 1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        text-align: center;
+        text-decoration: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .btn-cta.btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        border: none;
+    }
+    
+    .btn-cta.btn-primary:hover {
+        opacity: 0.9;
+        transform: translateY(-2px);
+    }
+    
+    .btn-cta.btn-outline {
+        background: transparent;
+        color: #888;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    
+    .btn-cta.btn-outline:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #fff;
+    }
+    
+    .pricing-faq {
+        margin-top: 4rem;
+        text-align: center;
+    }
+    
+    .pricing-faq h2 {
+        font-size: 1.75rem;
+        color: #fff;
+        margin-bottom: 2rem;
+    }
+    
+    .faq-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        text-align: left;
+    }
+    
+    .faq-item {
+        background: rgba(26, 26, 46, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+    
+    .faq-item h3 {
+        color: #667eea;
+        font-size: 1rem;
+        margin: 0 0 0.75rem;
+    }
+    
+    .faq-item p {
+        color: #888;
+        font-size: 0.9rem;
+        margin: 0;
+        line-height: 1.5;
+    }
+    
+    .loading, .no-plans {
+        text-align: center;
+        padding: 3rem;
+        color: #888;
+    }
+</style>
+
+@code {
+    private List<MembershipPlan>? plans;
+    private bool isLoading = true;
+    private bool isAuthenticated = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Self-hosted mode: redirect away from pricing
+        if (Configuration.GetValue<bool>("SelfHosted"))
+        {
+            NavigationManager.NavigateTo("/workflow", replace: true);
+            return;
+        }
+        
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        isAuthenticated = authState.User?.Identity?.IsAuthenticated == true;
+        
+        plans = await MembershipPlanService.GetAllPlansAsync(includeInactive: false);
+        isLoading = false;
+    }
+
+    private void SelectPlan(int planId)
+    {
+        // Navigate to checkout flow
+        NavigationManager.NavigateTo($"/profile?checkout={planId}");
+    }
+
+    private string GetBadgeStyle(MembershipPlan plan)
+    {
+        return $"background: linear-gradient(135deg, {plan.BadgeColorGradientStart ?? "#667eea"}, {plan.BadgeColorGradientEnd ?? "#764ba2"}); " +
+               $"color: {plan.BadgeTextColor ?? "#fff"}; " +
+               $"border: 1px solid {plan.BadgeBorderColor ?? "#667eea"};";
+    }
+
+    private string FormatNumber(int value)
+    {
+        if (value < 0) return "Unlimited";
+        if (value >= 1_000_000) return $"{value / 1_000_000.0:F0}M";
+        if (value >= 1_000) return $"{value / 1_000.0:F0}k";
+        return value.ToString("N0");
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes < 0) return "Unlimited";
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F0} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+    }
+
+    private string FormatLimit(int value)
+    {
+        return value < 0 ? "Unlimited" : value.ToString("N0");
+    }
+
+    private string FormatHours(int hours)
+    {
+        if (hours < 0) return "Unlimited";
+        if (hours < 24) return $"{hours}h";
+        if (hours < 168) return $"{hours / 24}d";
+        if (hours < 720) return $"{hours / 168}w";
+        return $"{hours / 720}mo";
+    }
+}

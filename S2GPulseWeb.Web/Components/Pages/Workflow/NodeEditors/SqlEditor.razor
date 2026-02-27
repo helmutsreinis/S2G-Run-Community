@@ -1,0 +1,270 @@
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>Conn Str:</label>
+        <input type="password" value="@Config.ConnectionString" @onchange="OnConnChanged" class="form-control" placeholder="Server=...;Database=..." />
+    </div>
+    <div class="node-property">
+        <label>Timeout (sec):</label>
+        <input type="number" value="@Config.TimeoutSeconds" @onchange="OnTimeoutChanged" class="form-control" min="1" max="3600" placeholder="30" />
+        <small class="text-muted">Connection and command timeout in seconds (default: 30)</small>
+    </div>
+    <div class="node-property">
+        <label>Query:</label>
+        <textarea value="@Config.Query" @onchange="OnQueryChanged" class="form-control" rows="4" placeholder="SELECT Name, Email FROM Users WHERE Id = @@Id"></textarea>
+        <small class="text-muted">Use @@paramName for parameters or @("{Placeholder}") for value substitution</small>
+    </div>
+
+    @* Auto-extracted parameters table *@
+    @if (extractedParams.Any())
+    {
+        <div class="node-property mt-2">
+            <label style="color: #00d4d4;">🔧 Extracted Parameters</label>
+            <div style="background: #1a3a3a; border: 1px solid #00a8a8; border-radius: 6px; padding: 12px;">
+                <table style="width: 100%; border-collapse: collapse; background: transparent;">
+                    <thead style="background: transparent;">
+                        <tr style="font-size: 0.75rem; color: #00d4d4; border-bottom: 1px solid #00a8a8;">
+                            <th style="padding: 6px; text-align: left; background: transparent;">Parameter</th>
+                            <th style="padding: 6px; width: 100px; background: transparent;">Type</th>
+                            <th style="padding: 6px; background: transparent;">Value</th>
+                        </tr>
+                    </thead>
+                    <tbody style="background: transparent;">
+                        @for (var i = 0; i < extractedParams.Count; i++)
+                        {
+                            var idx = i;
+                            var param = extractedParams[i];
+                            <tr style="border-bottom: 1px solid rgba(0, 168, 168, 0.3); background: transparent;">
+                                <td style="padding: 6px; background: transparent;">
+                                    <code style="color: #00d4d4; background: #0d2828; padding: 2px 6px; border-radius: 3px;">@("@")@param.Name</code>
+                                </td>
+                                <td style="padding: 6px; background: transparent;">
+                                    <select value="@param.Type" @onchange="@(e => OnParamTypeChanged(idx, e))"
+                                            class="form-control form-control-sm" 
+                                            style="background: #0d2828; border: 1px solid #00d4d4; color: #ffffff; font-size: 0.85rem; padding: 4px 6px;">
+                                        <option value="String">String</option>
+                                        <option value="Int">Int</option>
+                                        <option value="Decimal">Decimal</option>
+                                        <option value="DateTime">DateTime</option>
+                                        <option value="Boolean">Boolean</option>
+                                    </select>
+                                </td>
+                                <td style="padding: 6px; background: transparent;">
+                                    @if (param.Type == "DateTime")
+                                    {
+                                        <input type="datetime-local" value="@GetDateTimeValue(param.Value)"
+                                               @onchange="@(e => OnParamValueChanged(idx, e))"
+                                               class="form-control form-control-sm"
+                                               style="background: #0d2828; border: 1px solid #00d4d4; color: #ffffff; font-size: 0.85rem;" />
+                                    }
+                                    else if (param.Type == "Boolean")
+                                    {
+                                        <select value="@param.Value" @onchange="@(e => OnParamValueChanged(idx, e))"
+                                                class="form-control form-control-sm"
+                                                style="background: #0d2828; border: 1px solid #00d4d4; color: #ffffff; font-size: 0.85rem; padding: 4px 6px;">
+                                            <option value="true">true</option>
+                                            <option value="false">false</option>
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <input type="text" value="@param.Value"
+                                               @onchange="@(e => OnParamValueChanged(idx, e))"
+                                               class="form-control form-control-sm"
+                                               style="background: #0d2828; border: 1px solid #00d4d4; color: #ffffff; font-size: 0.85rem;"
+                                               placeholder="@GetPlaceholderHint(param.Type)" />
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <small style="color: #808080; display: block; margin-top: 8px;">
+                    💡 Leave values empty to use upstream placeholders or set default test values
+                </small>
+            </div>
+        </div>
+    }
+
+    <div class="node-property">
+        <label>Expected Columns:</label>
+        <input type="text" value="@Config.ExpectedColumns" @onchange="OnColumnsChanged" class="form-control" placeholder="Name, Email, Id" />
+        <small class="text-muted">Comma-separated column names for downstream placeholders</small>
+    </div>
+    
+    @if (!string.IsNullOrWhiteSpace(Config.LastExecutionColumns))
+    {
+        <div class="node-property mt-2">
+            <div class="small" style="background: rgba(0,200,100,0.1); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(0,200,100,0.3);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong style="color: #00c864;">🔍 Detected Columns (from last execution):</strong>
+                    <button type="button" class="btn btn-sm btn-outline-success" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;" @onclick="CopyDetectedToExpected">
+                        📋 Use These
+                    </button>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0.5rem;">
+                    @foreach (var col in Config.LastExecutionColumns.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        <code style="background: #0d2828; color: #00d4d4; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem;">@($"{{{{SqlServer.{col.Trim()}}}}}")</code>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+    
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>For downstream nodes use:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>@("{SqlServer.Count}")</code> - Number of rows</li>
+                    <li><code>@("{SqlServer.RowsJson}")</code> - All rows as JSON</li>
+                    <li><code>@("{SqlServer.FirstRowJson}")</code> - First row as JSON</li>
+                    <li><code>@("{SqlServer.ColumnName}")</code> - Column value from first row</li>
+                </ul>
+                <em>💡 Run the query once to auto-detect columns, or set "Expected Columns" manually</em>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private SqlNodeConfig Config { get; set; } = new();
+    private List<SqlParameter> extractedParams = new();
+
+    // Regex to match SQL parameters: @paramName (but not @@, which is SQL escape for literal @)
+    private static readonly Regex ParamRegex = new(@"(?<!@)@([a-zA-Z_][a-zA-Z0-9_]*)", RegexOptions.Compiled);
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<SqlNodeConfig>(Configuration) ?? new();
+                extractedParams = Config.Parameters ?? new();
+                
+                // Sync with current query parameters
+                SyncParametersWithQuery();
+            }
+        }
+        catch { }
+    }
+
+    private void SyncParametersWithQuery()
+    {
+        if (string.IsNullOrEmpty(Config.Query)) return;
+
+        // Extract unique parameter names from query
+        var matches = ParamRegex.Matches(Config.Query);
+        var queryParams = matches
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Remove params no longer in query
+        extractedParams.RemoveAll(p => !queryParams.Contains(p.Name, StringComparer.OrdinalIgnoreCase));
+
+        // Add new params found in query (preserve existing ones)
+        foreach (var name in queryParams)
+        {
+            if (!extractedParams.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                extractedParams.Add(new SqlParameter { Name = name, Type = "String", Value = "" });
+            }
+        }
+    }
+
+    private async Task OnConnChanged(ChangeEventArgs e)
+    {
+        Config.ConnectionString = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnQueryChanged(ChangeEventArgs e)
+    {
+        Config.Query = e.Value?.ToString();
+        SyncParametersWithQuery();
+        await NotifyChanged();
+    }
+
+    private async Task OnColumnsChanged(ChangeEventArgs e)
+    {
+        Config.ExpectedColumns = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnTimeoutChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var timeout) && timeout > 0)
+        {
+            Config.TimeoutSeconds = timeout;
+        }
+        else
+        {
+            Config.TimeoutSeconds = 30;
+        }
+        await NotifyChanged();
+    }
+
+    private async Task OnParamTypeChanged(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < extractedParams.Count)
+        {
+            extractedParams[index].Type = e.Value?.ToString() ?? "String";
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnParamValueChanged(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < extractedParams.Count)
+        {
+            extractedParams[index].Value = e.Value?.ToString();
+            await NotifyChanged();
+        }
+    }
+
+    private async Task CopyDetectedToExpected()
+    {
+        if (!string.IsNullOrWhiteSpace(Config.LastExecutionColumns))
+        {
+            Config.ExpectedColumns = Config.LastExecutionColumns;
+            await NotifyChanged();
+        }
+    }
+
+    private async Task NotifyChanged()
+    {
+        Config.Parameters = extractedParams.Count > 0 ? extractedParams : null;
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    private string GetDateTimeValue(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return DateTime.Now.ToString("yyyy-MM-ddTHH:mm");
+        if (DateTime.TryParse(value, out var dt))
+            return dt.ToString("yyyy-MM-ddTHH:mm");
+        return value;
+    }
+
+    private string GetPlaceholderHint(string type) => type switch
+    {
+        "Int" => "123",
+        "Decimal" => "123.45",
+        _ => "value or {Placeholder}"
+    };
+}

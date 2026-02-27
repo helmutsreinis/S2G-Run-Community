@@ -1,0 +1,48 @@
+@using System.Text.Json
+
+<div class="vectordb-editor">
+    <div class="alert alert-info py-2 small">
+        <strong>🧬 Vector Store</strong><br/>
+        This node defines a vector database store. Connect a <strong>Vector Search</strong> node to this store to perform operations.
+    </div>
+
+    <details class="mt-3">
+        <summary class="text-muted small" style="cursor: pointer;">📤 Output Placeholders</summary>
+        <div class="output-preview mt-2">
+            <ul class="small text-muted mb-0">
+                <li><code>DocumentCount</code> - Number of documents in the store</li>
+                <li><code>StoreNodeId</code> - ID of this store (for reference)</li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+<style>
+    .vectordb-editor {
+        padding: 0.5rem 0;
+    }
+
+    .vectordb-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+}

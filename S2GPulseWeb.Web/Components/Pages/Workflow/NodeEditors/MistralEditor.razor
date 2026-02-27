@@ -1,0 +1,335 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+@inject MistralModelService ModelService
+@inject IJSRuntime JSRuntime
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="mistral-editor">
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey" 
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))" 
+                   class="form-control" placeholder="Leave empty to use Settings page key"
+                   autocomplete="new-password" />
+        </div>
+        <small class="form-text text-muted">Override key for this node. If empty, uses Mistral_ApiKey from Settings.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <div class="d-flex align-items-center gap-2">
+            <select value="@config.Model" @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString()))" class="form-control" disabled="@isLoadingModels">
+                @if (isLoadingModels)
+                {
+                    <option>Loading models...</option>
+                }
+                else
+                {
+                    var groupedModels = availableModels.GroupBy(m => m.Category);
+                    @foreach (var group in groupedModels)
+                    {
+                        <optgroup label="@group.Key Models">
+                            @foreach (var model in group)
+                            {
+                                <option value="@model.Id">@model.DisplayName</option>
+                            }
+                        </optgroup>
+                    }
+                }
+            </select>
+            <button class="btn btn-sm btn-outline-info" @onclick="RefreshModels" disabled="@isLoadingModels" title="Refresh models">
+                @if (isLoadingModels)
+                {
+                    <span>⏳</span>
+                }
+                else
+                {
+                    <span>🔄</span>
+                }
+            </button>
+        </div>
+        <div class="model-pricing small mt-1" style="color: var(--teal-light);">
+            @GetPricingInfo()
+        </div>
+    </div>
+
+    @if (config.Cost > 0 || config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Cumulative Cost:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">$@config.Cost.ToString("F4")</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens in / @config.OutputTokens out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetCost" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="form-group">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="conversationMode" 
+                       checked="@config.ConversationMode" 
+                       @onchange="@(e => UpdateConfig(c => c.ConversationMode = (bool)(e.Value ?? false)))" />
+                <label class="form-check-label" for="conversationMode">
+                    Enable Conversation Mode
+                </label>
+            </div>
+            @if (config.ConversationMode && config.ConversationHistory?.Count > 0)
+            {
+                <button class="btn btn-sm btn-outline-warning py-0" @onclick="ClearConversationHistory" style="font-size: 0.7rem;">
+                    🗑️ Clear History (@(config.ConversationHistory.Count / 2) turns)
+                </button>
+            }
+        </div>
+        <small class="form-text text-muted">
+            @if (config.ConversationMode)
+            {
+                <span>✅ Each execution adds to conversation history. Output <code>ConversationHistory</code> for downstream nodes.</span>
+            }
+            else
+            {
+                <span>Single message mode. Enable for multi-turn conversations with cached history.</span>
+            }
+        </small>
+    </div>
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or output format..."></textarea>
+        <small class="form-text text-muted">Optional. Sets instruction context for the model.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="4" placeholder="Enter your prompt here..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Max Tokens</label>
+        <input type="number" value="@config.MaxTokens" 
+               @onchange="@(e => UpdateConfig(c => c.MaxTokens = int.TryParse(e.Value?.ToString(), out var v) ? v : 1024))" 
+               class="form-control" min="1" max="128000" />
+        <small class="form-text text-muted">Maximum tokens in the response (default: 1024).</small>
+    </div>
+
+    <div class="form-group">
+        <label>Temperature</label>
+        <input type="number" value="@config.Temperature" step="0.1" min="0" max="2"
+               @onchange="@(e => UpdateConfig(c => c.Temperature = double.TryParse(e.Value?.ToString(), out var v) ? v : 0.7))" 
+               class="form-control" />
+        <small class="form-text text-muted">Controls randomness (0 = deterministic, 2 = creative). Default: 0.7</small>
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s = 5 minutes)</small>
+    </div>
+
+    <div class="form-group">
+        <label>Output Properties</label>
+        <div class="output-properties">
+            <span class="output-chip" title="The AI's text response">{{Mistral.AIResponse}}</span>
+            <span class="output-chip" title="The model that was used">{{Mistral.ModelUsed}}</span>
+            <span class="output-chip" title="Why the response ended (stop, length, etc)">{{Mistral.FinishReason}}</span>
+            <span class="output-chip" title="JSON array of conversation history (Conversation Mode only)">{{Mistral.ConversationHistory}}</span>
+        </div>
+        <small class="form-text text-muted">Use these placeholders in downstream nodes.</small>
+    </div>
+</div>
+
+<style>
+    .mistral-editor {
+        padding: 0.5rem;
+    }
+
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    .chip {
+        background: rgba(255, 165, 0, 0.15);
+        border: 1px solid rgba(255, 165, 0, 0.4);
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: rgba(255, 165, 0, 0.3);
+    }
+
+    .output-properties {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .output-chip {
+        background: rgba(255, 140, 0, 0.15);
+        border: 1px solid rgba(255, 140, 0, 0.4);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        font-family: monospace;
+        color: #ffa500;
+        cursor: help;
+    }
+
+    .model-pricing {
+        font-size: 0.8rem;
+        color: #888;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public IEnumerable<string> AvailablePlaceholders { get; set; } = Enumerable.Empty<string>();
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private MistralConfig config = new();
+    private List<MistralModelInfo> availableModels = new();
+    private bool isLoadingModels = false;
+    private string currentUserId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadModels();
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<MistralConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task LoadModels()
+    {
+        if (isLoadingModels || string.IsNullOrEmpty(currentUserId)) return;
+        
+        isLoadingModels = true;
+        StateHasChanged();
+        
+        try
+        {
+            availableModels = await ModelService.GetModelsAsync(currentUserId, config.ApiKey);
+        }
+        catch
+        {
+            availableModels = new();
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshModels()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+        ModelService.InvalidateCache();
+        await LoadModels();
+    }
+
+    private string GetPricingInfo()
+    {
+        var model = config.Model ?? "open-mistral-nemo";
+        return model switch
+        {
+            // Premier Models
+            "mistral-large-latest" => "💎 Premier: $2.00 / $6.00 per 1M tokens",
+            "pixtral-large-latest" => "💎 Premier + Vision: $2.00 / $6.00 per 1M tokens",
+            "mistral-medium-latest" => "💎 Premier (Legacy): $2.70 / $8.10 per 1M tokens",
+            "codestral-latest" => "💎 Code: $0.20 / $0.60 per 1M tokens",
+            "codestral-mamba-latest" => "💎 Code (Long Context): $0.25 / $0.25 per 1M tokens",
+            
+            // General Purpose
+            "mistral-small-latest" => "🌐 General: $0.20 / $0.60 per 1M tokens",
+            "ministral-8b-latest" => "🌐 Edge: $0.10 / $0.10 per 1M tokens",
+            "ministral-3b-latest" => "🌐 Edge: $0.04 / $0.04 per 1M tokens",
+            "open-mistral-nemo" => "🌐 All-rounder: $0.15 / $0.15 per 1M tokens",
+            "open-mixtral-8x22b" => "🌐 Large MoE: $2.00 / $6.00 per 1M tokens",
+            "open-mixtral-8x7b" => "🌐 Legacy MoE: $0.70 / $0.70 per 1M tokens",
+            "open-mistral-7b" => "🌐 Legacy: $0.25 / $0.25 per 1M tokens",
+            
+            _ => "Pricing varies by model"
+        };
+    }
+
+    private async Task ResetCost()
+    {
+        config.Cost = 0;
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private async Task ClearConversationHistory()
+    {
+        config.ConversationHistory = null;
+        await NotifyChanged();
+    }
+
+    private async Task UpdateConfig(Action<MistralConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+}

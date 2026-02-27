@@ -1,0 +1,109 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:00:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_IndirectResellerCustomers",
+        "displayName": "Indirect Reseller Customers",
+        "description": "Retrieves customers associated with an indirect reseller from Microsoft Partner Center API. Returns a list of customers with their company profiles and tenant information.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M17 21V19C17 17.9391 16.5786 16.9217 15.8284 16.1716C15.0783 15.4214 14.0609 15 13 15H5C3.93913 15 2.92172 15.4214 2.17157 16.1716C1.42143 16.9217 1 17.9391 1 19V21M23 21V19C22.9993 18.1137 22.7044 17.2528 22.1614 16.5523C21.6184 15.8519 20.8581 15.3516 20 15.13M16 3.13C16.8604 3.35031 17.623 3.85071 18.1676 4.55232C18.7122 5.25392 19.0078 6.11683 19.0078 7.005C19.0078 7.89318 18.7122 8.75608 18.1676 9.45769C17.623 10.1593 16.8604 10.6597 16 10.88M13 7C13 9.20914 11.2091 11 9 11C6.79086 11 5 9.20914 5 7C5 4.79086 6.79086 3 9 3C11.2091 3 13 4.79086 13 7Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 120,
+        "script": "// Indirect Reseller Customers Retrieval\n// Fetches customers associated with an indirect reseller from Partner Center API\n\nvar resellerId = input.get(\"resellerId\");\nvar accessToken = input.get(\"accessToken\");\n\nif (!resellerId || resellerId.trim() === \"\") {\n    log.error(\"Reseller ID is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Reseller ID is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        // Build the filter JSON\n        var filter = json.stringify({\n            Field: \"IndirectReseller\",\n            Value: resellerId.trim(),\n            Operator: \"starts_with\"\n        });\n        \n        var encodedFilter = encodeURIComponent(filter);\n        var url = \"https://api.partnercenter.microsoft.com/v1/customers?filter=\" + encodedFilter;\n        \n        log.info(\"Fetching customers for reseller: \" + resellerId);\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var data = json.parse(response.body);\n            \n            output.set(\"TotalCount\", data.totalCount || 0);\n            \n            var customers = data.items || [];\n            output.set(\"Customers\", json.stringify(customers));\n            output.set(\"CustomerCount\", customers.length);\n            \n            // Extract customer details\n            var customerList = [];\n            for (var i = 0; i < customers.length; i++) {\n                var customer = customers[i];\n                var company = customer.companyProfile || {};\n                customerList.push({\n                    id: customer.id || \"\",\n                    tenantId: company.tenantId || \"\",\n                    companyName: company.companyName || \"\",\n                    domain: company.domain || \"\",\n                    relationship: customer.relationshipToPartner || \"\"\n                });\n            }\n            output.set(\"CustomerSummary\", json.stringify(customerList));\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved \" + customers.length + \" customers for reseller\");\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve customers: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            output.set(\"TotalCount\", 0);\n            output.set(\"CustomerCount\", 0);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        output.set(\"TotalCount\", 0);\n        output.set(\"CustomerCount\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "resellerId",
+                "displayLabel": "Reseller ID",
+                "placeholderText": "Enter reseller GUID or use {{Placeholder}}",
+                "helpText": "The unique identifier (GUID) of the indirect reseller in Partner Center.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "TotalCount",
+                "description": "Total number of customers returned by the API",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "CustomerCount",
+                "description": "Number of customers in the items array",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Customers",
+                "description": "JSON array of all customer objects (full data)",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "CustomerSummary",
+                "description": "JSON array of simplified customer info (id, tenantId, companyName, domain, relationship)",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 8
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when customers were successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

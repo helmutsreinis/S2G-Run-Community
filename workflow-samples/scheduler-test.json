@@ -1,0 +1,182 @@
+{
+  "Name": "Scheduler Test",
+  "ExportedAt": "2026-02-12T20:30:57.5134503Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "0be4c27b-f657-4071-9a64-418e22c953d9",
+      "NodeType": "Custom_PartnerCenterCustomers",
+      "Name": "PartnerCenterCustomers",
+      "X": 400,
+      "Y": 480,
+      "Width": 220,
+      "Height": 220,
+      "Configuration": "{\u0022maxPages\u0022:\u002210\u0022,\u0022pageSize\u0022:\u00221000\u0022,\u0022accessToken\u0022:\u0022{{GetAteaSwedenToken.Body.access_token}}\u0022}",
+      "IsTrigger": false,
+      "Tags": [
+        "helmuts.reinis@outlook.com"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Pages: {{PartnerCenterCustomers.PagesProcessed}}",
+        "Total: {{PartnerCenterCustomers.TotalCount}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "2a989255-da27-4cfd-809c-5e1c816fc960",
+      "NodeType": "Loop",
+      "Name": "Loop",
+      "X": 360,
+      "Y": 820,
+      "Width": 140,
+      "Height": 140,
+      "Configuration": "{\u0022InputArray\u0022:\u0022{{PartnerCenterCustomers.CustomersJson}}\u0022,\u0022BatchSize\u0022:1,\u0022DelayBetweenBatches\u0022:50,\u0022LastExecutedAt\u0022:null,\u0022LastItemCount\u0022:null,\u0022LastExecutionSample\u0022:null,\u0022LastInputArraySample\u0022:\u0022{\\u0022id\\u0022:\\u0022616e9746-d6dd-42b8-87d5-5011bae8ccc1\\u0022,\\u0022companyProfile\\u0022:{\\u0022tenantId\\u0022:\\u0022616e9746-d6dd-42b8-87d5-5011bae8ccc1\\u0022,\\u0022domain\\u0022:\\u0022Cibeslab.onmicrosoft.com\\u0022,\\u0022companyName\\u0022:\\u0022Cibes Lift Group AB\\u0022,\\u0022links\\u0022:{\\u0022self\\u0022:{\\u0022uri\\u0022:\\u0022/customers/616e9746-d6dd-42b8-87d5-5011bae8ccc1/profiles/company\\u0022,\\u0022method\\u0022:\\u0022GET\\u0022,\\u0022headers\\u0022:[]}},\\u0022attributes\\u0022:{\\u0022objectType\\u0022:\\u0022CustomerCompanyProfile\\u0022}},\\u0022relationshipToPartner\\u0022:\\u0022reseller\\u0022,\\u0022links\\u0022:{\\u0022self\\u0022:{\\u0022uri\\u0022:\\u0022/customers/616e9746-d6dd-42b8-87d5-5011bae8ccc1\\u0022,\\u0022method\\u0022:\\u0022GET\\u0022,\\u0022headers\\u0022:[]}},\\u0022attributes\\u0022:{\\u0022objectType\\u0022:\\u0022Customer\\u0022}}\u0022,\u0022DetectedNestedArrays\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "307f2778-d32b-44d2-a4fe-9e8b9abb5ebb",
+      "NodeType": "Scheduler",
+      "Name": "Scheduler",
+      "X": 60,
+      "Y": 20,
+      "Width": 280,
+      "Height": 360,
+      "Configuration": "{\u0022ScheduleType\u0022:\u0022Interval\u0022,\u0022IntervalValue\u0022:60,\u0022IntervalUnit\u0022:\u0022Minutes\u0022,\u0022TimeOfDay\u0022:\u002209:04:00\u0022,\u0022DaysOfWeek\u0022:[\u0022Thursday\u0022,\u0022Wednesday\u0022],\u0022DaysOfMonth\u0022:[],\u0022Timezone\u0022:\u0022Europe/Riga\u0022,\u0022EndDateTime\u0022:null,\u0022LastTriggeredAt\u0022:null,\u0022LastTriggeredLocalTime\u0022:null,\u0022NextScheduledRun\u0022:null}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "{{Scheduler.SchedulerTimezone}}",
+        "Az {{Scheduler.SchedulerType}}",
+        "{{Scheduler.SchedulerTriggeredAt}}",
+        "{{Scheduler.SchedulerType}}",
+        "{{Scheduler.SchedulerLocalTime}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "7b1c2e22-66bb-411f-a269-cdb6fca2eb90",
+      "NodeType": "HttpRequest",
+      "Name": "GetAteaSwedenToken",
+      "X": 420,
+      "Y": 40,
+      "Width": 260,
+      "Height": 340,
+      "Configuration": "{\u0022BaseUrl\u0022:\u0022https://hst-reporting-mgnt-api.azurewebsites.net/api/GetProviderToken\u0022,\u0022Method\u0022:\u0022GET\u0022,\u0022Body\u0022:null,\u0022QueryParams\u0022:[{\u0022Enabled\u0022:true,\u0022Key\u0022:\u0022code\u0022,\u0022Value\u0022:\u0022xxxx/QLZEUm2gA==\u0022},{\u0022Enabled\u0022:true,\u0022Key\u0022:\u0022providermsid\u0022,\u0022Value\u0022:\u00225c72a892-a038-4a84-b369-0a4923bdb076\u0022},{\u0022Enabled\u0022:true,\u0022Key\u0022:\u0022tokentype\u0022,\u0022Value\u0022:\u0022MSPC\u0022}],\u0022Headers\u0022:null,\u0022LastResponseSample\u0022:\u0022{\\u0022token_type\\u0022:\\u0022Bearer\\u0022,\\u0022scope\\u0022:\\u0022user_impersonation\\u0022,\\u0022expires_in\\u0022:\\u00224666\\u0022,\\u0022ext_expires_in\\u0022:\\u00224666\\u0022,\\u0022expires_on\\u0022:\\u00221768927714\\u0022,\\u0022not_before\\u0022:\\u00221768922747\\u0022,\\u0022resource\\u0022:\\u0022https://api.partnercenter.microsoft.com\\u0022,\\u0022pwd_exp\\u0022:\\u00220\\u0022,\\u0022pwd_url\\u0022:\\u0022https://go.microsoft.com/fwlink/?linkid=2224198\\u0022,\\u0022access_token\\u0022:\\u0022eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL2FwaS5wYXJ0bmVyY2VudGVyLm1pY3Jvc29mdC5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC81YzcyYTg5Mi1hMDM4LTRhODQtYjM2OS0wYTQ5MjNiZGIwNzYvIiwiaWF0IjoxNzY4OTIyNzQ3LCJuYmYiOjE3Njg5MjI3NDcsImV4cCI6MTc2ODkyNzcxNCwiYWNyIjoiMSIsImFpbyI6IkFaUUFhLzhiQUFBQUJXQ1NyeUFPRS9ZdStzTHc2YXJHUW1XTnJDSTcxbjFTVHhaWWxMUjIwSDZweTk2cnNNVG01WGxiLzN5OGpPbnV2WlZ6N3IvRHNudXlWQ3Y1VFlsUjVTZGxqaFpvb0hqcDVSaXV2RjBlUEV1MVk1dlVqdVNkUzZYdmR6MmR3TnFtQW9NMm1lSUxqV3ZBRlpsYmxKYzQ4MzE5SFVLK214dTdWOGljR2pDNWVCUXlzcERGZlU1TGZ2NTVJdWdSS2QrbiIsImFtciI6WyJwd2QiLCJtZmEiXSwiYXBwaWQiOiI1MzI2ZmRiYi1iMjdkLTQzNmQtOWFkNy1kOGEyNWIyODhjZWYiLCJhcHBpZGFjciI6IjEiLCJmYW1pbHlfbmFtZSI6IkFkbWluIiwiZ2l2ZW5fbmFtZSI6IkdEQVAiLCJpZHR5cCI6InVzZXIiLCJpcGFkZHIiOiI5MS4xODQuMTM4Ljg4IiwibmFtZSI6IlNlcnZpY2VVc2VyIEdEQVAgQWRtaW4iLCJvaWQiOiIyMjllZTlmMC0xZTRkLTQ2NjItYWFmMS1iMTAxMmQ1N2FkNjYiLCJwdWlkIjoiMTAwMzIwMDIzM0NGREY5MiIsInB3ZF9leHAiOiIwIiwicHdkX3VybCI6Imh0dHBzOi8vZ28ubWljcm9zb2Z0LmNvbS9md2xpbmsvP2xpbmtpZD0yMjI0MTk4IiwicmgiOiIxLkFTQUFrcWh5WERpZ2hFcXphUXBKSTcyd2RneWFQZnF3UDh4Q2taTkh4LXpTN2IyeEFjWWdBQS4iLCJzY3AiOiJ1c2VyX2ltcGVyc29uYXRpb24iLCJzaWQiOiIzM2ZlNzI1Ny1mZjIwLTQxNTgtODljYy04Y2UzMjNlNzMyOWEiLCJzdWIiOiJFZzVjSnp6LUJVbEhZd1dPcC13ZTVpdlhIbWhNMXhXanplU2lpY2gtcGVZIiwidGVuYW50X3JlZ2lvbl9zY29wZSI6IkVVIiwidGlkIjoiNWM3MmE4OTItYTAzOC00YTg0LWIzNjktMGE0OTIzYmRiMDc2IiwidW5pcXVlX25hbWUiOiJzdmNnZGFwYWRtaW5AYXRlYWNzcC5vbm1pY3Jvc29mdC5jb20iLCJ1cG4iOiJzdmNnZGFwYWRtaW5AYXRlYWNzcC5vbm1pY3Jvc29mdC5jb20iLCJ1dGkiOiJJdGIyMC1INTFVbUhtQnFaQjJkN0FBIiwidmVyIjoiMS4wIiwieG1zX2FjdF9mY3QiOiIzIDkiLCJ4bXNfZnRkIjoiT0VTbno0d2gxdUpfUDFNVFJNVjk2WmZYalcyMU92N0ZwZEp3UDRiUE5OQUJabkpoYm1ObFl5MWtjMjF6IiwieG1zX2lkcmVsIjoiMTAgMSIsInhtc19zdWJfZmN0IjoiMyAxNCJ9.PVDr5C4fBBMEPI-yPHY2EAgSGhwTytpWWoR3-xhnErRJeMPvoppwLt9pV0xthgK1xG-irU3V4EWf9CrzgRVUy1TUSvTpDAZN2mgenAn-HhH9-uaNoRFXR-ZbJ4zNA9vxgSP6XIYpxZmse_ittTXe26o5o_olljzZoBxxo7qYJ2Utlt_m1Vi8nwpAHwdTQ_A3nVsYH-FFLKFPXuv33yEeBikGGS_mVbHA2ZEevgHhRUJj__n7JXR9m2ow2jIi1Rq2Mbd0q4Tep2jwePO3r8mxIR9HG3YlKfeUeyBk_CjC7DVNYgyD7Ng2bBSR38Jj7oVWuy-YO6w42IuLI9vNbL5lrQ\\u0022,\\u0022refresh_token\\u0022:\\u00221.ASAAkqhyXDighEqzaQpJI72wdrv9JlN9sm1DmtfYolsojO-xAcYgAA.BQABAwEAAAADAOz_BQD0_zGsPemOZyc_KtD_sYRrmDzE2UGKzPB2Icff6c1-JuPwosOzrCy57e8zGvAjdot62We_5Ftz9Cj_ZNlhxwg8yq95E2RqGoyw9jOscLf3tvFJNOBQKGG14CkC-111r7XmeiGQNGYp2lbi-3rAzY4r75yiQge9-Cwx-fN06-UFuPo0ncoTLNbK2aeNNUHFHzI0Y0ejJureKyhH0PjhluIPLVCK5aZr8aQCFmTlhRjZ07t2SDPyzYXOiGJTSr7QPT9RGHUaoLHn7uXJni6k4cxhiDwokMHjFj3CWZDtSRdWcbW_nI5faR4HbHrYybxRNti77GV-htdvd3gFCXtDEXroojFXFjlJ900JHXi95V_dqTV5-LmaG1uLQlZrIU0g2XCwf88uIpk-hauh0o0jRxyAfdSrnIWcPEsU4iI9ZGbAUzag2KRqKc9ABnhgWVqDuK_SJOQUrfUqnOzuZ1I3ytntyaRTv-wSti0fVfAm5gdT-0oLMMgYxWe8ZYYfprsr43suaTePjrPHKFJJPxpP2FH2mmn96HPpy1rKmpbH9X7BNRXfLS9HeHQJWAmbkVFJPPn7CGnsBgM5sa6O_Lvss9_sfDxTX2DcGfsGEAO7qDC72W6TJp4xR3kvn25GawWhYLMdHb9fLBhVhMtohv0jnBJ51YpshVDZicX7gi8fa-eEPkp1mf02Y_sBXXu5xHPdSQTtWbXqM9YLo2_T8kMwcy0FB0E8ZhE5oU3gCxiPNgXS16WZk2N5BDiIODmLM3sTZgel6BxlfywkbWI_7ZEBj5iY-0693rlq5BjsYvXTOytnW_KI7zSv7kWOzdy3PvOmptRWHvhWqPqxKE5czLRSAO5RYjd73-z-l5TaJ4xOWsRKtke0Havw33Ct9FpLKJiWTfpzFR0MfJry2LzErH1YcUnpqJCMjgOodjH5Y5mMJ_gaCfWjMrgdTp4aXzyLCiTzAx-ZaKvR139R-GQKEE4BC7VJmqP8Jpa4gz3sTmhwbMcvaCq_MkZdtb0KToagi5ivAYVLtJoBtNAeSI1opFhXQr9KyR39JRV3lZ7yxogW37KBP9xN4FHmUUKmgIUtuqfhBiR9_6j8-NISWHyLkbkGoDydVaz_IffbE2Y5oPpxM9yNFpMeNEwgTrdatjOymLGaecvldongggb8ZmW1hbsAYvkQSzR871v8bcRFowVsGW82iuTHWUtrsvqR6Nty-JsKhpKNw-WAmXHBZou8G-oY7hXjUC4LXgLtgwv0Sc16E4Dfm6fewyL6-J_z-I1uAZsYp9meCrYMQG68tFf7Lx5OAwu2AHVkIbYTStlVXWuLVTdCxT3jKHMXjTSbk0pApEJwQ88c2NkjqBLAWEdCu46Y_rfi-hwgmQ9d7rFyIBQ1KeoQcagbO9J58ze5rtW-Z0Y3tndZRh9S6IrK4eYqmwxGIlHMSgQNG6pFGQ8FiF0MW8D4_Z7gQi0g-zq9ZfRL-zV-2yn2_pbbpm1D5EfPFxmmrwWvqkW-bNZ7n8M0vWqNem5zcY-3Yq3xToY5B_tEhhOeJVag-sjFT0u45K_0r2XYEy5aS3mc5ze-1Me8yeP8eBkuGqu570EbO40\\u0022,\\u0022id_token\\u0022:\\u0022eyJ0eXAiOiJKV1QiLCJhbGciOiJub25lIn0.eyJhdWQiOiI1MzI2ZmRiYi1iMjdkLTQzNmQtOWFkNy1kOGEyNWIyODhjZWYiLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC81YzcyYTg5Mi1hMDM4LTRhODQtYjM2OS0wYTQ5MjNiZGIwNzYvIiwiaWF0IjoxNzY4OTIyNzQ3LCJuYmYiOjE3Njg5MjI3NDcsImV4cCI6MTc2ODkyNjY0NywiYW1yIjpbInB3ZCIsIm1mYSJdLCJmYW1pbHlfbmFtZSI6IkFkbWluIiwiZ2l2ZW5fbmFtZSI6IkdEQVAiLCJpcGFkZHIiOiI5MS4xODQuMTM4Ljg4IiwibmFtZSI6IlNlcnZpY2VVc2VyIEdEQVAgQWRtaW4iLCJub25jZSI6IjYzODE2MDk5NTg3MDgxNzM0Ny5aak5qWkdZMU0yTXRNVFV4WVMwME1HTmtMVGd3TTJNdE9ESTVaR0UzTmpnMFl6QTNNMlJsTW1Kak5ESXRNVFJoTXkwMFpqWmxMV0V6TldVdFptWXhZalE1WkRaa1pqVXoiLCJvaWQiOiIyMjllZTlmMC0xZTRkLTQ2NjItYWFmMS1iMTAxMmQ1N2FkNjYiLCJwd2RfZXhwIjoiMCIsInB3ZF91cmwiOiJodHRwczovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9saW5raWQ9MjIyNDE5OCIsInJoIjoiMS5BU0FBa3FoeVhEaWdoRXF6YVFwSkk3MndkcnY5SmxOOXNtMURtdGZZb2xzb2pPLXhBY1lnQUEuIiwic3ViIjoiN2JIdk1kM2Z2RUVqV01hVHpjQmhxOXg2Ql9TeU1mZEd5dVlJNFB5YTdEWSIsInRpZCI6IjVjNzJhODkyLWEwMzgtNGE4NC1iMzY5LTBhNDkyM2JkYjA3NiIsInVuaXF1ZV9uYW1lIjoic3ZjZ2RhcGFkbWluQGF0ZWFjc3Aub25taWNyb3NvZnQuY29tIiwidXBuIjoic3ZjZ2RhcGFkbWluQGF0ZWFjc3Aub25taWNyb3NvZnQuY29tIiwidmVyIjoiMS4wIn0.\\u0022}\u0022,\u0022Url\u0022:\u0022https://hst-reporting-mgnt-api.azurewebsites.net/api/GetProviderToken?code=6S0lhNWSoB8yowIhLZwLbKDwbmalyzAd1AqdmxjXP5dy%2FQLZEUm2gA%3D%3D\\u0026providermsid=5c72a892-a038-4a84-b369-0a4923bdb076\\u0026tokentype=MSPC\u0022}",
+      "IsTrigger": false,
+      "Tags": [
+        "Atea CSP Token"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Response Code: {{GetAteaSwedenToken.StatusCode}}",
+        "Response: {{GetAteaSwedenToken.Body}}",
+        "{{GetAteaSwedenToken.Body.access_token}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "a8b02c39-b163-45d2-9841-43a78ad2109d",
+      "NodeType": "StorageClient",
+      "Name": "CustomerClient",
+      "X": 660,
+      "Y": 840,
+      "Width": 180,
+      "Height": 140,
+      "Configuration": "{\u0022Operation\u0022:\u0022Insert\u0022,\u0022RecordId\u0022:null,\u0022FilterColumn\u0022:null,\u0022FilterOperator\u0022:\u0022==\u0022,\u0022FilterValue\u0022:null,\u0022DataJson\u0022:\u0022{\\n  \\u0022CustomerId\\u0022: \\u0022{{Loop.id}}\\u0022,\\n  \\u0022Company\\u0022: \\u0022{{Loop.companyProfile.domain}}\\u0022,\\n  \\u0022Domain\\u0022: \\u0022{{Loop.companyProfile.domain}}\\u0022\\n}\u0022,\u0022MaxResults\u0022:100}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    },
+    {
+      "Id": "db2e17bf-5aef-4e35-aee3-549349579f56",
+      "NodeType": "StorageTable",
+      "Name": "Table",
+      "X": 980,
+      "Y": 840,
+      "Width": 160,
+      "Height": 140,
+      "Configuration": "{\u0022Columns\u0022:[{\u0022Name\u0022:\u0022CustomerId\u0022,\u0022Type\u0022:\u0022String\u0022},{\u0022Name\u0022:\u0022Company\u0022,\u0022Type\u0022:\u0022String\u0022},{\u0022Name\u0022:\u0022Domain\u0022,\u0022Type\u0022:\u0022String\u0022}],\u0022EnableRetention\u0022:false,\u0022RetentionDays\u0022:30}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": false,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": false
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "945055ee-6369-49eb-ad05-c3731c3b896a",
+      "SourceId": "0be4c27b-f657-4071-9a64-418e22c953d9",
+      "TargetId": "2a989255-da27-4cfd-809c-5e1c816fc960",
+      "Label": "success"
+    },
+    {
+      "Id": "c769c2cb-5fa4-4152-883f-77dcd555f1f2",
+      "SourceId": "2a989255-da27-4cfd-809c-5e1c816fc960",
+      "TargetId": "a8b02c39-b163-45d2-9841-43a78ad2109d",
+      "Label": null
+    },
+    {
+      "Id": "1be59fdd-4b57-4cfa-921a-58784cb379c3",
+      "SourceId": "307f2778-d32b-44d2-a4fe-9e8b9abb5ebb",
+      "TargetId": "7b1c2e22-66bb-411f-a269-cdb6fca2eb90",
+      "Label": null
+    },
+    {
+      "Id": "fdd4ac18-3187-43b5-8aed-8f986fb530f8",
+      "SourceId": "7b1c2e22-66bb-411f-a269-cdb6fca2eb90",
+      "TargetId": "0be4c27b-f657-4071-9a64-418e22c953d9",
+      "Label": null
+    },
+    {
+      "Id": "058b17b3-5891-4df7-8de5-d07d37b1d3c5",
+      "SourceId": "a8b02c39-b163-45d2-9841-43a78ad2109d",
+      "TargetId": "db2e17bf-5aef-4e35-aee3-549349579f56",
+      "Label": "storage"
+    }
+  ]
+}

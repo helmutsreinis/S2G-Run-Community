@@ -1,0 +1,50 @@
+{
+    "Name": "AI Chat Endpoint",
+    "Description": "HTTP endpoint that uses OpenAI to process user messages",
+    "Version": "1.0",
+    "Nodes": [
+        {
+            "NodeType": "HttpListener",
+            "Name": "ChatListener",
+            "X": 100,
+            "Y": 100,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"ListenerPath\":\"/api/chat\",\"Methods\":[\"POST\"],\"Authentication\":\"None\"}",
+            "IsTrigger": true,
+            "Tags": []
+        },
+        {
+            "NodeType": "OpenAI",
+            "Name": "ProcessMessage",
+            "X": 100,
+            "Y": 220,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"Model\":\"gpt-4o\",\"SystemPrompt\":\"You are a helpful assistant.\",\"UserPrompt\":\"{{ChatListener.Body.message}}\",\"Temperature\":\"0.7\",\"MaxTokens\":\"1000\"}",
+            "Tags": []
+        },
+        {
+            "NodeType": "HttpResponse",
+            "Name": "SendReply",
+            "X": 100,
+            "Y": 340,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"StatusCode\":\"200\",\"ContentType\":\"application/json\",\"Body\":\"{\\\"response\\\": \\\"{{ProcessMessage.AIResponse}}\\\"}\"}",
+            "Tags": []
+        }
+    ],
+    "Connections": [
+        {
+            "SourceId": "ChatListener",
+            "TargetId": "ProcessMessage",
+            "Label": null
+        },
+        {
+            "SourceId": "ProcessMessage",
+            "TargetId": "SendReply",
+            "Label": null
+        }
+    ]
+}

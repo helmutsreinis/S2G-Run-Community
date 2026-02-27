@@ -1,0 +1,368 @@
+@using Microsoft.EntityFrameworkCore
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject OrganizationService OrganizationService
+
+<h2>🏢 Organizations</h2>
+
+<div class="org-stats">
+    <div class="stat-card">
+        <span class="stat-value">@(organizations?.Count ?? 0)</span>
+        <span class="stat-label">Total</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">@(organizations?.Count(o => !o.IsDisabled) ?? 0)</span>
+        <span class="stat-label">Active</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">@(organizations?.Count(o => o.IsDisabled) ?? 0)</span>
+        <span class="stat-label">Disabled</span>
+    </div>
+</div>
+
+<div class="search-bar">
+    <input type="text" @bind="searchQuery" @bind:event="oninput" 
+           placeholder="Search by name or founder email..." class="search-input" />
+</div>
+
+@if (organizations == null)
+{
+    <p class="loading">Loading...</p>
+}
+else
+{
+    <div class="org-table-container">
+        <table class="org-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Founder</th>
+                    <th>Members</th>
+                    <th>Workflows</th>
+                    <th>Status</th>
+                    <th>Grace Period</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var org in FilteredOrganizations)
+                {
+                    <tr class="@(org.IsDisabled ? "disabled-row" : "")">
+                        <td>
+                            <div class="org-name-cell">
+                                <strong>@org.Name</strong>
+                                @if (!string.IsNullOrEmpty(org.Description))
+                                {
+                                    <span class="org-desc">@org.Description</span>
+                                }
+                            </div>
+                        </td>
+                        <td>@org.FounderEmail</td>
+                        <td>@org.MemberCount</td>
+                        <td>@org.WorkflowCount</td>
+                        <td>
+                            @if (org.IsDisabled)
+                            {
+                                <span class="status-badge status-disabled">Disabled</span>
+                            }
+                            else
+                            {
+                                <span class="status-badge status-active">Active</span>
+                            }
+                        </td>
+                        <td>
+                            @if (org.IsDisabled && org.DisabledAt.HasValue)
+                            {
+                                var daysRemaining = org.GraceDaysRemaining ?? 0;
+                                <span class="grace-countdown @(daysRemaining <= 7 ? "critical" : daysRemaining <= 14 ? "warning" : "")">
+                                    @(daysRemaining > 0 ? $"{daysRemaining}d remaining" : "Expired")
+                                </span>
+                                <span class="grace-date">since @org.DisabledAt.Value.ToString("yyyy-MM-dd")</span>
+                            }
+                            else
+                            {
+                                <span class="grace-na">—</span>
+                            }
+                        </td>
+                        <td>@org.CreatedAt.ToString("yyyy-MM-dd")</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn btn-sm btn-edit" @onclick="() => OpenEditModal(org)" title="Edit">
+                                    ✏️
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => ConfirmDelete(org)" title="Delete">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* Edit Organization Modal *@
+@if (showEditModal && editingOrg != null)
+{
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h3>Edit Organization</h3>
+            <p class="modal-subtitle">@editingOrg.FounderEmail</p>
+            
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" class="form-control" @bind="editName" />
+            </div>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="editIsDisabled" />
+                    <span>Disabled</span>
+                </label>
+            </div>
+            
+            @if (editIsDisabled)
+            {
+                <div class="form-group">
+                    <label>Disabled At (UTC)</label>
+                    <input type="datetime-local" class="form-control" @bind="editDisabledAt" />
+                    @if (editDisabledAt.HasValue)
+                    {
+                        var daysAgo = (int)(DateTime.UtcNow - editDisabledAt.Value).TotalDays;
+                        var daysLeft = Math.Max(0, 30 - daysAgo);
+                        <span class="grace-helper">@daysLeft days until auto-cleanup</span>
+                    }
+                </div>
+            }
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseEditModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveEdit" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (showDeleteModal && deletingOrg != null)
+{
+    <div class="modal-overlay" @onclick="CloseDeleteModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h3>⚠️ Delete Organization</h3>
+            <p class="modal-subtitle">@deletingOrg.Name</p>
+            
+            <p class="warning-text">
+                This will permanently delete the organization, its usage data, and attempt to transfer workflows to the founder's personal space. 
+                If transfer fails (quota exceeded), workflows will be deleted.
+            </p>
+            <p class="warning-text"><strong>@deletingOrg.MemberCount member(s), @deletingOrg.WorkflowCount workflow(s)</strong></p>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseDeleteModal">Cancel</button>
+                <button class="btn btn-danger" @onclick="ExecuteDelete" disabled="@isDeleting">
+                    @(isDeleting ? "Deleting..." : "Delete Organization")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .org-stats {
+        display: flex;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .org-table-container {
+        overflow-x: auto;
+    }
+
+    .org-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .org-table th,
+    .org-table td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .org-table th {
+        color: #888;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
+
+    .org-table tbody tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .disabled-row {
+        opacity: 0.7;
+    }
+
+    .org-name-cell {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .org-desc {
+        font-size: 0.8rem;
+        color: #888;
+    }
+
+    .status-badge {
+        padding: 0.2rem 0.6rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .status-active {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+    }
+
+    .status-disabled {
+        background: rgba(237, 137, 54, 0.2);
+        color: #ed8936;
+    }
+
+    .grace-countdown {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #f6ad55;
+    }
+
+    .grace-countdown.warning {
+        color: #ed8936;
+    }
+
+    .grace-countdown.critical {
+        color: #e74c3c;
+    }
+
+    .grace-date {
+        display: block;
+        font-size: 0.75rem;
+        color: #888;
+    }
+
+    .grace-na {
+        color: #555;
+    }
+
+    .grace-helper {
+        display: block;
+        font-size: 0.8rem;
+        color: #f6ad55;
+        margin-top: 0.3rem;
+    }
+</style>
+
+@code {
+    private List<AdminOrganizationItem>? organizations;
+    private string searchQuery = "";
+    
+    // Edit modal
+    private bool showEditModal = false;
+    private AdminOrganizationItem? editingOrg;
+    private string editName = "";
+    private bool editIsDisabled = false;
+    private DateTime? editDisabledAt;
+    private bool isSaving = false;
+    
+    // Delete modal
+    private bool showDeleteModal = false;
+    private AdminOrganizationItem? deletingOrg;
+    private bool isDeleting = false;
+
+    private IEnumerable<AdminOrganizationItem> FilteredOrganizations =>
+        organizations?.Where(o =>
+            string.IsNullOrEmpty(searchQuery) ||
+            o.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+            o.FounderEmail.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+        ) ?? Enumerable.Empty<AdminOrganizationItem>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrganizations();
+    }
+
+    private async Task LoadOrganizations()
+    {
+        organizations = await OrganizationService.GetAllOrganizationsForAdminAsync();
+    }
+
+    private void OpenEditModal(AdminOrganizationItem org)
+    {
+        editingOrg = org;
+        editName = org.Name;
+        editIsDisabled = org.IsDisabled;
+        editDisabledAt = org.DisabledAt;
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        showEditModal = false;
+        editingOrg = null;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (editingOrg == null || string.IsNullOrWhiteSpace(editName)) return;
+        
+        isSaving = true;
+        try
+        {
+            await OrganizationService.AdminUpdateOrganizationAsync(
+                editingOrg.Id, editName, editIsDisabled, editDisabledAt);
+            
+            await LoadOrganizations();
+            CloseEditModal();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ConfirmDelete(AdminOrganizationItem org)
+    {
+        deletingOrg = org;
+        showDeleteModal = true;
+    }
+
+    private void CloseDeleteModal()
+    {
+        showDeleteModal = false;
+        deletingOrg = null;
+    }
+
+    private async Task ExecuteDelete()
+    {
+        if (deletingOrg == null) return;
+        
+        isDeleting = true;
+        try
+        {
+            await OrganizationService.AdminDeleteOrganizationAsync(deletingOrg.Id);
+            await LoadOrganizations();
+            CloseDeleteModal();
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+}

@@ -1,0 +1,183 @@
+@page "/account/oauth-callback"
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject OAuthService OAuthService
+@inject PlatformConnectorService ConnectorService
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<PageTitle>Connecting... - @PlatformSettings.SiteName</PageTitle>
+
+<div class="oauth-callback">
+    <div class="callback-card">
+        @if (isProcessing)
+        {
+            <div class="processing">
+                <div class="spinner"></div>
+                <h2>Connecting...</h2>
+                <p>Please wait while we complete the authorization.</p>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="error">
+                <h2>❌ Connection Failed</h2>
+                <p>@errorMessage</p>
+                <a href="/connections" class="btn btn-primary">Back to Connections</a>
+            </div>
+        }
+        else
+        {
+            <div class="success">
+                <h2>✅ Connected Successfully!</h2>
+                <p>Your account has been connected.</p>
+                <a href="/connections" class="btn btn-primary">View Connections</a>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? Code { get; set; }
+    [SupplyParameterFromQuery] public string? State { get; set; }
+    [SupplyParameterFromQuery] public string? Error { get; set; }
+    [SupplyParameterFromQuery(Name = "error_description")] public string? ErrorDescription { get; set; }
+
+    private bool isProcessing = true;
+    private string? errorMessage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        await ProcessCallback();
+        StateHasChanged();
+    }
+
+    private async Task ProcessCallback()
+    {
+        try
+        {
+            // Check for OAuth error
+            if (!string.IsNullOrEmpty(Error))
+            {
+                errorMessage = ErrorDescription ?? Error;
+                isProcessing = false;
+                return;
+            }
+
+            // Validate required parameters
+            if (string.IsNullOrEmpty(Code) || string.IsNullOrEmpty(State))
+            {
+                errorMessage = "Invalid callback parameters.";
+                isProcessing = false;
+                return;
+            }
+
+            // Parse state (format: userId|connector|connectorId|nonce OR userId|nonce for legacy)
+            var stateParts = State.Split('|');
+            if (stateParts.Length < 2)
+            {
+                errorMessage = "Invalid state parameter.";
+                isProcessing = false;
+                return;
+            }
+
+            var userId = stateParts[0];
+            var redirectUri = NavigationManager.BaseUri.TrimEnd('/') + "/account/oauth-callback";
+            OAuthConnection? connection = null;
+
+            // Check if this is a platform connector flow
+            if (stateParts.Length >= 3 && stateParts[1] == "connector")
+            {
+                if (!Guid.TryParse(stateParts[2], out var connectorId))
+                {
+                    errorMessage = "Invalid connector ID in state.";
+                    isProcessing = false;
+                    return;
+                }
+
+                // Get connector name for the connection
+                var connector = await ConnectorService.GetConnectorAsync(connectorId);
+                var connectionName = connector != null 
+                    ? $"{connector.Name} ({DateTime.Now:MMM dd, HH:mm})"
+                    : $"Connection ({DateTime.Now:MMM dd, HH:mm})";
+
+                // Exchange code using platform connector credentials
+                connection = await OAuthService.ExchangeCodeForConnectorAsync(
+                    connectorId, userId, Code, redirectUri, connectionName, ConnectorService);
+            }
+            else
+            {
+                // Legacy flow using user's own M365 settings
+                var connectionName = $"Microsoft 365 ({DateTime.Now:MMM dd, HH:mm})";
+                connection = await OAuthService.ExchangeCodeForTokensAsync(userId, Code, redirectUri, connectionName);
+            }
+            
+            if (connection == null)
+            {
+                errorMessage = "Failed to exchange authorization code for tokens.";
+                isProcessing = false;
+                return;
+            }
+
+            isProcessing = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An error occurred: {ex.Message}";
+            isProcessing = false;
+        }
+    }
+}
+
+<style>
+    .oauth-callback {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 60vh;
+        padding: 2rem;
+    }
+
+    .callback-card {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 3rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+        max-width: 400px;
+    }
+
+    .processing h2, .error h2, .success h2 {
+        margin-bottom: 1rem;
+    }
+
+    .processing p, .error p, .success p {
+        color: #888;
+        margin-bottom: 1.5rem;
+    }
+
+    .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(0, 168, 168, 0.2);
+        border-top-color: #00a8a8;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1.5rem;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .error h2 {
+        color: #e55;
+    }
+
+    .success h2 {
+        color: #28a745;
+    }
+</style>

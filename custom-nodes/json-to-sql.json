@@ -1,0 +1,136 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:25:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_JsonToSql",
+        "displayName": "JSON → SQL",
+        "description": "Generates SQL INSERT statements from a JSON array of objects. Supports customizable table name, column mapping, and batch inserts.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 7V17C4 19 6 21 12 21C18 21 20 19 20 17V7\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><ellipse cx=\"12\" cy=\"7\" rx=\"8\" ry=\"4\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M4 12C4 14 6 16 12 16C18 16 20 14 20 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// JSON → SQL Generator\n// Generates INSERT statements from JSON array\n\nvar jsonInput = input.get(\"jsonInput\");\nvar tableName = input.get(\"tableName\") || \"MyTable\";\nvar batchSize = parseInt(input.get(\"batchSize\") || \"1\");\nvar includeColumns = input.get(\"includeColumns\") || \"\";\nvar excludeColumns = input.get(\"excludeColumns\") || \"\";\n\nif (!jsonInput || jsonInput.trim() === \"\") {\n    log.error(\"JSON input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"JSON input is required\");\n    output.set(\"Sql\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var data = json.parse(jsonInput);\n        if (!Array.isArray(data)) {\n            data = [data]; // Wrap single object in array\n        }\n        if (data.length === 0) {\n            throw new Error(\"JSON array is empty\");\n        }\n        \n        // Parse column filters\n        var includeList = includeColumns ? includeColumns.split(',').map(function(s) { return s.trim(); }) : null;\n        var excludeList = excludeColumns ? excludeColumns.split(',').map(function(s) { return s.trim(); }) : [];\n        \n        // Get columns from first object\n        var allColumns = Object.keys(data[0]);\n        var columns = allColumns.filter(function(col) {\n            if (includeList && includeList.indexOf(col) === -1) return false;\n            if (excludeList.indexOf(col) >= 0) return false;\n            return true;\n        });\n        \n        if (columns.length === 0) {\n            throw new Error(\"No columns to insert after filtering\");\n        }\n        \n        function escapeValue(val) {\n            if (val === null || val === undefined) return \"NULL\";\n            if (typeof val === \"number\") return String(val);\n            if (typeof val === \"boolean\") return val ? \"1\" : \"0\";\n            if (typeof val === \"object\") val = json.stringify(val);\n            // Escape single quotes\n            return \"'\" + String(val).replace(/'/g, \"''\") + \"'\";\n        }\n        \n        var statements = [];\n        var columnList = \"[\" + columns.join(\"],[\")+\"]\";\n        \n        if (batchSize > 1) {\n            // Batch insert mode\n            for (var i = 0; i < data.length; i += batchSize) {\n                var batch = data.slice(i, Math.min(i + batchSize, data.length));\n                var values = [];\n                for (var j = 0; j < batch.length; j++) {\n                    var row = batch[j];\n                    var rowVals = [];\n                    for (var k = 0; k < columns.length; k++) {\n                        rowVals.push(escapeValue(row[columns[k]]));\n                    }\n                    values.push(\"(\" + rowVals.join(\",\") + \")\");\n                }\n                statements.push(\"INSERT INTO [\" + tableName + \"] (\" + columnList + \") VALUES\\n\" + values.join(\",\\n\") + \";\");\n            }\n        } else {\n            // Single row inserts\n            for (var i = 0; i < data.length; i++) {\n                var row = data[i];\n                var vals = [];\n                for (var k = 0; k < columns.length; k++) {\n                    vals.push(escapeValue(row[columns[k]]));\n                }\n                statements.push(\"INSERT INTO [\" + tableName + \"] (\" + columnList + \") VALUES (\" + vals.join(\",\") + \");\");\n            }\n        }\n        \n        var sql = statements.join(\"\\n\\n\");\n        \n        output.set(\"Sql\", sql);\n        output.set(\"RowCount\", data.length);\n        output.set(\"ColumnCount\", columns.length);\n        output.set(\"Columns\", json.stringify(columns));\n        output.set(\"StatementCount\", statements.length);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        \n        log.info(\"Generated \" + statements.length + \" INSERT statements for \" + data.length + \" rows\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"SQL generation failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Sql\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "jsonInput",
+                "displayLabel": "JSON Input",
+                "placeholderText": "[{\"name\":\"John\",\"age\":30}]",
+                "helpText": "JSON array of objects to convert to INSERT statements. Single objects are also accepted.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "tableName",
+                "displayLabel": "Table Name",
+                "placeholderText": "MyTable",
+                "helpText": "The SQL table name for the INSERT statements.",
+                "fieldType": "Text",
+                "defaultValue": "MyTable",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "batchSize",
+                "displayLabel": "Batch Size",
+                "placeholderText": "1",
+                "helpText": "Number of rows per INSERT statement. Use 1 for individual inserts, higher for batch inserts.",
+                "fieldType": "Text",
+                "defaultValue": "1",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "includeColumns",
+                "displayLabel": "Include Columns",
+                "placeholderText": "col1,col2,col3",
+                "helpText": "Comma-separated list of columns to include. Leave empty to include all.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4
+            },
+            {
+                "fieldName": "excludeColumns",
+                "displayLabel": "Exclude Columns",
+                "placeholderText": "id,created_at",
+                "helpText": "Comma-separated list of columns to exclude.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 5
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Sql",
+                "description": "The generated SQL INSERT statements",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "RowCount",
+                "description": "Number of data rows processed",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ColumnCount",
+                "description": "Number of columns in the INSERT",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Columns",
+                "description": "JSON array of column names used",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "StatementCount",
+                "description": "Number of INSERT statements generated",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if generation failed",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if generation failed",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "SQL was generated successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Generation succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "SQL generation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Generation failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

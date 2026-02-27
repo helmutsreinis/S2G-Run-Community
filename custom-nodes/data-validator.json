@@ -1,0 +1,127 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:57:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_DataValidator",
+        "displayName": "Data Validator",
+        "description": "Validates JSON data against a schema. Checks required fields, types, ranges, patterns, and custom rules.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M9 12L11 14L15 10\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var dataInput = input.get('data');\nvar schemaInput = input.get('schema');\nvar strictMode = input.get('strictMode') === 'true';\n\nif (!dataInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Data input is required');\n    output.set('IsValid', false);\n    tags.trigger('error');\n} else if (!schemaInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Schema is required');\n    output.set('IsValid', false);\n    tags.trigger('error');\n} else {\n    try {\n        var data = json.parse(dataInput);\n        var schema = json.parse(schemaInput);\n        var errors = [];\n        \n        function getType(val) {\n            if (val === null) return 'null';\n            if (Array.isArray(val)) return 'array';\n            return typeof val;\n        }\n        \n        function validate(obj, rules, path) {\n            path = path || '$';\n            \n            if (rules.type) {\n                var actualType = getType(obj);\n                var expectedTypes = Array.isArray(rules.type) ? rules.type : [rules.type];\n                var typeMatch = false;\n                for (var t = 0; t < expectedTypes.length; t++) {\n                    if (actualType === expectedTypes[t]) typeMatch = true;\n                    if (expectedTypes[t] === 'integer' && actualType === 'number' && obj % 1 === 0) typeMatch = true;\n                }\n                if (!typeMatch) {\n                    errors.push({path: path, error: 'Expected ' + expectedTypes.join('|') + ', got ' + actualType});\n                }\n            }\n            \n            if (rules.required && Array.isArray(rules.required) && getType(obj) === 'object') {\n                for (var r = 0; r < rules.required.length; r++) {\n                    var reqField = rules.required[r];\n                    if (obj[reqField] === undefined) {\n                        errors.push({path: path + '.' + reqField, error: 'Required field missing'});\n                    }\n                }\n            }\n            \n            if (rules.properties && getType(obj) === 'object') {\n                var propKeys = Object.keys(rules.properties);\n                for (var p = 0; p < propKeys.length; p++) {\n                    var propName = propKeys[p];\n                    if (obj[propName] !== undefined) {\n                        validate(obj[propName], rules.properties[propName], path + '.' + propName);\n                    }\n                }\n                \n                if (strictMode) {\n                    var dataKeys = Object.keys(obj);\n                    for (var d = 0; d < dataKeys.length; d++) {\n                        if (!rules.properties[dataKeys[d]]) {\n                            errors.push({path: path + '.' + dataKeys[d], error: 'Unknown property (strict mode)'});\n                        }\n                    }\n                }\n            }\n            \n            if (rules.items && Array.isArray(obj)) {\n                for (var i = 0; i < obj.length; i++) {\n                    validate(obj[i], rules.items, path + '[' + i + ']');\n                }\n            }\n            \n            if (getType(obj) === 'number') {\n                if (rules.minimum !== undefined && obj < rules.minimum) {\n                    errors.push({path: path, error: 'Value ' + obj + ' below minimum ' + rules.minimum});\n                }\n                if (rules.maximum !== undefined && obj > rules.maximum) {\n                    errors.push({path: path, error: 'Value ' + obj + ' above maximum ' + rules.maximum});\n                }\n            }\n            \n            if (getType(obj) === 'string') {\n                if (rules.minLength !== undefined && obj.length < rules.minLength) {\n                    errors.push({path: path, error: 'String length ' + obj.length + ' below minimum ' + rules.minLength});\n                }\n                if (rules.maxLength !== undefined && obj.length > rules.maxLength) {\n                    errors.push({path: path, error: 'String length ' + obj.length + ' above maximum ' + rules.maxLength});\n                }\n                if (rules.pattern) {\n                    var regex = new RegExp(rules.pattern);\n                    if (!regex.test(obj)) {\n                        errors.push({path: path, error: 'Does not match pattern ' + rules.pattern});\n                    }\n                }\n                if (rules.enum && Array.isArray(rules.enum)) {\n                    if (rules.enum.indexOf(obj) === -1) {\n                        errors.push({path: path, error: 'Value not in enum: ' + rules.enum.join(', ')});\n                    }\n                }\n                if (rules.format) {\n                    if (rules.format === 'email' && !/^[^@]+@[^@]+\\.[^@]+$/.test(obj)) {\n                        errors.push({path: path, error: 'Invalid email format'});\n                    }\n                    if (rules.format === 'uri' && !/^https?:\\/\\/.+/.test(obj)) {\n                        errors.push({path: path, error: 'Invalid URI format'});\n                    }\n                    if (rules.format === 'date' && isNaN(Date.parse(obj))) {\n                        errors.push({path: path, error: 'Invalid date format'});\n                    }\n                }\n            }\n            \n            if (Array.isArray(obj)) {\n                if (rules.minItems !== undefined && obj.length < rules.minItems) {\n                    errors.push({path: path, error: 'Array length ' + obj.length + ' below minimum ' + rules.minItems});\n                }\n                if (rules.maxItems !== undefined && obj.length > rules.maxItems) {\n                    errors.push({path: path, error: 'Array length ' + obj.length + ' above maximum ' + rules.maxItems});\n                }\n            }\n        }\n        \n        validate(data, schema, '$');\n        \n        var isValid = errors.length === 0;\n        \n        output.set('IsValid', isValid);\n        output.set('ErrorCount', errors.length);\n        output.set('Errors', json.stringify(errors));\n        output.set('FirstError', errors.length > 0 ? errors[0].path + ': ' + errors[0].error : '');\n        output.set('Data', json.stringify(data));\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Validation ' + (isValid ? 'passed' : 'failed: ' + errors.length + ' errors'));\n        \n        if (isValid) {\n            tags.trigger('valid');\n        } else {\n            tags.trigger('invalid');\n        }\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Validation failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('IsValid', false);\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "data",
+                "displayLabel": "Data (JSON)",
+                "placeholderText": "{\"name\": \"John\", \"age\": 30}",
+                "helpText": "The JSON data to validate.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "schema",
+                "displayLabel": "Schema (JSON)",
+                "placeholderText": "{\"type\": \"object\", \"required\": [\"name\"]}",
+                "helpText": "JSON Schema-like validation rules.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "strictMode",
+                "displayLabel": "Strict Mode",
+                "helpText": "Reject unknown properties not in schema.",
+                "fieldType": "Boolean",
+                "defaultValue": "false",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "IsValid",
+                "description": "True if validation passed",
+                "dataType": "boolean",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ErrorCount",
+                "description": "Number of validation errors",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Errors",
+                "description": "All errors as JSON array",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "FirstError",
+                "description": "First error message",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Data",
+                "description": "The validated data",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if validation failed to run",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error if validation failed to run",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Validation ran",
+                "color": "#22c55e",
+                "conditionDescription": "Ran successfully",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "valid",
+                "description": "Data is valid",
+                "color": "#3b82f6",
+                "conditionDescription": "Passed validation",
+                "displayOrder": 2
+            },
+            {
+                "tagName": "invalid",
+                "description": "Data is invalid",
+                "color": "#f59e0b",
+                "conditionDescription": "Failed validation",
+                "displayOrder": 3
+            },
+            {
+                "tagName": "error",
+                "description": "Validation error",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 4
+            }
+        ],
+        "logConfigs": []
+    }
+}

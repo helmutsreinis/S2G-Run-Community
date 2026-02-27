@@ -1,0 +1,238 @@
+@using S2GPulseWeb.Web.Data
+@using System.Text.Json
+
+<div class="cache-editor">
+    <div class="mb-3">
+        <label class="form-label">Operation</label>
+        <select class="form-control" @bind="config.Operation">
+            <option value="Get">📖 Get - Read from cache</option>
+            <option value="Set">💾 Set - Store property value</option>
+            <option value="SetObject">📦 Set Object - Store JSON object</option>
+            <option value="Delete">🗑️ Delete - Remove property</option>
+            <option value="Clear">🧹 Clear - Remove all cached data</option>
+        </select>
+        <small class="text-muted">
+            @switch (config.Operation)
+            {
+                case "Get":
+                    <text>Retrieve a value from cache. Leave property empty to get all cached data.</text>
+                    break;
+                case "Set":
+                    <text>Store a single property value in the cache.</text>
+                    break;
+                case "SetObject":
+                    <text>Store all properties from a JSON object.</text>
+                    break;
+                case "Delete":
+                    <text>Remove a specific property from the cache.</text>
+                    break;
+                case "Clear":
+                    <text>Remove all cached data for this node.</text>
+                    break;
+            }
+        </small>
+    </div>
+
+    @if (config.Operation != "Clear")
+    {
+        <div class="mb-3">
+            <label class="form-label">Property Name</label>
+            <input type="text" class="form-control" @bind="config.PropertyName" 
+                   placeholder="@(config.Operation == "SetObject" ? "(not used for SetObject)" : "e.g., username, token, userData")" 
+                   disabled="@(config.Operation == "SetObject")" />
+            <small class="text-muted">
+                @if (config.Operation == "Get")
+                {
+                    <text>Leave empty to retrieve all cached properties. Use <code>{{"}}@(Node?.Name ?? "Cache").propertyname{{"}}"}}</code> placeholder in other nodes.</text>
+                }
+            </small>
+        </div>
+    }
+
+    @if (config.Operation == "Set" || config.Operation == "SetObject")
+    {
+        <div class="mb-3">
+            <label class="form-label">Value</label>
+            @if (config.Operation == "SetObject")
+            {
+                <textarea class="form-control" rows="4" @bind="config.Value" 
+                          placeholder='{"key1": "value1", "key2": "value2"}'></textarea>
+                <small class="text-muted">Enter a JSON object. All properties will be stored in the cache.</small>
+            }
+            else
+            {
+                <input type="text" class="form-control" @bind="config.Value" 
+                       placeholder="Value to store (supports {{placeholders}})" />
+                <small class="text-muted">Use placeholders like <code>{{"}}NodeName.PropertyName{{"}}"}}</code> to reference upstream values.</small>
+            }
+        </div>
+
+        <div class="mb-3">
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="enableExpiration" @bind="config.EnableExpiration" />
+                <label class="form-check-label" for="enableExpiration">Enable Expiration</label>
+            </div>
+        </div>
+
+        @if (config.EnableExpiration)
+        {
+            <div class="mb-3">
+                <label class="form-label">Expiration Time (minutes)</label>
+                <input type="number" class="form-control" @bind="config.ExpirationMinutes" min="1" style="width: 120px;" />
+                <small class="text-muted">Cached data will be automatically removed after this time.</small>
+            </div>
+        }
+    }
+
+    @if (AvailablePlaceholders != null && AvailablePlaceholders.Any())
+    {
+        <PlaceholderList Placeholders="@AvailablePlaceholders" />
+    }
+
+    <div class="alert alert-info py-2 small mt-3">
+        <strong>💡 Best Practice:</strong> For reliable data flow, connect Cache nodes <strong>directly</strong> to downstream nodes 
+        (e.g., Listener → Cache → Condition → Response). This ensures cached values are available immediately for subsequent nodes.
+        Use "reader" connections only when you need to access data stored by a Cache node in a parallel branch.
+    </div>
+
+    @if (!string.IsNullOrEmpty(cachedKeysDisplay))
+    {
+        <div class="mb-3">
+            <label class="form-label">Available Cache Keys</label>
+            <div class="cached-keys-list">
+                @foreach (var key in cachedKeysDisplay.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    <span class="badge bg-secondary me-1 mb-1">
+                        <code>@(Node?.Name ?? "Cache").@key</code>
+                    </span>
+                }
+            </div>
+            <small class="text-muted">Use these keys in placeholders to read cached values.</small>
+        </div>
+    }
+
+    <div class="output-preview mt-4">
+        <h6>📤 Output Parameters</h6>
+        <ul class="small text-muted mb-0">
+            <li><code>CacheValue</code> - The retrieved value (Get operation)</li>
+            <li><code>CacheKeys</code> - Comma-separated list of all cached property names</li>
+            <li><code>CacheData</code> - Entire cache as JSON object</li>
+            <li><code>[PropertyName]</code> - Direct access to each cached property</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+    .cache-editor {
+        padding: 0.5rem 0;
+    }
+
+    .cache-editor .form-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .cache-editor .text-muted,
+    .cache-editor small.text-muted {
+        color: var(--text-secondary, #b0b0b0) !important;
+    }
+
+    .cache-editor .form-check-label {
+        color: var(--text-primary, #e0e0e0);
+    }
+
+    .cache-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .cached-keys-list {
+        padding: 8px;
+        background: var(--background-dark, #1a1a2e);
+        border-radius: 4px;
+        min-height: 36px;
+    }
+
+    .cached-keys-list .badge {
+        font-family: monospace;
+        font-weight: normal;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview h6 {
+        margin-bottom: 8px;
+        color: var(--accent-color);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+        color: var(--text-secondary, #b0b0b0);
+    }
+
+    .output-preview li {
+        color: var(--text-secondary, #b0b0b0);
+    }
+
+    .output-preview code {
+        color: var(--accent-color);
+    }
+</style>
+
+@code {
+    [Parameter] public WorkflowNode? Node { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private CacheConfig config = new();
+    private string cachedKeysDisplay = "";
+
+    protected override void OnParametersSet()
+    {
+        if (Node != null && !string.IsNullOrEmpty(Node.Configuration))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<CacheConfig>(Node.Configuration) ?? new();
+            }
+            catch
+            {
+                config = new();
+            }
+        }
+
+        // Try to get cached keys from node output data if available
+        // This shows what's currently in the cache
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await SaveConfiguration();
+    }
+
+    private async Task SaveConfiguration()
+    {
+        var json = JsonSerializer.Serialize(config);
+        if (Node != null && Node.Configuration != json)
+        {
+            Node.Configuration = json;
+            await OnConfigurationChanged.InvokeAsync(json);
+        }
+    }
+
+    public class CacheConfig
+    {
+        public string Operation { get; set; } = "Get";
+        public string? PropertyName { get; set; }
+        public string? Value { get; set; }
+        public bool EnableExpiration { get; set; } = false;
+        public int ExpirationMinutes { get; set; } = 60;
+    }
+}

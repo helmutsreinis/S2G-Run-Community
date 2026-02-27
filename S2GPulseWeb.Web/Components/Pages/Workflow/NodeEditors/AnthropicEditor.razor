@@ -1,0 +1,369 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+@using Microsoft.AspNetCore.Components.Authorization
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey"
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))"
+                   class="form-control" placeholder="Enter API Key (overrides settings)"
+                   autocomplete="new-password" />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" @onclick="CopyApiKey" title="Copy API Key">📋</button>
+            </div>
+        </div>
+        <small class="form-text text-muted">Leave empty to use global setting (Anthropic_ApiKey).</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <div class="d-flex align-items-center">
+            <select value="@config.Model" @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString()))" class="form-control" style="flex: 1;">
+                @if (isLoadingModels)
+                {
+                    <option value="">Loading models...</option>
+                }
+                else if (availableModels.Any())
+                {
+                    @foreach (var model in availableModels)
+                    {
+                        <option value="@model.Id">@model.DisplayName</option>
+                    }
+                }
+                else
+                {
+                    <option value="">No models available</option>
+                }
+            </select>
+            <button class="btn btn-sm btn-outline-secondary ml-2" @onclick="RefreshModels" disabled="@isLoadingModels" title="Refresh models">
+                @if (isLoadingModels)
+                {
+                    <span>⏳</span>
+                }
+                else
+                {
+                    <span>🔄</span>
+                }
+            </button>
+        </div>
+        <div class="model-pricing small mt-1" style="color: var(--teal-light);">
+            @GetPricingInfo()
+        </div>
+    </div>
+
+    @if (config.Cost > 0 || config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Cumulative Cost:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">$@config.Cost.ToString("F4")</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens in / @config.OutputTokens out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetCost" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="form-group">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="conversationMode" 
+                       checked="@config.ConversationMode" 
+                       @onchange="@(e => UpdateConfig(c => c.ConversationMode = (bool)(e.Value ?? false)))" />
+                <label class="form-check-label" for="conversationMode">
+                    Enable Conversation Mode
+                </label>
+            </div>
+            @if (config.ConversationMode && config.ConversationHistory?.Count > 0)
+            {
+                <button class="btn btn-sm btn-outline-warning py-0" @onclick="ClearConversationHistory" style="font-size: 0.7rem;">
+                    🗑️ Clear History (@(config.ConversationHistory.Count / 2) turns)
+                </button>
+            }
+        </div>
+        <small class="form-text text-muted">
+            @if (config.ConversationMode)
+            {
+                <span>✅ Each execution adds to conversation history. Output <code>ConversationHistory</code> for downstream nodes.</span>
+            }
+            else
+            {
+                <span>Single message mode. Enable for multi-turn conversations with cached history.</span>
+            }
+        </small>
+    </div>
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or output format..."></textarea>
+        <small class="form-text text-muted">Optional. Sets instruction context for Claude.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="4" placeholder="Enter your prompt here..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Image Analysis (Optional)</label>
+        <div class="image-analysis-section p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.05); border-color: var(--border-color) !important;">
+            <div class="form-group mb-2">
+                <label class="small">Image Base64</label>
+                <textarea value="@config.ImageBase64" 
+                          @onchange="@(e => UpdateConfig(c => c.ImageBase64 = e.Value?.ToString()))" 
+                          class="form-control" rows="2" 
+                          placeholder="Paste base64-encoded image data or use {{placeholder}}..."></textarea>
+                @if (AvailablePlaceholders.Any())
+                {
+                    <div class="placeholder-chips">
+                        @foreach (var p in AvailablePlaceholders)
+                        {
+                            <span class="chip" @onclick="@(() => AddImagePlaceholder(p))">@p</span>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="form-group mb-0">
+                <label class="small">Media Type</label>
+                <select value="@config.MediaType" @onchange="@(e => UpdateConfig(c => c.MediaType = e.Value?.ToString()))" class="form-control form-control-sm">
+                    <option value="image/png">PNG (image/png)</option>
+                    <option value="image/jpeg">JPEG (image/jpeg)</option>
+                    <option value="image/gif">GIF (image/gif)</option>
+                    <option value="image/webp">WebP (image/webp)</option>
+                </select>
+            </div>
+        </div>
+        <small class="form-text text-muted">Leave empty for text-only mode. For image analysis, provide base64 data from an upstream node.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Max Tokens</label>
+        <input type="number" value="@config.MaxTokens" 
+               @onchange="@(e => UpdateConfig(c => c.MaxTokens = int.TryParse(e.Value?.ToString(), out var v) ? v : 1024))" 
+               class="form-control" min="1" max="200000" />
+        <small class="form-text text-muted">Maximum tokens in the response (default: 1024, max varies by model).</small>
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s = 5 minutes)</small>
+    </div>
+
+    <div class="form-group">
+        <label>Output Properties</label>
+        <div class="output-properties">
+            <span class="output-chip" title="The AI's text response">{{Anthropic.AIResponse}}</span>
+            <span class="output-chip" title="The model that was used">{{Anthropic.ModelUsed}}</span>
+            <span class="output-chip" title="Why the response ended (end_turn, max_tokens, etc)">{{Anthropic.StopReason}}</span>
+            <span class="output-chip" title="JSON array of tool calls if any">{{Anthropic.ToolCalls}}</span>
+            <span class="output-chip" title="JSON array of conversation history (Conversation Mode only)">{{Anthropic.ConversationHistory}}</span>
+        </div>
+        <small class="form-text text-muted">Use these placeholders in downstream nodes.</small>
+    </div>
+
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .output-properties {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .output-chip {
+        background: rgba(0, 168, 168, 0.15);
+        border: 1px solid var(--teal-medium);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        font-family: monospace;
+        color: var(--teal-light);
+        cursor: help;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    [Inject] IJSRuntime JSRuntime { get; set; } = default!;
+    [Inject] AnthropicModelService ModelService { get; set; } = default!;
+    [Inject] AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+
+    private AnthropicConfig config = new();
+    private List<AnthropicModelInfo> availableModels = new();
+    private bool isLoadingModels = false;
+    private string? currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadModels();
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<AnthropicConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task LoadModels()
+    {
+        if (isLoadingModels || string.IsNullOrEmpty(currentUserId)) return;
+        
+        isLoadingModels = true;
+        StateHasChanged();
+        
+        try
+        {
+            availableModels = await ModelService.GetModelsAsync(currentUserId, config.ApiKey);
+        }
+        catch
+        {
+            availableModels = new();
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshModels()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+        ModelService.InvalidateCache();
+        await LoadModels();
+    }
+
+    private async Task UpdateConfig(Action<AnthropicConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddImagePlaceholder(string placeholder)
+    {
+        config.ImageBase64 = (config.ImageBase64 ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task ClearConversationHistory()
+    {
+        config.ConversationHistory = null;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task CopyApiKey()
+    {
+        if (!string.IsNullOrEmpty(config.ApiKey))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", config.ApiKey);
+        }
+    }
+
+    private async Task ResetCost()
+    {
+        config.Cost = 0;
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private string GetPricingInfo()
+    {
+        return config.Model switch
+        {
+            // Claude 4.5
+            "claude-opus-4-5-20250514" => "$5.00 / 1M in, $25.00 / 1M out",
+            "claude-sonnet-4-5-20250514" => "$3.00 / 1M in, $15.00 / 1M out",
+            "claude-haiku-4-5-20250514" => "$1.00 / 1M in, $5.00 / 1M out",
+            // Claude 4
+            "claude-opus-4-20250514" or "claude-opus-4-0520" => "$15.00 / 1M in, $75.00 / 1M out",
+            "claude-sonnet-4-20250514" or "claude-sonnet-4-0520" => "$3.00 / 1M in, $15.00 / 1M out",
+            // Claude 3.7
+            "claude-3-7-sonnet-20250219" => "$3.00 / 1M in, $15.00 / 1M out",
+            // Claude 3.5
+            "claude-3-5-sonnet-20241022" or "claude-3-5-sonnet-20240620" => "$3.00 / 1M in, $15.00 / 1M out",
+            "claude-3-5-haiku-20241022" => "$0.80 / 1M in, $4.00 / 1M out",
+            // Claude 3
+            "claude-3-opus-20240229" => "$15.00 / 1M in, $75.00 / 1M out",
+            "claude-3-haiku-20240307" => "$0.25 / 1M in, $1.25 / 1M out",
+            _ => "Select a model to see pricing"
+        };
+    }
+}

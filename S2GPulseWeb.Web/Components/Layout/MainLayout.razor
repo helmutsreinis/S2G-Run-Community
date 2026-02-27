@@ -1,0 +1,58 @@
+﻿@inherits LayoutComponentBase
+@inject NavigationManager NavigationManager
+
+@* Grid background for public pages - rendered at layout level to persist during navigation *@
+@if (ShowGridBackground)
+{
+    <S2GPulseWeb.Web.Components.Shared.GridBackground />
+}
+
+<div class="page">
+    <div class="nav-header">
+        <NavMenu />
+    </div>
+
+    <main>
+        <article class="content">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@code {
+    private bool ShowGridBackground => IsPublicPage();
+
+    private bool IsPublicPage()
+    {
+        var uri = NavigationManager.Uri;
+        var path = new Uri(uri).AbsolutePath.ToLowerInvariant();
+        
+        // Show grid background on home page (including tabs), auth pages, pricing, legal pages, and app pages
+        return path == "/" 
+            || path.StartsWith("/howitworks")
+            || path.StartsWith("/devnotes")
+            || path.StartsWith("/capabilities")
+            || path.StartsWith("/pricing")
+            || path.StartsWith("/termsofservice")
+            || path.StartsWith("/privacystatement")
+            || path.StartsWith("/account/login")
+            || path.StartsWith("/account/register")
+            || path.StartsWith("/account/setup-2fa")
+            || path.StartsWith("/account/login-2fa")
+            || path.StartsWith("/account/manage-2fa")
+            || path.StartsWith("/account/profile")
+            || path.StartsWith("/account/change-password")
+            || path.StartsWith("/account/logout")
+            || path.StartsWith("/admin")
+            || path.StartsWith("/connections")
+            || path.StartsWith("/settings")
+            || path.StartsWith("/api-keys")
+            || path.StartsWith("/logs");
+    }
+}

@@ -1,0 +1,221 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T22:31:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_DateMath",
+        "displayName": "Date Math",
+        "description": "Performs date arithmetic: add/subtract time units or calculate differences between dates.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M3 10H21\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M8 2V6\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M16 2V6\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var op = input.get('operation') || 'add';\nvar d1 = input.get('date1');\nvar d2 = input.get('date2') || '';\nvar yrs = parseInt(input.get('years') || '0');\nvar mos = parseInt(input.get('months') || '0');\nvar wks = parseInt(input.get('weeks') || '0');\nvar dys = parseInt(input.get('days') || '0');\nvar hrs = parseInt(input.get('hours') || '0');\nvar mins = parseInt(input.get('minutes') || '0');\nvar secs = parseInt(input.get('seconds') || '0');\n\nif (!d1) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Date 1 is required');\n    tags.trigger('error');\n} else {\n    try {\n        var date1 = new Date(d1);\n        if (isNaN(date1.getTime())) throw new Error('Invalid Date 1');\n        \n        if (op === 'difference') {\n            if (!d2) throw new Error('Date 2 required for difference');\n            var date2 = new Date(d2);\n            if (isNaN(date2.getTime())) throw new Error('Invalid Date 2');\n            \n            var ms = date2.getTime() - date1.getTime();\n            var absMs = Math.abs(ms);\n            var totalSecs = Math.floor(absMs / 1000);\n            var totalMins = Math.floor(totalSecs / 60);\n            var totalHrs = Math.floor(totalMins / 60);\n            var totalDays = Math.floor(totalHrs / 24);\n            \n            output.set('Result', totalDays + ' days');\n            output.set('TotalMilliseconds', ms);\n            output.set('TotalSeconds', ms >= 0 ? totalSecs : -totalSecs);\n            output.set('TotalMinutes', ms >= 0 ? totalMins : -totalMins);\n            output.set('TotalHours', ms >= 0 ? totalHrs : -totalHrs);\n            output.set('TotalDays', ms >= 0 ? totalDays : -totalDays);\n            output.set('IsFuture', ms > 0);\n            output.set('IsPast', ms < 0);\n            log.info('Difference: ' + totalDays + ' days');\n        } else {\n            var r = new Date(date1.getTime());\n            var mult = op === 'subtract' ? -1 : 1;\n            \n            if (yrs) r.setFullYear(r.getFullYear() + yrs * mult);\n            if (mos) r.setMonth(r.getMonth() + mos * mult);\n            if (wks) r.setDate(r.getDate() + wks * 7 * mult);\n            if (dys) r.setDate(r.getDate() + dys * mult);\n            if (hrs) r.setHours(r.getHours() + hrs * mult);\n            if (mins) r.setMinutes(r.getMinutes() + mins * mult);\n            if (secs) r.setSeconds(r.getSeconds() + secs * mult);\n            \n            output.set('Result', r.toISOString());\n            output.set('ResultDate', r.toISOString().split('T')[0]);\n            output.set('Unix', Math.floor(r.getTime() / 1000));\n            output.set('Year', r.getFullYear());\n            output.set('Month', r.getMonth() + 1);\n            output.set('Day', r.getDate());\n            log.info('Result: ' + r.toISOString());\n        }\n        \n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        tags.trigger('success');\n    } catch (ex) {\n        log.error('Error: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "operation",
+                "displayLabel": "Operation",
+                "helpText": "Add time, subtract time, or calculate difference between dates.",
+                "fieldType": "Dropdown",
+                "defaultValue": "add",
+                "isRequired": true,
+                "allowPlaceholders": false,
+                "displayOrder": 1,
+                "dropdownOptions": "add,subtract,difference"
+            },
+            {
+                "fieldName": "date1",
+                "displayLabel": "Date 1",
+                "placeholderText": "2024-01-15",
+                "helpText": "Base date for add/subtract, or start date for difference.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "date2",
+                "displayLabel": "Date 2",
+                "placeholderText": "2024-12-31",
+                "helpText": "End date for difference calculation only.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "years",
+                "displayLabel": "Years",
+                "placeholderText": "0",
+                "helpText": "Years to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 4
+            },
+            {
+                "fieldName": "months",
+                "displayLabel": "Months",
+                "placeholderText": "0",
+                "helpText": "Months to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 5
+            },
+            {
+                "fieldName": "weeks",
+                "displayLabel": "Weeks",
+                "placeholderText": "0",
+                "helpText": "Weeks to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 6
+            },
+            {
+                "fieldName": "days",
+                "displayLabel": "Days",
+                "placeholderText": "0",
+                "helpText": "Days to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 7
+            },
+            {
+                "fieldName": "hours",
+                "displayLabel": "Hours",
+                "placeholderText": "0",
+                "helpText": "Hours to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 8
+            },
+            {
+                "fieldName": "minutes",
+                "displayLabel": "Minutes",
+                "placeholderText": "0",
+                "helpText": "Minutes to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 9
+            },
+            {
+                "fieldName": "seconds",
+                "displayLabel": "Seconds",
+                "placeholderText": "0",
+                "helpText": "Seconds to add/subtract.",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 10
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "Result date or difference",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResultDate",
+                "description": "Date portion (YYYY-MM-DD)",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Unix",
+                "description": "Unix timestamp",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "TotalDays",
+                "description": "Days difference",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "TotalHours",
+                "description": "Hours difference",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "IsFuture",
+                "description": "Date2 is after Date1",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "IsPast",
+                "description": "Date2 is before Date1",
+                "dataType": "boolean",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "Year",
+                "description": "Year of result",
+                "dataType": "number",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "Month",
+                "description": "Month of result",
+                "dataType": "number",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "Day",
+                "description": "Day of result",
+                "dataType": "number",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if failed",
+                "dataType": "boolean",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details",
+                "dataType": "string",
+                "displayOrder": 12
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Completed",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

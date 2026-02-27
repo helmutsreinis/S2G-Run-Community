@@ -1,0 +1,119 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T19:52:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_CustomerAudit",
+        "displayName": "Customer Audit",
+        "description": "Retrieves audit records for a customer from Microsoft Partner Center API within a specified date range. Returns raw audit data without parsing due to dynamic structure.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M9 5H7C5.89543 5 5 5.89543 5 7V19C5 20.1046 5.89543 21 7 21H17C18.1046 21 19 20.1046 19 19V7C19 5.89543 18.1046 5 17 5H15M9 5C9 6.10457 9.89543 7 11 7H13C14.1046 7 15 6.10457 15 5M9 5C9 3.89543 9.89543 3 11 3H13C14.1046 3 15 3.89543 15 5M12 12H15M12 16H15M9 12H9.01M9 16H9.01\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 120,
+        "script": "// Customer Audit Records Retrieval\n// Fetches audit records for a customer within a date range\n\nvar customerId = input.get(\"customerId\");\nvar startDate = input.get(\"startDate\");\nvar endDate = input.get(\"endDate\");\nvar accessToken = input.get(\"accessToken\");\n\nif (!customerId || customerId.trim() === \"\") {\n    log.error(\"Customer ID is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Customer ID is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!startDate || startDate.trim() === \"\") {\n    log.error(\"Start Date is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Start Date is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!endDate || endDate.trim() === \"\") {\n    log.error(\"End Date is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"End Date is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        // Build the filter JSON\n        var filter = json.stringify({\n            Field: \"CustomerId\",\n            Value: customerId.trim(),\n            Operator: \"equals\"\n        });\n        \n        // URL encode the parameters\n        var encodedStartDate = encodeURIComponent(startDate.trim());\n        var encodedEndDate = encodeURIComponent(endDate.trim());\n        var encodedFilter = encodeURIComponent(filter);\n        \n        var url = \"https://api.partnercenter.microsoft.com/v1/auditrecords?startDate=\" + encodedStartDate + \"&endDate=\" + encodedEndDate + \"&filter=\" + encodedFilter;\n        \n        log.info(\"Fetching audit records for customer: \" + customerId + \" from \" + startDate + \" to \" + endDate);\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var data = json.parse(response.body);\n            \n            output.set(\"TotalCount\", data.totalCount || 0);\n            \n            var items = data.items || [];\n            output.set(\"ItemCount\", items.length);\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved \" + items.length + \" audit records\");\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve audit records: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            output.set(\"TotalCount\", 0);\n            output.set(\"ItemCount\", 0);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        output.set(\"TotalCount\", 0);\n        output.set(\"ItemCount\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "customerId",
+                "displayLabel": "Customer ID",
+                "placeholderText": "Enter customer GUID or use {{Placeholder}}",
+                "helpText": "The unique identifier (GUID) of the customer in Partner Center.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "startDate",
+                "displayLabel": "Start Date",
+                "placeholderText": "MM/DD/YYYY HH:mm:ss (e.g., 12/15/2025 00:00:00)",
+                "helpText": "Start date for the audit record query. Format: MM/DD/YYYY HH:mm:ss",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "endDate",
+                "displayLabel": "End Date",
+                "placeholderText": "MM/DD/YYYY HH:mm:ss (e.g., 01/14/2026 00:00:00)",
+                "helpText": "End date for the audit record query. Format: MM/DD/YYYY HH:mm:ss",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 4
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "TotalCount",
+                "description": "Total number of audit records returned by the API",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ItemCount",
+                "description": "Number of items in the response array",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body (unparsed due to dynamic structure)",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 6
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when audit records were successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

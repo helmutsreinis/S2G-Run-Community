@@ -1,0 +1,35 @@
+{
+    "Name": "Simple API Endpoint",
+    "Description": "A basic HTTP listener that responds with a JSON message",
+    "Version": "1.0",
+    "Nodes": [
+        {
+            "NodeType": "HttpListener",
+            "Name": "Listener",
+            "X": 100,
+            "Y": 100,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"ListenerPath\":\"/api/hello\",\"Methods\":[\"GET\"],\"Authentication\":\"None\"}",
+            "IsTrigger": true,
+            "Tags": []
+        },
+        {
+            "NodeType": "HttpResponse",
+            "Name": "Response",
+            "X": 100,
+            "Y": 220,
+            "Width": 60,
+            "Height": 60,
+            "Configuration": "{\"StatusCode\":\"200\",\"ContentType\":\"application/json\",\"Body\":\"{\\\"message\\\": \\\"Hello World!\\\"}\"}",
+            "Tags": []
+        }
+    ],
+    "Connections": [
+        {
+            "SourceId": "Listener",
+            "TargetId": "Response",
+            "Label": null
+        }
+    ]
+}

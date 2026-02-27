@@ -1,0 +1,1237 @@
+@using System.Text.Json
+@using System.IO
+@using S2GPulseWeb.Web.Logic.Nodes
+@using S2GPulseWeb.Web.Logic
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+@using Microsoft.Extensions.Configuration
+@using System.Text
+@inject IConfiguration Configuration
+@inject IJSRuntime JSRuntime
+@inject UsageTrackingService UsageTrackingService
+
+<style>
+    .storage-viewer {
+        color: #c8c8c8;
+        font-size: 12px;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+    .storage-viewer .explorer-panel {
+        background: #12171d;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .storage-viewer .explorer-toolbar {
+        background: linear-gradient(180deg, #1a2228 0%, #151b21 100%);
+        padding: 6px 10px;
+        border-bottom: 1px solid rgba(0, 168, 168, 0.25);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .storage-viewer .explorer-title {
+        color: #00d4d4;
+        font-weight: 500;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        flex: 1;
+    }
+    .storage-viewer .toolbar-btn {
+        background: transparent;
+        border: none;
+        color: #808080;
+        padding: 3px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 11px;
+        transition: all 0.15s;
+    }
+    .storage-viewer .toolbar-btn:hover {
+        background: rgba(0, 168, 168, 0.2);
+        color: #00d4d4;
+    }
+    .storage-viewer .search-box {
+        padding: 4px 8px;
+        background: #0d1117;
+        border-bottom: 1px solid rgba(0, 168, 168, 0.15);
+    }
+    .storage-viewer .search-input {
+        width: 100%;
+        background: transparent;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        border-radius: 3px;
+        padding: 4px 8px 4px 26px;
+        color: #c8c8c8;
+        font-size: 11px;
+        outline: none;
+        transition: border-color 0.15s;
+    }
+    .storage-viewer .search-input:focus {
+        border-color: #00a8a8;
+    }
+    .storage-viewer .search-input::placeholder {
+        color: #505050;
+    }
+    .storage-viewer .search-wrapper {
+        position: relative;
+    }
+    .storage-viewer .search-icon {
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #505050;
+        font-size: 10px;
+    }
+    .storage-viewer .breadcrumb-bar {
+        padding: 4px 8px;
+        background: rgba(0, 168, 168, 0.05);
+        border-bottom: 1px solid rgba(0, 168, 168, 0.1);
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        font-size: 11px;
+        overflow-x: auto;
+    }
+    .storage-viewer .crumb {
+        color: #00a8a8;
+        cursor: pointer;
+        padding: 1px 4px;
+        border-radius: 2px;
+        white-space: nowrap;
+    }
+    .storage-viewer .crumb:hover {
+        background: rgba(0, 168, 168, 0.15);
+        color: #00d4d4;
+    }
+    .storage-viewer .crumb-sep {
+        color: #404040;
+        font-size: 10px;
+    }
+    .storage-viewer .file-list {
+        max-height: 280px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+    .storage-viewer .file-row {
+        display: flex;
+        align-items: center;
+        padding: 3px 8px;
+        cursor: pointer;
+        border-left: 2px solid transparent;
+        transition: all 0.1s;
+        gap: 6px;
+    }
+    .storage-viewer .file-row:hover {
+        background: rgba(0, 168, 168, 0.08);
+    }
+    .storage-viewer .file-row.selected {
+        background: rgba(0, 168, 168, 0.15);
+        border-left-color: #00d4d4;
+    }
+    .storage-viewer .file-row.folder {
+        color: #e6b422;
+    }
+    .storage-viewer .file-icon {
+        font-size: 12px;
+        width: 16px;
+        text-align: center;
+        flex-shrink: 0;
+    }
+    .storage-viewer .file-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+    }
+    .storage-viewer .file-size {
+        color: #606060;
+        font-size: 10px;
+        flex-shrink: 0;
+        min-width: 50px;
+        text-align: right;
+    }
+    .storage-viewer .file-action {
+        opacity: 0;
+        background: transparent;
+        border: none;
+        color: #dc3545;
+        padding: 2px 4px;
+        border-radius: 2px;
+        cursor: pointer;
+        font-size: 10px;
+        transition: opacity 0.1s;
+    }
+    .storage-viewer .file-row:hover .file-action {
+        opacity: 0.6;
+    }
+    .storage-viewer .file-action:hover {
+        opacity: 1 !important;
+        background: rgba(220, 53, 69, 0.2);
+    }
+    .storage-viewer .confirm-delete {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+    }
+    .storage-viewer .confirm-delete span {
+        color: #ffc107;
+    }
+    .storage-viewer .confirm-btn {
+        padding: 1px 6px;
+        border-radius: 2px;
+        border: none;
+        font-size: 10px;
+        cursor: pointer;
+    }
+    .storage-viewer .confirm-btn.yes {
+        background: #dc3545;
+        color: white;
+    }
+    .storage-viewer .confirm-btn.no {
+        background: rgba(0, 168, 168, 0.3);
+        color: #00d4d4;
+    }
+    .storage-viewer .empty-msg {
+        padding: 20px;
+        text-align: center;
+        color: #505050;
+        font-size: 11px;
+    }
+    .storage-viewer .new-folder-bar {
+        display: flex;
+        gap: 4px;
+        padding: 6px 8px;
+        background: rgba(0, 168, 168, 0.05);
+        border-top: 1px solid rgba(0, 168, 168, 0.1);
+    }
+    .storage-viewer .new-folder-bar input {
+        flex: 1;
+        background: #0d1117;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        color: #c8c8c8;
+        padding: 3px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+    }
+    .storage-viewer .mini-btn {
+        background: rgba(0, 168, 168, 0.2);
+        border: none;
+        color: #00d4d4;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 10px;
+        cursor: pointer;
+    }
+    .storage-viewer .mini-btn:hover {
+        background: rgba(0, 168, 168, 0.4);
+    }
+    .storage-viewer .mini-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+    .storage-viewer .upload-section {
+        padding: 8px;
+        border-top: 1px solid rgba(0, 168, 168, 0.1);
+        background: rgba(0, 168, 168, 0.03);
+    }
+    .storage-viewer .upload-zone {
+        border: 1px dashed rgba(0, 168, 168, 0.3);
+        border-radius: 4px;
+        padding: 12px;
+        text-align: center;
+        transition: all 0.2s;
+    }
+    .storage-viewer .upload-zone:hover {
+        border-color: #00a8a8;
+        background: rgba(0, 168, 168, 0.05);
+    }
+    .storage-viewer .upload-label {
+        color: #00a8a8;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .storage-viewer .upload-label:hover {
+        color: #00d4d4;
+        text-decoration: underline;
+    }
+    .storage-viewer .upload-progress {
+        padding: 8px;
+    }
+    .storage-viewer .progress-bar-track {
+        background: #1a1f26;
+        border-radius: 2px;
+        height: 4px;
+        overflow: hidden;
+        margin: 6px 0;
+    }
+    .storage-viewer .progress-bar-fill {
+        background: linear-gradient(90deg, #00a8a8, #00d4d4);
+        height: 100%;
+        transition: width 0.2s;
+    }
+    .storage-viewer .upload-info {
+        display: flex;
+        justify-content: space-between;
+        font-size: 10px;
+        color: #606060;
+    }
+    .storage-viewer .details-panel {
+        background: #12171d;
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .storage-viewer .details-header {
+        background: linear-gradient(180deg, #1a2228 0%, #151b21 100%);
+        padding: 6px 10px;
+        border-bottom: 1px solid rgba(0, 168, 168, 0.25);
+        color: #00d4d4;
+        font-weight: 500;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .storage-viewer .details-body {
+        padding: 8px;
+    }
+    .storage-viewer .detail-row {
+        display: flex;
+        padding: 3px 0;
+        font-size: 11px;
+    }
+    .storage-viewer .detail-label {
+        color: #00a8a8;
+        width: 70px;
+        flex-shrink: 0;
+    }
+    .storage-viewer .detail-value {
+        color: #c8c8c8;
+        word-break: break-all;
+    }
+    .storage-viewer .preview-section {
+        margin-top: 8px;
+        border-top: 1px solid rgba(0, 168, 168, 0.1);
+        padding-top: 8px;
+    }
+    .storage-viewer .preview-content {
+        background: #0d1117;
+        border: 1px solid rgba(0, 168, 168, 0.15);
+        border-radius: 4px;
+        padding: 8px;
+        max-height: 150px;
+        overflow-y: auto;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        color: #a0c8c8;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    .storage-viewer .action-bar {
+        display: flex;
+        gap: 6px;
+        padding: 8px;
+        border-top: 1px solid rgba(0, 168, 168, 0.1);
+    }
+    .storage-viewer .action-btn {
+        background: rgba(0, 168, 168, 0.15);
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        color: #00d4d4;
+        padding: 4px 10px;
+        border-radius: 3px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .storage-viewer .action-btn:hover {
+        background: rgba(0, 168, 168, 0.3);
+        border-color: #00a8a8;
+    }
+    .storage-viewer .action-btn.danger {
+        border-color: rgba(220, 53, 69, 0.3);
+        color: #dc3545;
+        background: rgba(220, 53, 69, 0.1);
+    }
+    .storage-viewer .action-btn.danger:hover {
+        background: rgba(220, 53, 69, 0.2);
+        border-color: #dc3545;
+    }
+    .storage-viewer .no-selection {
+        padding: 30px;
+        text-align: center;
+        color: #404040;
+        font-size: 11px;
+    }
+    .storage-viewer .alert-msg {
+        padding: 8px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        margin: 8px;
+    }
+    .storage-viewer .alert-msg.error {
+        background: rgba(220, 53, 69, 0.1);
+        border: 1px solid rgba(220, 53, 69, 0.3);
+        color: #dc3545;
+    }
+    .storage-viewer .alert-msg.success {
+        background: rgba(40, 167, 69, 0.1);
+        border: 1px solid rgba(40, 167, 69, 0.3);
+        color: #28a745;
+    }
+    .storage-viewer .loading-state {
+        padding: 30px;
+        text-align: center;
+        color: #00a8a8;
+    }
+</style>
+
+<div class="storage-viewer">
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <div style="margin-top: 8px; font-size: 11px;">Loading...</div>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert-msg error">⚠️ @errorMessage</div>
+    }
+    else
+    {
+        <div class="row g-2">
+            <!-- Left panel: File Explorer -->
+            <div class="col-md-6">
+                <div class="explorer-panel">
+                    <div class="explorer-toolbar">
+                        <span class="explorer-title">📁 Files</span>
+                        <button class="toolbar-btn" @onclick="RefreshFiles" title="Refresh">🔄</button>
+                        <button class="toolbar-btn" @onclick="ToggleNewFolder" title="New Folder">+📁</button>
+                    </div>
+                    
+                    <!-- Search box -->
+                    <div class="search-box">
+                        <div class="search-wrapper">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" class="search-input" placeholder="Search files..." 
+                                   @bind="searchQuery" @bind:event="oninput" />
+                        </div>
+                    </div>
+                    
+                    <!-- Breadcrumb navigation -->
+                    <div class="breadcrumb-bar">
+                        <span class="crumb" @onclick="@(() => NavigateToFolder(""))">~</span>
+                        @foreach (var (folder, index) in GetBreadcrumbs())
+                        {
+                            <span class="crumb-sep">/</span>
+                            <span class="crumb" @onclick="@(() => NavigateToBreadcrumb(index))">@folder</span>
+                        }
+                    </div>
+                    
+                    <!-- File list -->
+                    <div class="file-list">
+                        @if (FilteredFolders.Any() || FilteredFiles.Any())
+                        {
+                            @foreach (var folder in FilteredFolders)
+                            {
+                                <div class="file-row folder">
+                                    <span class="file-icon" @onclick="@(() => NavigateToFolder(folder))">📁</span>
+                                    <span class="file-name" @onclick="@(() => NavigateToFolder(folder))">@folder</span>
+                                    @if (folderToDelete == folder)
+                                    {
+                                        <div class="confirm-delete">
+                                            <span>Delete?</span>
+                                            <button class="confirm-btn yes" @onclick="@(() => ConfirmDeleteFolder(folder))">Yes</button>
+                                            <button class="confirm-btn no" @onclick="@(() => folderToDelete = null)">No</button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="file-action" @onclick="@(() => folderToDelete = folder)" 
+                                                @onclick:stopPropagation="true" title="Delete folder">🗑</button>
+                                    }
+                                </div>
+                            }
+                            @foreach (var file in FilteredFiles)
+                            {
+                                <div class="file-row @(selectedFile == file.Name ? "selected" : "")" 
+                                     @onclick="@(() => SelectFile(file))">
+                                    <span class="file-icon">@GetFileIcon(file.Name)</span>
+                                    <span class="file-name" title="@file.Name">@file.Name</span>
+                                    <span class="file-size">@FormatFileSizeCompact(file.Size)</span>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="empty-msg">
+                                @if (!string.IsNullOrEmpty(searchQuery))
+                                {
+                                    <span>No matches for "@searchQuery"</span>
+                                }
+                                else
+                                {
+                                    <span>Empty folder</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    
+                    @if (showNewFolderInput)
+                    {
+                        <div class="new-folder-bar">
+                            <input type="text" @bind="newFolderName" placeholder="Folder name..." />
+                            <button class="mini-btn" @onclick="CreateFolder" disabled="@string.IsNullOrWhiteSpace(newFolderName)">Create</button>
+                            <button class="mini-btn" @onclick="@(() => showNewFolderInput = false)">×</button>
+                        </div>
+                    }
+                    
+                    <!-- Upload section -->
+                    <div class="upload-section">
+                        @if (!isUploading)
+                        {
+                            <div class="upload-zone">
+                                <InputFile OnChange="HandleFileSelected" multiple id="@InputFileId" class="d-none" />
+                                <label for="@InputFileId" class="upload-label">📤 Upload files to this folder</label>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="upload-progress">
+                                <div class="upload-info">
+                                    <span style="color: #00d4d4;">@uploadFileName</span>
+                                    <span>@uploadCurrentFile/@uploadTotalFiles</span>
+                                </div>
+                                <div class="progress-bar-track">
+                                    <div class="progress-bar-fill" style="width: @(uploadProgress)%;"></div>
+                                </div>
+                                <div class="upload-info">
+                                    <span>@uploadProgress% • @uploadSpeed</span>
+                                    <button class="mini-btn" style="background: rgba(220,53,69,0.3); color: #dc3545;" @onclick="CancelUpload">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(uploadMessage))
+                        {
+                            <div class="alert-msg success" style="margin-top: 6px;">@uploadMessage</div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Right panel: File details -->
+            <div class="col-md-6">
+                @if (selectedFileInfo != null)
+                {
+                    <div class="details-panel">
+                        <div class="details-header">📋 Details</div>
+                        <div class="details-body">
+                            <div class="detail-row">
+                                <span class="detail-label">Name</span>
+                                <span class="detail-value">@selectedFileInfo.Name</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Path</span>
+                                <span class="detail-value">@selectedFileInfo.FullPath</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Size</span>
+                                <span class="detail-value">@FormatFileSize(selectedFileInfo.Size)</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Modified</span>
+                                <span class="detail-value">@selectedFileInfo.LastModified?.ToString("yyyy-MM-dd HH:mm")</span>
+                            </div>
+                            
+                            @if (CanPreviewFile(selectedFileInfo))
+                            {
+                                <div class="preview-section">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                        <span style="color: #00a8a8; font-size: 10px; text-transform: uppercase;">Preview</span>
+                                        @if (isLoadingPreview)
+                                        {
+                                            <span class="spinner-border spinner-border-sm" style="width: 12px; height: 12px; color: #00a8a8;" role="status"></span>
+                                        }
+                                        else if (string.IsNullOrEmpty(filePreviewContent) && string.IsNullOrEmpty(imagePreviewDataUrl))
+                                        {
+                                            <button class="mini-btn" @onclick="LoadFilePreview">Load</button>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(imagePreviewDataUrl))
+                                    {
+                                        <div style="text-align: center; padding: 6px; background: #0d1117; border-radius: 4px;">
+                                            <img src="@imagePreviewDataUrl" alt="@selectedFileInfo.Name" 
+                                                 style="max-width: 100%; max-height: 200px; border-radius: 3px;" />
+                                        </div>
+                                    }
+                                    else if (!string.IsNullOrEmpty(filePreviewContent))
+                                    {
+                                        <pre class="preview-content">@filePreviewContent</pre>
+                                    }
+                                </div>
+                            }
+                            else if (selectedFileInfo.Size > MaxPreviewSize)
+                            {
+                                <div style="padding: 8px 0; text-align: center; color: #606060; font-size: 10px;">
+                                    File too large to preview
+                                </div>
+                            }
+                        </div>
+                        <div class="action-bar">
+                            <button class="action-btn" @onclick="DownloadSelectedFile">⬇ Download</button>
+                            <button class="action-btn danger" @onclick="DeleteSelectedFile">🗑 Delete</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="details-panel">
+                        <div class="no-selection">
+                            <div style="font-size: 20px; margin-bottom: 8px; opacity: 0.5;">📄</div>
+                            Select a file to view details
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid NodeId { get; set; }
+    [Parameter] public string? UserId { get; set; }
+
+    private const long MaxPreviewSize = 1 * 1024 * 1024; // 1MB preview limit
+
+    private string InputFileId => $"file-upload-{NodeId}";
+    private CancellationTokenSource? uploadCts;
+    private System.Threading.Timer? uploadSpeedTimer;
+
+    private bool isLoading = true;
+    private bool isLoadingPreview = false;
+    private bool isUploading = false;
+    private bool showNewFolderInput = false;
+    private string? errorMessage;
+    private string? uploadMessage;
+    private string? uploadFileName;
+    private string? newFolderName;
+    private string? folderToDelete;
+    private string currentPath = "";
+    private string searchQuery = "";
+    private int uploadProgress = 0;
+    private int uploadCurrentFile = 0;
+    private int uploadTotalFiles = 0;
+    private string uploadSpeed = "";
+    private long uploadBytesTotal = 0;
+    private long uploadBytesCompleted = 0;
+    private DateTime uploadStartTime;
+    private List<string> folders = new();
+    private List<FileInfo> files = new();
+    private string? selectedFile;
+    private FileInfo? selectedFileInfo;
+    private string? filePreviewContent;
+    private string? imagePreviewDataUrl;
+    private string? connectionString;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        connectionString = Configuration["S2GStorage:ConnectionString"];
+        await LoadFiles();
+    }
+
+    private async Task LoadFiles()
+    {
+        isLoading = true;
+        errorMessage = null;
+        folders.Clear();
+        files.Clear();
+        selectedFile = null;
+        selectedFileInfo = null;
+        filePreviewContent = null;
+        StateHasChanged();
+
+        try
+        {
+            if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            {
+                errorMessage = "Storage not configured";
+                return;
+            }
+
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+
+            // Create container if it doesn't exist
+            await containerClient.CreateIfNotExistsAsync();
+
+            var prefix = string.IsNullOrEmpty(currentPath) ? "" : currentPath.TrimEnd('/') + "/";
+            var folderSet = new HashSet<string>();
+
+            await foreach (var blobItem in containerClient.GetBlobsAsync())
+            {
+                var blobName = blobItem.Name;
+
+                // Skip blobs outside the current folder
+                if (!string.IsNullOrEmpty(prefix) && !blobName.StartsWith(prefix))
+                    continue;
+
+                var relativePath = string.IsNullOrEmpty(prefix) ? blobName : blobName.Substring(prefix.Length);
+
+                // Check if this is in a subfolder
+                var slashIndex = relativePath.IndexOf('/');
+                if (slashIndex > 0)
+                {
+                    var folderName = relativePath.Substring(0, slashIndex);
+                    folderSet.Add(folderName);
+                }
+                else if (!string.IsNullOrEmpty(relativePath) && !relativePath.EndsWith(".folder"))
+                {
+                    files.Add(new FileInfo
+                    {
+                        Name = relativePath,
+                        FullPath = blobItem.Name,
+                        Size = blobItem.Properties.ContentLength ?? 0,
+                        ContentType = blobItem.Properties.ContentType,
+                        LastModified = blobItem.Properties.LastModified?.UtcDateTime
+                    });
+                }
+            }
+
+            folders = folderSet.OrderBy(f => f).ToList();
+            files = files.OrderBy(f => f.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshFiles()
+    {
+        uploadMessage = null;
+        await LoadFiles();
+    }
+
+    private void NavigateToFolder(string folder)
+    {
+        if (string.IsNullOrEmpty(folder))
+        {
+            currentPath = "";
+        }
+        else if (string.IsNullOrEmpty(currentPath))
+        {
+            currentPath = folder;
+        }
+        else
+        {
+            currentPath = currentPath.TrimEnd('/') + "/" + folder;
+        }
+        _ = LoadFiles();
+    }
+
+    private void NavigateToBreadcrumb(int index)
+    {
+        var parts = currentPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        currentPath = string.Join("/", parts.Take(index + 1));
+        _ = LoadFiles();
+    }
+
+    private IEnumerable<(string, int)> GetBreadcrumbs()
+    {
+        var parts = currentPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            yield return (parts[i], i);
+        }
+    }
+
+    private void SelectFile(FileInfo file)
+    {
+        selectedFile = file.Name;
+        selectedFileInfo = file;
+        filePreviewContent = null;
+        imagePreviewDataUrl = null;
+        StateHasChanged();
+    }
+
+    private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".json", ".xml", ".csv", ".md", ".html", ".htm", ".css", ".js", ".ts",
+        ".yaml", ".yml", ".sql", ".log", ".ini", ".cfg", ".conf", ".sh", ".bat", ".ps1",
+        ".cs", ".py", ".java", ".cpp", ".c", ".h", ".razor", ".csproj"
+    };
+
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"
+    };
+
+    private bool CanPreviewFile(FileInfo file)
+    {
+        if (file.Size > MaxPreviewSize) return false;
+        var ext = Path.GetExtension(file.Name);
+        return TextExtensions.Contains(ext) || ImageExtensions.Contains(ext);
+    }
+
+    private bool IsImageFile(string fileName)
+    {
+        return ImageExtensions.Contains(Path.GetExtension(fileName));
+    }
+
+    private async Task LoadFilePreview()
+    {
+        if (selectedFileInfo == null || string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            return;
+
+        isLoadingPreview = true;
+        filePreviewContent = null;
+        imagePreviewDataUrl = null;
+        StateHasChanged();
+
+        try
+        {
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(selectedFileInfo.FullPath);
+
+            var response = await blobClient.DownloadContentAsync();
+            var content = response.Value.Content;
+
+            if (IsImageFile(selectedFileInfo.Name))
+            {
+                // Convert to data URL for image preview
+                var bytes = content.ToArray();
+                var mimeType = GetMimeType(selectedFileInfo.Name);
+                imagePreviewDataUrl = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+            }
+            else
+            {
+                // Text preview
+                filePreviewContent = content.ToString();
+                if (filePreviewContent.Length > 50000)
+                {
+                    filePreviewContent = filePreviewContent.Substring(0, 50000) + "\n\n... (truncated)";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            filePreviewContent = $"Error loading preview: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingPreview = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetMimeType(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".webp" => "image/webp",
+            ".svg" => "image/svg+xml",
+            _ => "application/octet-stream"
+        };
+    }
+
+    private async Task DownloadSelectedFile()
+    {
+        if (selectedFileInfo == null || string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            return;
+
+        try
+        {
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(selectedFileInfo.FullPath);
+
+            var response = await blobClient.DownloadContentAsync();
+            var bytes = response.Value.Content.ToArray();
+            var mimeType = GetMimeType(selectedFileInfo.Name);
+            var base64 = Convert.ToBase64String(bytes);
+            var dataUrl = $"data:{mimeType};base64,{base64}";
+
+            // Trigger download via JS interop
+            await JSRuntime.InvokeVoidAsync("eval", 
+                $"(() => {{ var a = document.createElement('a'); a.href = '{dataUrl}'; a.download = '{selectedFileInfo.Name.Replace("'", "\\'")}'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }})()");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to download: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleNewFolder()
+    {
+        showNewFolderInput = !showNewFolderInput;
+        newFolderName = "";
+        StateHasChanged();
+    }
+
+    private async Task CreateFolder()
+    {
+        if (string.IsNullOrWhiteSpace(newFolderName) || string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            return;
+
+        try
+        {
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+
+            var folderPath = string.IsNullOrEmpty(currentPath)
+                ? newFolderName
+                : currentPath.TrimEnd('/') + "/" + newFolderName;
+
+            var placeholderPath = folderPath + "/.folder";
+            var blobClient = containerClient.GetBlobClient(placeholderPath);
+
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(""));
+            await blobClient.UploadAsync(stream, overwrite: true);
+
+            showNewFolderInput = false;
+            newFolderName = "";
+            await LoadFiles();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create folder: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteSelectedFile()
+    {
+        if (selectedFileInfo == null || string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            return;
+
+        try
+        {
+            var fileSize = selectedFileInfo.Size;
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(selectedFileInfo.FullPath);
+
+            await blobClient.DeleteIfExistsAsync();
+            
+            // Update storage usage (subtract deleted file size)
+            await UsageTrackingService.UpdateStorageAsync(UserId, blobStorageBytes: -fileSize);
+            
+            selectedFileInfo = null;
+            selectedFile = null;
+            await LoadFiles();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete file: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConfirmDeleteFolder(string folder)
+    {
+        if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            return;
+
+        try
+        {
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+
+            // Build full folder path
+            var folderPath = string.IsNullOrEmpty(currentPath)
+                ? folder
+                : currentPath.TrimEnd('/') + "/" + folder;
+            var prefix = folderPath.TrimEnd('/') + "/";
+
+            // Collect all blobs to delete
+            var blobsToDelete = new List<(string Name, long Size)>();
+            await foreach (var blobItem in containerClient.GetBlobsAsync(BlobTraits.None, BlobStates.None, prefix, default))
+            {
+                blobsToDelete.Add((blobItem.Name, blobItem.Properties.ContentLength ?? 0));
+            }
+
+            // Delete all collected blobs
+            long totalBytesFreed = 0;
+            foreach (var (blobName, size) in blobsToDelete)
+            {
+                var blobClient = containerClient.GetBlobClient(blobName);
+                var deleted = await blobClient.DeleteIfExistsAsync();
+                if (deleted)
+                {
+                    totalBytesFreed += size;
+                }
+            }
+
+            // Update storage usage
+            if (totalBytesFreed > 0)
+            {
+                await UsageTrackingService.UpdateStorageAsync(UserId, blobStorageBytes: -totalBytesFreed);
+            }
+
+            folderToDelete = null;
+            await LoadFiles();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete folder: {ex.Message}";
+            folderToDelete = null;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelUpload()
+    {
+        uploadCts?.Cancel();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(UserId))
+            return;
+
+        var browserFiles = e.GetMultipleFiles(10);
+        if (browserFiles.Count == 0) return;
+
+        // CRITICAL: Read ALL file data immediately, before ANY StateHasChanged
+        // Blazor file references become invalid after re-render
+        var fileDataList = new List<(string Name, byte[] Data)>();
+        try
+        {
+            foreach (var file in browserFiles)
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream);
+                fileDataList.Add((file.Name, memoryStream.ToArray()));
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to read files: {ex.Message}";
+            StateHasChanged();
+            return;
+        }
+
+        // Check storage limit before uploading
+        var totalUploadBytes = fileDataList.Sum(f => (long)f.Data.Length);
+        var (canStore, reason) = await UsageTrackingService.CanStoreAsync(UserId);
+        if (!canStore)
+        {
+            errorMessage = $"⚠️ Storage limit reached: {reason}. Cannot upload {FormatFileSize(totalUploadBytes)}.";
+            StateHasChanged();
+            return;
+        }
+
+        // Now safe to update UI - file data is in memory
+        uploadCts = new CancellationTokenSource();
+        isUploading = true;
+        uploadMessage = null;
+        uploadProgress = 0;
+        uploadCurrentFile = 0;
+        uploadTotalFiles = fileDataList.Count;
+        uploadBytesTotal = fileDataList.Sum(f => (long)f.Data.Length);
+        uploadBytesCompleted = 0;
+        uploadSpeed = "Starting...";
+        uploadStartTime = DateTime.UtcNow;
+        var uploadedCount = 0;
+        StartSpeedTimer();
+        StateHasChanged();
+
+        try
+        {
+            var containerName = $"user-{UserId.ToLowerInvariant().Replace("-", "")}";
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+
+            for (int i = 0; i < fileDataList.Count; i++)
+            {
+                if (uploadCts.Token.IsCancellationRequested)
+                {
+                    uploadMessage = $"⚠️ Cancelled. {uploadedCount}/{uploadTotalFiles} files uploaded.";
+                    break;
+                }
+
+                var (fileName, fileData) = fileDataList[i];
+                uploadCurrentFile = i + 1;
+                uploadFileName = fileName;
+                uploadProgress = (int)(uploadBytesCompleted * 100.0 / uploadBytesTotal);
+                UpdateUploadSpeed();
+                StateHasChanged();
+                await Task.Delay(50); // Give browser time to repaint
+
+                var filePath = string.IsNullOrEmpty(currentPath)
+                    ? fileName
+                    : currentPath.TrimEnd('/') + "/" + fileName;
+
+                var blobClient = containerClient.GetBlobClient(filePath);
+                using var uploadStream = new MemoryStream(fileData);
+                await blobClient.UploadAsync(uploadStream, overwrite: true, uploadCts.Token);
+                
+                uploadedCount++;
+                uploadBytesCompleted += fileData.Length;
+                uploadProgress = (int)(uploadBytesCompleted * 100.0 / uploadBytesTotal);
+                UpdateUploadSpeed();
+                StateHasChanged();
+            }
+
+            if (!uploadCts.Token.IsCancellationRequested)
+            {
+                var elapsed = DateTime.UtcNow - uploadStartTime;
+                uploadMessage = $"✅ Uploaded {uploadedCount} file(s) ({FormatFileSize(uploadBytesCompleted)}) in {elapsed.TotalSeconds:F1}s";
+                
+                // Update storage usage with uploaded bytes
+                await UsageTrackingService.UpdateStorageAsync(UserId, blobStorageBytes: uploadBytesCompleted);
+            }
+            else if (uploadBytesCompleted > 0)
+            {
+                // If cancelled but some bytes were uploaded, still track them
+                await UsageTrackingService.UpdateStorageAsync(UserId, blobStorageBytes: uploadBytesCompleted);
+            }
+            await LoadFiles();
+        }
+        catch (OperationCanceledException)
+        {
+            uploadMessage = $"⚠️ Cancelled. {uploadedCount}/{uploadTotalFiles} files uploaded.";
+            await LoadFiles();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to upload: {ex.Message}";
+        }
+        finally
+        {
+            StopSpeedTimer();
+            isUploading = false;
+            uploadFileName = null;
+            uploadProgress = 0;
+            uploadSpeed = "";
+            uploadCts?.Dispose();
+            uploadCts = null;
+            StateHasChanged();
+        }
+    }
+
+    private void StartSpeedTimer()
+    {
+        uploadSpeedTimer = new System.Threading.Timer(async _ =>
+        {
+            if (isUploading)
+            {
+                UpdateUploadSpeed();
+                await InvokeAsync(StateHasChanged);
+            }
+        }, null, 1000, 1000); // Start after 1s, repeat every 1s
+    }
+
+    private void StopSpeedTimer()
+    {
+        uploadSpeedTimer?.Dispose();
+        uploadSpeedTimer = null;
+    }
+
+    private void UpdateUploadSpeed()
+    {
+        var elapsed = DateTime.UtcNow - uploadStartTime;
+        if (elapsed.TotalSeconds > 0.5 && uploadBytesCompleted > 0)
+        {
+            var bytesPerSecond = uploadBytesCompleted / elapsed.TotalSeconds;
+            if (bytesPerSecond >= 1024 * 1024)
+                uploadSpeed = $"{bytesPerSecond / (1024 * 1024):F1} MB/s";
+            else if (bytesPerSecond >= 1024)
+                uploadSpeed = $"{bytesPerSecond / 1024:F0} KB/s";
+            else
+                uploadSpeed = $"{bytesPerSecond:F0} B/s";
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1024 * 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+        if (bytes >= 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
+        if (bytes >= 1024)
+            return $"{bytes / 1024.0:F2} KB";
+        return $"{bytes} bytes";
+    }
+
+    private string FormatFileSizeCompact(long bytes)
+    {
+        if (bytes >= 1024 * 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0 * 1024.0):F1}G";
+        if (bytes >= 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0):F1}M";
+        if (bytes >= 1024)
+            return $"{bytes / 1024.0:F0}K";
+        return $"{bytes}B";
+    }
+
+    private IEnumerable<string> FilteredFolders => string.IsNullOrEmpty(searchQuery) 
+        ? folders 
+        : folders.Where(f => f.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<FileInfo> FilteredFiles => string.IsNullOrEmpty(searchQuery)
+        ? files
+        : files.Where(f => f.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    private string GetFileIcon(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".json" => "📋",
+            ".xml" => "📋",
+            ".txt" => "📝",
+            ".md" => "📝",
+            ".log" => "📝",
+            ".csv" => "📊",
+            ".xlsx" or ".xls" => "📊",
+            ".pdf" => "📕",
+            ".doc" or ".docx" => "📘",
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".svg" => "🖼",
+            ".mp4" or ".avi" or ".mov" or ".webm" => "🎬",
+            ".mp3" or ".wav" or ".ogg" => "🎵",
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "📦",
+            ".html" or ".htm" => "🌐",
+            ".css" => "🎨",
+            ".js" or ".ts" => "⚡",
+            ".cs" => "💜",
+            ".py" => "🐍",
+            ".sql" => "🗄",
+            _ => "📄"
+        };
+    }
+
+    private class FileInfo
+    {
+        public string Name { get; set; } = "";
+        public string FullPath { get; set; } = "";
+        public long Size { get; set; }
+        public string? ContentType { get; set; }
+        public DateTime? LastModified { get; set; }
+    }
+}

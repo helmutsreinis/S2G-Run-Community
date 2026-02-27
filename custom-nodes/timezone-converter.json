@@ -1,0 +1,161 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T22:41:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_TimezoneConverter",
+        "displayName": "Timezone Converter",
+        "description": "Converts dates and times between different timezones. Accepts a datetime input and converts it from a source timezone to a target timezone. Supports major world timezones using UTC offset notation (e.g., UTC+5:30 for India, UTC-8 for Pacific Standard Time). Returns the converted time in multiple formats including ISO 8601, local time string, and individual date/time components. Essential for scheduling across time zones, coordinating global teams, API integrations with timezone-specific requirements, and displaying localized times to users.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M12 2C12 2 8 6 8 12C8 18 12 22 12 22\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M12 2C12 2 16 6 16 12C16 18 12 22 12 22\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M2 12H22\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var dateInput = input.get('datetime');\nvar fromTz = input.get('fromTimezone') || 'UTC';\nvar toTz = input.get('toTimezone') || 'UTC';\nvar outputFormat = input.get('format') || 'ISO';\n\nfunction parseOffset(tz) {\n    if (tz === 'UTC' || tz === 'GMT') return 0;\n    var match = tz.match(/^UTC([+-])(\\d{1,2})(?::(\\d{2}))?$/);\n    if (match) {\n        var sign = match[1] === '+' ? 1 : -1;\n        var hours = parseInt(match[2]);\n        var mins = parseInt(match[3] || '0');\n        return sign * (hours * 60 + mins);\n    }\n    var zones = {\n        'EST': -300, 'EDT': -240, 'CST': -360, 'CDT': -300,\n        'MST': -420, 'MDT': -360, 'PST': -480, 'PDT': -420,\n        'GMT': 0, 'BST': 60, 'CET': 60, 'CEST': 120,\n        'EET': 120, 'EEST': 180, 'IST': 330, 'JST': 540,\n        'AEST': 600, 'AEDT': 660, 'NZST': 720, 'NZDT': 780\n    };\n    if (zones[tz.toUpperCase()] !== undefined) return zones[tz.toUpperCase()];\n    throw new Error('Unknown timezone: ' + tz);\n}\n\nif (!dateInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Datetime input is required');\n    tags.trigger('error');\n} else {\n    try {\n        var date = new Date(dateInput);\n        if (isNaN(date.getTime())) throw new Error('Invalid datetime format');\n        \n        var fromOffset = parseOffset(fromTz);\n        var toOffset = parseOffset(toTz);\n        \n        var utcMs = date.getTime() - (fromOffset * 60 * 1000);\n        var targetMs = utcMs + (toOffset * 60 * 1000);\n        var targetDate = new Date(targetMs);\n        \n        function pad(n) { return n < 10 ? '0' + n : n; }\n        \n        var y = targetDate.getUTCFullYear();\n        var m = pad(targetDate.getUTCMonth() + 1);\n        var d = pad(targetDate.getUTCDate());\n        var h = pad(targetDate.getUTCHours());\n        var min = pad(targetDate.getUTCMinutes());\n        var s = pad(targetDate.getUTCSeconds());\n        \n        var result;\n        var offsetStr = (toOffset >= 0 ? '+' : '-') + pad(Math.floor(Math.abs(toOffset) / 60)) + ':' + pad(Math.abs(toOffset) % 60);\n        \n        switch (outputFormat) {\n            case 'ISO':\n                result = y + '-' + m + '-' + d + 'T' + h + ':' + min + ':' + s + offsetStr;\n                break;\n            case 'DateTime':\n                result = y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + s;\n                break;\n            case 'DateOnly':\n                result = y + '-' + m + '-' + d;\n                break;\n            case 'TimeOnly':\n                result = h + ':' + min + ':' + s;\n                break;\n            default:\n                result = y + '-' + m + '-' + d + 'T' + h + ':' + min + ':' + s + offsetStr;\n        }\n        \n        var diffMins = toOffset - fromOffset;\n        var diffHrs = diffMins / 60;\n        var diffStr = (diffMins >= 0 ? '+' : '') + diffHrs + ' hours';\n        \n        output.set('Result', result);\n        output.set('UTC', new Date(utcMs).toISOString());\n        output.set('Year', y);\n        output.set('Month', targetDate.getUTCMonth() + 1);\n        output.set('Day', targetDate.getUTCDate());\n        output.set('Hour', targetDate.getUTCHours());\n        output.set('Minute', targetDate.getUTCMinutes());\n        output.set('Second', targetDate.getUTCSeconds());\n        output.set('Offset', offsetStr);\n        output.set('OffsetMinutes', toOffset);\n        output.set('TimeDifference', diffStr);\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Converted: ' + fromTz + ' -> ' + toTz + ' = ' + result);\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Timezone conversion failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "datetime",
+                "displayLabel": "Date/Time",
+                "placeholderText": "2024-01-15T14:30:00",
+                "helpText": "The date and time to convert. Accepts ISO 8601 format (2024-01-15T14:30:00Z), standard date strings (Jan 15, 2024 2:30 PM), or Unix timestamps. If the input includes a timezone indicator (like 'Z' for UTC or an offset like '+05:30'), it will be used as the source timezone unless overridden by the 'From Timezone' field. For best results, use unambiguous formats like ISO 8601.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "fromTimezone",
+                "displayLabel": "From Timezone",
+                "placeholderText": "UTC or UTC+5:30 or EST",
+                "helpText": "The source timezone of the input datetime. Supports multiple formats: (1) UTC offset notation like 'UTC+5:30' for India Standard Time or 'UTC-8' for Pacific Standard Time, (2) Standard abbreviations like EST, PST, GMT, CET, IST, JST, AEST, (3) Plain 'UTC' or 'GMT' for Coordinated Universal Time. The converter will interpret the input datetime as being in this timezone before converting to the target.",
+                "fieldType": "Text",
+                "defaultValue": "UTC",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "toTimezone",
+                "displayLabel": "To Timezone",
+                "placeholderText": "UTC-5 or PST or CET",
+                "helpText": "The target timezone to convert the datetime into. Uses the same format options as 'From Timezone': UTC offset notation (e.g., 'UTC+9' for Japan, 'UTC-5' for Eastern Time), standard abbreviations (PST, GMT, CET, IST, etc.), or 'UTC'. Common offsets: UTC-8 (Pacific), UTC-5 (Eastern), UTC+0 (London), UTC+1 (Central Europe), UTC+5:30 (India), UTC+8 (China/Singapore), UTC+9 (Japan), UTC+10 (Sydney).",
+                "fieldType": "Text",
+                "defaultValue": "UTC",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "format",
+                "displayLabel": "Output Format",
+                "helpText": "The format for the result datetime string. 'ISO' produces full ISO 8601 with timezone offset (2024-01-15T14:30:00+05:30), 'DateTime' produces date and time without offset (2024-01-15 14:30:00), 'DateOnly' produces just the date (2024-01-15), 'TimeOnly' produces just the time (14:30:00). Individual components (Year, Month, Day, Hour, etc.) are always available as separate outputs regardless of this setting.",
+                "fieldType": "Dropdown",
+                "defaultValue": "ISO",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 4,
+                "dropdownOptions": "ISO,DateTime,DateOnly,TimeOnly"
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The converted datetime in the specified output format. For 'ISO' format, includes the target timezone offset. This is the primary output for most use cases.",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "UTC",
+                "description": "The datetime converted to UTC (Coordinated Universal Time) in ISO 8601 format. Useful as a canonical reference point or for storing timezone-agnostic timestamps in databases.",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Offset",
+                "description": "The UTC offset of the target timezone in the format +HH:MM or -HH:MM (e.g., '+05:30' for India, '-08:00' for Pacific). Useful for displaying timezone information to users.",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "OffsetMinutes",
+                "description": "The target timezone offset expressed as total minutes from UTC. Positive for timezones ahead of UTC, negative for behind. Useful for calculations (e.g., 330 for UTC+5:30, -480 for UTC-8).",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "TimeDifference",
+                "description": "The time difference between source and target timezones as a human-readable string (e.g., '+5.5 hours' when converting from UTC to IST). Helps users understand the shift being applied.",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Year",
+                "description": "The year component of the converted datetime. Note: timezone conversion can change the date, so a time near midnight may result in a different year than the input.",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "Month",
+                "description": "The month component (1-12) of the converted datetime.",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "Day",
+                "description": "The day of month component of the converted datetime.",
+                "dataType": "number",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "Hour",
+                "description": "The hour component (0-23) of the converted datetime in 24-hour format.",
+                "dataType": "number",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "Minute",
+                "description": "The minute component (0-59) of the converted datetime.",
+                "dataType": "number",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "Second",
+                "description": "The second component (0-59) of the converted datetime.",
+                "dataType": "number",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if the conversion failed due to invalid input format, unknown timezone, or other error conditions.",
+                "dataType": "boolean",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message if the conversion failed, such as 'Invalid datetime format' or 'Unknown timezone: XYZ'.",
+                "dataType": "string",
+                "displayOrder": 13
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Timezone conversion completed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Timezone conversion failed",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

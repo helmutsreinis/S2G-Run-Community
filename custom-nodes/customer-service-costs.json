@@ -1,0 +1,163 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T19:24:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_CustomerServiceCosts",
+        "displayName": "Customer Service Costs",
+        "description": "Retrieves the most recent service costs for a customer from Microsoft Partner Center API. Returns a list of line items with subscription details, charges, taxes, and invoice information.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 6V12L16 14M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M14.5 8.5L12 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><circle cx=\"12\" cy=\"12\" r=\"1\" fill=\"currentColor\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 120,
+        "script": "// Customer Service Costs Retrieval\n// Fetches most recent service costs for a customer from Partner Center API\n\nvar customerId = input.get(\"customerId\");\nvar accessToken = input.get(\"accessToken\");\n\nif (!customerId || customerId.trim() === \"\") {\n    log.error(\"Customer ID is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Customer ID is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else if (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/customers/\" + customerId.trim() + \"/servicecosts/MostRecent/lineitems\";\n        \n        log.info(\"Fetching service costs for customer: \" + customerId);\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var data = json.parse(response.body);\n            \n            output.set(\"TotalCount\", data.totalCount || 0);\n            \n            var items = data.items || [];\n            output.set(\"LineItems\", json.stringify(items));\n            output.set(\"LineItemCount\", items.length);\n            \n            // Calculate totals\n            var pretaxTotal = 0;\n            var taxTotal = 0;\n            var afterTaxTotal = 0;\n            var totalQuantity = 0;\n            \n            // Track unique subscriptions and offers\n            var subscriptions = {};\n            var offers = {};\n            var chargeTypes = {};\n            var customerName = \"\";\n            var currencyCode = \"\";\n            var currencySymbol = \"\";\n            \n            for (var i = 0; i < items.length; i++) {\n                var item = items[i];\n                \n                pretaxTotal += item.pretaxTotal || 0;\n                taxTotal += item.tax || 0;\n                afterTaxTotal += item.afterTaxTotal || 0;\n                totalQuantity += item.quantity || 0;\n                \n                if (item.subscriptionId) {\n                    subscriptions[item.subscriptionId] = item.subscriptionFriendlyName || item.subscriptionId;\n                }\n                if (item.offerId) {\n                    offers[item.offerId] = item.offerName || item.offerId;\n                }\n                if (item.chargeType) {\n                    if (!chargeTypes[item.chargeType]) {\n                        chargeTypes[item.chargeType] = 0;\n                    }\n                    chargeTypes[item.chargeType]++;\n                }\n                \n                // Capture customer info from first item\n                if (!customerName && item.customerName) {\n                    customerName = item.customerName;\n                }\n                if (!currencyCode && item.currencyCode) {\n                    currencyCode = item.currencyCode;\n                    currencySymbol = item.currencySymbol || \"\";\n                }\n            }\n            \n            output.set(\"PretaxTotal\", pretaxTotal);\n            output.set(\"TaxTotal\", taxTotal);\n            output.set(\"AfterTaxTotal\", afterTaxTotal);\n            output.set(\"TotalQuantity\", totalQuantity);\n            output.set(\"CustomerName\", customerName);\n            output.set(\"CurrencyCode\", currencyCode);\n            output.set(\"CurrencySymbol\", currencySymbol);\n            \n            output.set(\"UniqueSubscriptions\", Object.keys(subscriptions).length);\n            output.set(\"UniqueOffers\", Object.keys(offers).length);\n            \n            // Build charge type breakdown\n            var chargeTypeList = [];\n            var ctKeys = Object.keys(chargeTypes);\n            for (var j = 0; j < ctKeys.length; j++) {\n                chargeTypeList.push({\n                    type: ctKeys[j],\n                    count: chargeTypes[ctKeys[j]]\n                });\n            }\n            output.set(\"ChargeTypeBreakdown\", json.stringify(chargeTypeList));\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved \" + items.length + \" line items, total: \" + currencySymbol + afterTaxTotal.toFixed(2));\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve service costs: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "customerId",
+                "displayLabel": "Customer ID",
+                "placeholderText": "Enter customer GUID or use {{Placeholder}}",
+                "helpText": "The unique identifier (GUID) of the customer in Partner Center.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "TotalCount",
+                "description": "Total number of line items returned by the API",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "LineItemCount",
+                "description": "Number of line items in the items array",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "LineItems",
+                "description": "JSON array of all service cost line items",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "PretaxTotal",
+                "description": "Sum of all pretax totals",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "TaxTotal",
+                "description": "Sum of all taxes",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "AfterTaxTotal",
+                "description": "Sum of all after-tax totals",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "TotalQuantity",
+                "description": "Total quantity across all line items",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "CustomerName",
+                "description": "The customer's name from the line items",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "CurrencyCode",
+                "description": "Currency code (e.g., EUR, USD)",
+                "dataType": "string",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "CurrencySymbol",
+                "description": "Currency symbol (e.g., €, $)",
+                "dataType": "string",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "UniqueSubscriptions",
+                "description": "Number of unique subscriptions in the costs",
+                "dataType": "number",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "UniqueOffers",
+                "description": "Number of unique offers in the costs",
+                "dataType": "number",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "ChargeTypeBreakdown",
+                "description": "JSON array of charge types with counts (e.g., [{type: 'Cycle fee', count: 5}])",
+                "dataType": "string",
+                "displayOrder": 13
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 14
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 15
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 16
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 17
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when service costs were successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

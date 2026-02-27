@@ -1,0 +1,114 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:24:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_UuidGenerator",
+        "displayName": "UUID Generator",
+        "description": "Generates random UUID v4 (Universally Unique Identifiers). Can generate multiple UUIDs at once.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// UUID v4 Generator\n\nvar count = parseInt(input.get(\"count\") || \"1\");\nvar format = input.get(\"format\") || \"lowercase\";\nvar separator = input.get(\"separator\") || \"newline\";\n\nfunction generateUuid() {\n    // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx\n    // where x is any hex digit and y is 8, 9, A, or B\n    var hex = '0123456789abcdef';\n    var uuid = '';\n    \n    for (var i = 0; i < 36; i++) {\n        if (i === 8 || i === 13 || i === 18 || i === 23) {\n            uuid += '-';\n        } else if (i === 14) {\n            uuid += '4'; // Version 4\n        } else if (i === 19) {\n            // Variant bits: 8, 9, a, or b\n            uuid += hex[(Math.random() * 4 | 0) + 8];\n        } else {\n            uuid += hex[Math.random() * 16 | 0];\n        }\n    }\n    \n    return uuid;\n}\n\ntry {\n    if (count < 1) count = 1;\n    if (count > 1000) count = 1000; // Limit to prevent abuse\n    \n    var uuids = [];\n    for (var i = 0; i < count; i++) {\n        var uuid = generateUuid();\n        if (format === \"uppercase\") {\n            uuid = uuid.toUpperCase();\n        } else if (format === \"no-hyphens\") {\n            uuid = uuid.replace(/-/g, '');\n        } else if (format === \"braces\") {\n            uuid = '{' + uuid + '}';\n        } else if (format === \"urn\") {\n            uuid = 'urn:uuid:' + uuid;\n        }\n        uuids.push(uuid);\n    }\n    \n    var sep = '\\n';\n    if (separator === \"comma\") sep = ',';\n    else if (separator === \"semicolon\") sep = ';';\n    else if (separator === \"space\") sep = ' ';\n    else if (separator === \"pipe\") sep = '|';\n    \n    var result = uuids.join(sep);\n    \n    output.set(\"Uuid\", uuids[0]); // First UUID for single-use\n    output.set(\"Uuids\", result); // All UUIDs\n    output.set(\"UuidArray\", json.stringify(uuids)); // As JSON array\n    output.set(\"Count\", uuids.length);\n    output.set(\"Format\", format);\n    output.set(\"HasErrors\", false);\n    output.set(\"ErrorMessage\", \"\");\n    \n    log.info(\"Generated \" + count + \" UUID(s): \" + uuids[0] + (count > 1 ? \"...\" : \"\"));\n    tags.trigger(\"success\");\n    \n} catch (ex) {\n    log.error(\"UUID generation failed: \" + ex.message);\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", ex.message);\n    output.set(\"Uuid\", \"\");\n    tags.trigger(\"error\");\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "count",
+                "displayLabel": "Count",
+                "placeholderText": "1",
+                "helpText": "Number of UUIDs to generate (1-1000).",
+                "fieldType": "Text",
+                "defaultValue": "1",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "format",
+                "displayLabel": "Format",
+                "helpText": "Output format for the UUID.",
+                "fieldType": "Dropdown",
+                "defaultValue": "lowercase",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "lowercase,uppercase,no-hyphens,braces,urn"
+            },
+            {
+                "fieldName": "separator",
+                "displayLabel": "Separator",
+                "helpText": "Separator when generating multiple UUIDs.",
+                "fieldType": "Dropdown",
+                "defaultValue": "newline",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3,
+                "dropdownOptions": "newline,comma,semicolon,space,pipe"
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Uuid",
+                "description": "The first generated UUID",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "Uuids",
+                "description": "All generated UUIDs (separated by chosen separator)",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "UuidArray",
+                "description": "All UUIDs as a JSON array",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Count",
+                "description": "Number of UUIDs generated",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Format",
+                "description": "The format used",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if generation failed",
+                "dataType": "boolean",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if generation failed",
+                "dataType": "string",
+                "displayOrder": 7
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "UUID(s) generated successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Generation succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Generation failed",
+                "color": "#ef4444",
+                "conditionDescription": "Generation failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

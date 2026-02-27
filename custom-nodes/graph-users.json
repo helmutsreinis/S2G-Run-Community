@@ -1,0 +1,143 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-21T23:03:00.0000000Z",
+    "definition": {
+        "nodeTypeKey": "Custom_GraphUsers",
+        "displayName": "Graph Users",
+        "description": "Fetches all users from Microsoft Graph API with automatic pagination. Retrieves user profiles including display name, email, job title, and other directory attributes. Supports field selection to optimize payload size and configurable page limits for large directories. Uses OData pagination (@odata.nextLink) to iterate through all results.\n",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g id=\"SVGRepo_bgCarrier\" stroke-width=\"0\"></g><g id=\"SVGRepo_tracerCarrier\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g id=\"SVGRepo_iconCarrier\"><path d=\"M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z\" stroke=\"#000000\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><path d=\"M12 14C8.13401 14 5 17.134 5 21H19C19 17.134 15.866 14 12 14Z\" stroke=\"#000000\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></g></svg>",
+        "iconFallbackEmoji": null,
+        "categoryName": "Microsoft Graph",
+        "executionType": "HttpRequest",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 300,
+        "script": "// Configuration\nvar token = input.get(\"accessToken\");\nvar maxPages = parseInt(input.get(\"maxPages\")) || 100;\nvar pageSize = parseInt(input.get(\"pageSize\")) || 100;\nvar selectFields = input.get(\"selectFields\") || \"\";\n\n// Validate token\nif (!token) {\n    log.error(\"Access token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access token is required\");\n    tags.trigger(\"error\");\n} else {\n    // Initialize\n    var allUsers = [];\n    var pagesProcessed = 0;\n    var hasErrors = false;\n    var errorMessage = \"\";\n\n    // Build initial URL\n    var nextUrl = \"https://graph.microsoft.com/v1.0/users?$top=\" + pageSize;\n    if (selectFields) {\n        nextUrl += \"&$select=\" + selectFields;\n    }\n\n    // Headers for Graph API\n    var headers = {\n        \"Authorization\": \"Bearer \" + token,\n        \"Accept\": \"application/json\",\n        \"ConsistencyLevel\": \"eventual\"\n    };\n\n    log.info(\"Starting Graph users fetch, max pages: \" + maxPages);\n\n    // Pagination loop\n    while (nextUrl && pagesProcessed < maxPages) {\n        pagesProcessed++;\n        log.debug(\"Fetching page \" + pagesProcessed + \": \" + nextUrl);\n        \n        try {\n            var response = http.get(nextUrl, headers);\n            \n            if (!response.isSuccess) {\n                hasErrors = true;\n                errorMessage = \"API error on page \" + pagesProcessed + \": HTTP \" + response.statusCode;\n                log.error(errorMessage);\n                break;\n            }\n            \n            var data = json.parse(response.body);\n            \n            // Extract users from response\n            if (data && data.value && Array.isArray(data.value)) {\n                for (var i = 0; i < data.value.length; i++) {\n                    allUsers.push(data.value[i]);\n                }\n                log.info(\"Page \" + pagesProcessed + \": Retrieved \" + data.value.length + \" users\");\n            }\n            \n            // Check for next page (OData uses @odata.nextLink)\n            if (data && data[\"@odata.nextLink\"]) {\n                nextUrl = data[\"@odata.nextLink\"];\n            } else {\n                nextUrl = null;\n            }\n            \n        } catch (ex) {\n            hasErrors = true;\n            errorMessage = \"Exception on page \" + pagesProcessed + \": \" + ex.message;\n            log.error(errorMessage);\n            break;\n        }\n    }\n\n    // Set outputs\n    output.set(\"Users\", allUsers);\n    output.setJson(\"UsersJson\", allUsers);\n    output.set(\"TotalCount\", allUsers.length);\n    output.set(\"PagesProcessed\", pagesProcessed);\n    output.set(\"HasErrors\", hasErrors);\n    output.set(\"ErrorMessage\", errorMessage);\n\n    log.info(\"Completed: \" + allUsers.length + \" users in \" + pagesProcessed + \" pages\");\n\n    // Trigger appropriate connection tag\n    if (hasErrors) {\n        tags.trigger(\"error\");\n    } else if (allUsers.length === 0) {\n        tags.trigger(\"empty\");\n    } else {\n        tags.trigger(\"success\");\n    }\n}",
+        "initializationScript": null,
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{Auth.AccessToken}}",
+                "helpText": "Microsoft Graph OAuth access token with User.Read.All or Directory.Read.All permissions. Obtain via OAuth 2.0 flow or use the Connector Token node.",
+                "fieldType": "Password",
+                "defaultValue": null,
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 0
+            },
+            {
+                "fieldName": "maxPages",
+                "displayLabel": "Max Pages",
+                "placeholderText": null,
+                "helpText": "Maximum number of pages to fetch. Acts as a safety limit to prevent runaway requests in large directories. Set to a higher value for complete enumeration.",
+                "fieldType": "Text",
+                "defaultValue": "100",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "pageSize",
+                "displayLabel": "Page Size",
+                "placeholderText": null,
+                "helpText": "Number of users to retrieve per API request. Microsoft Graph supports up to 999 per page. Larger values reduce API calls but increase response time per request.",
+                "fieldType": "Number",
+                "defaultValue": "100",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "selectFields",
+                "displayLabel": "Select Fields",
+                "placeholderText": "id,displayName,mail,userPrincipalName",
+                "helpText": "Comma-separated list of user properties to return (e.g., id,displayName,mail,userPrincipalName,jobTitle). Reduces response payload and improves performance. Leave empty to return all default properties.",
+                "fieldType": "Text",
+                "defaultValue": null,
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Users",
+                "description": "Array containing all retrieved user objects with their properties (id, displayName, mail, userPrincipalName, etc.)",
+                "dataType": "array",
+                "displayOrder": 0
+            },
+            {
+                "parameterName": "UsersJson",
+                "description": "Serialized JSON string of all users array, ready for storage or transmission to external systems",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "TotalCount",
+                "description": "Total count of user objects retrieved across all pages. May be less than directory total if maxPages limit was reached.",
+                "dataType": "int",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "PagesProcessed",
+                "description": "Number of API requests made during pagination. Useful for monitoring API consumption and optimizing page size.",
+                "dataType": "int",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "Boolean flag indicating if any errors occurred during the fetch operation. Check ErrorMessage for details when true.",
+                "dataType": "bool",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message including HTTP status code, page number where failure occurred, and exception details if applicable",
+                "dataType": "string",
+                "displayOrder": 5
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when all pages were fetched successfully and at least one user was found",
+                "color": "#16ca34",
+                "conditionDescription": "",
+                "displayOrder": 0
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when an API error, HTTP failure, or exception occurs during any page fetch",
+                "color": "#db0606",
+                "conditionDescription": "",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "empty",
+                "description": "Triggered when the API returns successfully but the directory contains no users matching the query",
+                "color": "#fe9501",
+                "conditionDescription": "",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

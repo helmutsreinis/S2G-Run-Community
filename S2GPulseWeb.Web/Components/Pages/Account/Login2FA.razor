@@ -1,0 +1,105 @@
+@page "/account/login-2fa"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+
+<PageTitle>Two-Factor Authentication - @PlatformSettings.SiteName</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <h2>Two-Factor Authentication</h2>
+        <p class="subtitle">Enter the 6-digit code from your authenticator app</p>
+        
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+
+        <EditForm Model="twoFAModel" OnValidSubmit="HandleVerify" FormName="login2fa">
+            <DataAnnotationsValidator />
+            
+            <div class="form-group">
+                <label for="code">Authentication Code</label>
+                <InputText id="code" @bind-Value="twoFAModel.Code" class="form-control code-input" placeholder="000000" maxlength="6" />
+                <ValidationMessage For="@(() => twoFAModel.Code)" />
+            </div>
+
+            <div class="form-group form-check">
+                <InputCheckbox id="rememberMachine" @bind-Value="twoFAModel.RememberMachine" class="form-check-input" />
+                <label class="form-check-label" for="rememberMachine">Remember this device</label>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">
+                <span>Verify</span>
+            </button>
+        </EditForm>
+
+        <div class="auth-links">
+            <a href="/account/login">Back to login</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+    
+    [SupplyParameterFromQuery]
+    private bool RememberMe { get; set; }
+
+    [SupplyParameterFromForm]
+    private TwoFAModel twoFAModel { get; set; } = new();
+
+    private string? errorMessage;
+
+    private async Task HandleVerify()
+    {
+        errorMessage = null;
+
+        if (string.IsNullOrEmpty(twoFAModel.Code))
+        {
+            errorMessage = "Please enter the authentication code.";
+            return;
+        }
+
+        var authenticatorCode = twoFAModel.Code.Replace(" ", string.Empty).Replace("-", string.Empty);
+        
+        var result = await SignInManager.TwoFactorAuthenticatorSignInAsync(
+            authenticatorCode,
+            RememberMe,
+            twoFAModel.RememberMachine);
+
+        if (result.Succeeded)
+        {
+            // Update last login timestamp
+            var user = await SignInManager.GetTwoFactorAuthenticationUserAsync();
+            if (user != null)
+            {
+                user.LastLoginAt = DateTime.UtcNow;
+                await UserManager.UpdateAsync(user);
+            }
+            NavigationManager.NavigateTo(ReturnUrl ?? "/workflow", forceLoad: true);
+        }
+        else if (result.IsLockedOut)
+        {
+            errorMessage = "Account locked. Please try again later.";
+        }
+        else
+        {
+            errorMessage = "Invalid authentication code. Please try again.";
+        }
+    }
+
+    private class TwoFAModel
+    {
+        [Required(ErrorMessage = "Authentication code is required")]
+        [StringLength(6, MinimumLength = 6, ErrorMessage = "Code must be 6 digits")]
+        [RegularExpression("^[0-9]*$", ErrorMessage = "Code must contain only numbers")]
+        public string? Code { get; set; }
+
+        public bool RememberMachine { get; set; }
+    }
+}

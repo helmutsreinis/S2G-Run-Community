@@ -1,0 +1,116 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T19:17:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_PartnerResellers",
+        "displayName": "Partner Resellers",
+        "description": "Retrieves the partner's indirect reseller relationships from Microsoft Partner Center API. Returns a list of resellers with their MPN IDs, locations, and relationship states.",
+        "categoryName": "Microsoft Partner Center",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M17 20C17 18.3431 14.7614 17 12 17C9.23858 17 7 18.3431 7 20M21 17.0004C21 15.7702 19.7659 14.7129 18 14.25M3 17.0004C3 15.7702 4.2341 14.7129 6 14.25M18 10.2361C18.6137 9.68679 19 8.8885 19 8C19 6.34315 17.6569 5 16 5C15.2316 5 14.5308 5.28885 14 5.76389M6 10.2361C5.38625 9.68679 5 8.8885 5 8C5 6.34315 6.34315 5 8 5C8.76835 5 9.46924 5.28885 10 5.76389M12 14C10.3431 14 9 12.6569 9 11C9 9.34315 10.3431 8 12 8C13.6569 8 15 9.34315 15 11C15 12.6569 13.6569 14 12 14Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "ApiCall",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 120,
+        "script": "// Partner Resellers Retrieval\n// Fetches indirect reseller relationships from Partner Center API\n\nvar accessToken = input.get(\"accessToken\");\n\nif (!accessToken || accessToken.trim() === \"\") {\n    log.error(\"Access Token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access Token is required\");\n    output.set(\"StatusCode\", 0);\n    tags.trigger(\"error\");\n} else {\n    try {\n        var url = \"https://api.partnercenter.microsoft.com/v1/relationships?relationship_type=IsIndirectCloudSolutionProviderOf\";\n        \n        log.info(\"Fetching partner resellers\");\n        \n        var response = http.get(url, {\n            \"Authorization\": \"Bearer \" + accessToken.trim(),\n            \"Accept\": \"application/json\"\n        });\n        \n        output.set(\"StatusCode\", response.statusCode);\n        output.set(\"Body\", response.body);\n        \n        if (response.statusCode >= 200 && response.statusCode < 300) {\n            var data = json.parse(response.body);\n            \n            output.set(\"TotalCount\", data.totalCount || 0);\n            \n            var resellers = data.items || [];\n            output.set(\"Resellers\", json.stringify(resellers));\n            output.set(\"ResellerCount\", resellers.length);\n            \n            // Count by state\n            var activeCount = 0;\n            var inactiveCount = 0;\n            \n            // Collect unique locations\n            var locations = {};\n            \n            for (var i = 0; i < resellers.length; i++) {\n                var reseller = resellers[i];\n                \n                // Count states\n                if (reseller.state === \"Active\") {\n                    activeCount++;\n                } else {\n                    inactiveCount++;\n                }\n                \n                // Track locations\n                var loc = reseller.location || \"Unknown\";\n                if (!locations[loc]) {\n                    locations[loc] = 0;\n                }\n                locations[loc]++;\n            }\n            \n            output.set(\"ActiveCount\", activeCount);\n            output.set(\"InactiveCount\", inactiveCount);\n            \n            // Convert locations to array of {location, count}\n            var locationList = [];\n            var locKeys = Object.keys(locations);\n            for (var j = 0; j < locKeys.length; j++) {\n                locationList.push({\n                    location: locKeys[j],\n                    count: locations[locKeys[j]]\n                });\n            }\n            output.set(\"LocationBreakdown\", json.stringify(locationList));\n            output.set(\"UniqueLocations\", locKeys.length);\n            \n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            \n            log.info(\"Successfully retrieved \" + resellers.length + \" resellers (\" + activeCount + \" active)\");\n            tags.trigger(\"success\");\n        } else {\n            var errorMsg = \"API returned status \" + response.statusCode;\n            try {\n                var errorBody = json.parse(response.body);\n                if (errorBody.message) errorMsg = errorBody.message;\n                else if (errorBody.error_description) errorMsg = errorBody.error_description;\n            } catch (e) {\n                if (response.body) errorMsg = response.body.substring(0, 500);\n            }\n            \n            log.error(\"Failed to retrieve resellers: \" + errorMsg);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", errorMsg);\n            tags.trigger(\"error\");\n        }\n    } catch (ex) {\n        log.error(\"Request failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Request failed: \" + ex.message);\n        output.set(\"StatusCode\", 0);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{OAuth.AccessToken}} or paste token",
+                "helpText": "Bearer token for Partner Center API authentication. Typically obtained from an OAuth node.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "TotalCount",
+                "description": "Total number of resellers returned by the API",
+                "dataType": "number",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ResellerCount",
+                "description": "Number of resellers in the items array",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "ActiveCount",
+                "description": "Number of resellers with Active state",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "InactiveCount",
+                "description": "Number of resellers with non-Active state",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Resellers",
+                "description": "JSON array of all reseller objects",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "UniqueLocations",
+                "description": "Number of unique country locations",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "LocationBreakdown",
+                "description": "JSON array of locations with counts (e.g., [{location: 'IT', count: 5}])",
+                "dataType": "string",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "Body",
+                "description": "The full raw JSON response body",
+                "dataType": "string",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "StatusCode",
+                "description": "HTTP status code from the API response",
+                "dataType": "number",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the request",
+                "dataType": "boolean",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the request failed",
+                "dataType": "string",
+                "displayOrder": 11
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when resellers were successfully retrieved",
+                "color": "#22c55e",
+                "conditionDescription": "API returned 2xx status",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the request fails or returns an error status",
+                "color": "#ef4444",
+                "conditionDescription": "Request failed or non-2xx response",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

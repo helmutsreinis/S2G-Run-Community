@@ -1,0 +1,698 @@
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject MembershipPlanService MembershipPlanService
+
+<div class="plans-manager">
+    <div class="section-header">
+        <h3>💳 Membership Plans</h3>
+        <button class="btn btn-primary" @onclick="OpenCreateModal">➕ New Plan</button>
+    </div>
+
+    @if (isLoading)
+    {
+        <p class="loading-text">Loading plans...</p>
+    }
+    else if (plans == null || !plans.Any())
+    {
+        <p class="empty-text">No membership plans configured. Click "New Plan" to create one.</p>
+    }
+    else
+    {
+        <div class="plans-grid">
+            @foreach (var plan in plans.OrderBy(p => p.DisplayOrder))
+            {
+                <div class="plan-card @(plan.IsActive ? "" : "inactive")">
+                    <div class="plan-header">
+                        <div class="plan-badge" style="@GetBadgeStyle(plan)">
+                            @if (!string.IsNullOrEmpty(plan.SvgIcon))
+                            {
+                                @((MarkupString)plan.SvgIcon)
+                            }
+                            <span>@plan.Name</span>
+                        </div>
+                        <div class="plan-status">
+                            @if (plan.IsFree)
+                            {
+                                <span class="badge badge-info">Free</span>
+                            }
+                            else if (plan.IsContactSales)
+                            {
+                                <span class="badge badge-warning">Contact Sales</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-success">€@plan.MonthlyPrice/mo</span>
+                            }
+                            @if (!plan.IsActive)
+                            {
+                                <span class="badge badge-secondary">Inactive</span>
+                            }
+                        </div>
+                    </div>
+                    
+                    <p class="plan-description">@plan.Description</p>
+                    
+                    <div class="plan-quotas">
+                        <div class="quota-item">
+                            <span class="quota-label">Executions</span>
+                            <span class="quota-value">@FormatNumber(plan.MaxExecutionsPerMonth)/mo</span>
+                        </div>
+                        <div class="quota-item">
+                            <span class="quota-label">Storage</span>
+                            <span class="quota-value">@FormatBytes(plan.MaxStorageBytes)</span>
+                        </div>
+                        <div class="quota-item">
+                            <span class="quota-label">Workflows</span>
+                            <span class="quota-value">@FormatLimit(plan.MaxWorkflows)</span>
+                        </div>
+                        <div class="quota-item">
+                            <span class="quota-label">Nodes/WF</span>
+                            <span class="quota-value">@FormatLimit(plan.MaxNodesPerWorkflow)</span>
+                        </div>
+                        <div class="quota-item">
+                            <span class="quota-label">Vector Docs</span>
+                            <span class="quota-value">@FormatLimit(plan.MaxVectorDocs)</span>
+                        </div>
+                        <div class="quota-item">
+                            <span class="quota-label">Log Retention</span>
+                            <span class="quota-value">@FormatHours(plan.LogRetentionHours)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="plan-features">
+                        <span class="feature @(plan.CanImportExport ? "enabled" : "disabled")">
+                            @(plan.CanImportExport ? "✓" : "✗") Import/Export
+                        </span>
+                        <span class="feature @(plan.CanUseScheduling ? "enabled" : "disabled")">
+                            @(plan.CanUseScheduling ? "✓" : "✗") Scheduling
+                        </span>
+                        <span class="feature">
+                            📡 @FormatLimit(plan.MaxHttpListeners) Listeners
+                        </span>
+                        @if (plan.MaxOrganizations > 0)
+                        {
+                            <span class="feature enabled">
+                                🏢 @FormatLimit(plan.MaxOrganizations) Orgs
+                            </span>
+                        }
+                    </div>
+
+                    @if (plan.MaxOrganizations > 0)
+                    {
+                        <div class="org-quotas">
+                            <div class="org-quota-header">🏢 Organization Limits</div>
+                            <div class="quota-item">
+                                <span class="quota-label">Members/Org</span>
+                                <span class="quota-value">@FormatLimit(plan.MaxMembersPerOrganization)</span>
+                            </div>
+                            <div class="quota-item">
+                                <span class="quota-label">Workflows/Org</span>
+                                <span class="quota-value">@FormatLimit(plan.MaxWorkflowsPerOrganization)</span>
+                            </div>
+                            <div class="quota-item">
+                                <span class="quota-label">Org Executions</span>
+                                <span class="quota-value">@FormatNumber(plan.MaxOrgExecutionsPerMonth)/mo</span>
+                            </div>
+                            <div class="quota-item">
+                                <span class="quota-label">Org Storage</span>
+                                <span class="quota-value">@FormatBytes(plan.MaxOrgStorageBytes)</span>
+                            </div>
+                        </div>
+                    }
+
+                    @if (plan.MaxPaidMembers.HasValue)
+                    {
+                        <div class="member-limit">
+                            <span>Member Limit: @plan.MaxPaidMembers.Value</span>
+                        </div>
+                    }
+                    
+                    <div class="plan-actions">
+                        <button class="btn btn-sm btn-secondary" @onclick="() => OpenEditModal(plan)">✏️ Edit</button>
+                        @if (plan.IsActive)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="() => DeactivatePlan(plan)">🗑️ Deactivate</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="() => ActivatePlan(plan)">✓ Activate</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-content plan-modal" @onclick:stopPropagation="true">
+            <h3>@(editingPlan?.Id > 0 ? "Edit Plan" : "Create Plan")</h3>
+            
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" class="form-control" @bind="editingPlan!.Name" placeholder="e.g. Pro" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" class="form-control" @bind="editingPlan!.Description" placeholder="Short tagline" />
+                </div>
+                <div class="form-group full-width">
+                    <label>Detailed Description (HTML)</label>
+                    <textarea class="form-control" rows="3" @bind="editingPlan!.DetailedDescription" placeholder="Features list for pricing page"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Monthly Price (€)</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MonthlyPrice" step="0.01" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Stripe Price ID</label>
+                    <input type="text" class="form-control" @bind="editingPlan!.StripePriceId" placeholder="price_xxx" />
+                </div>
+                
+                <div class="form-group checkbox-group">
+                    <label><input type="checkbox" @bind="editingPlan!.IsFree" /> Free Plan</label>
+                </div>
+                <div class="form-group checkbox-group">
+                    <label><input type="checkbox" @bind="editingPlan!.IsContactSales" /> Contact Sales</label>
+                </div>
+                
+                <div class="form-divider full-width">Quotas</div>
+                
+                <div class="form-group">
+                    <label>Max Executions/Month</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxExecutionsPerMonth" min="-1" />
+                </div>
+                <div class="form-group">
+                    <label>Max Storage (MB)</label>
+                    <input type="number" class="form-control" @bind="storageMb" min="-1" />
+                </div>
+                <div class="form-group">
+                    <label>Max Workflows</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxWorkflows" min="-1" />
+                </div>
+                <div class="form-group">
+                    <label>Max Nodes/Workflow</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxNodesPerWorkflow" min="-1" />
+                </div>
+                <div class="form-group">
+                    <label>Max Vector Docs</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxVectorDocs" min="-1" />
+                </div>
+                <div class="form-group">
+                    <label>Log Retention (Hours)</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.LogRetentionHours" min="-1" />
+                </div>
+                
+                <div class="form-divider full-width">Features</div>
+                
+                <div class="form-group checkbox-group">
+                    <label><input type="checkbox" @bind="editingPlan!.CanImportExport" /> Import/Export</label>
+                </div>
+                <div class="form-group checkbox-group">
+                    <label><input type="checkbox" @bind="editingPlan!.CanUseScheduling" /> Scheduling</label>
+                </div>
+                <div class="form-group">
+                    <label>Max HTTP Listeners</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxHttpListeners" min="-1" />
+                </div>
+                <div class="form-group">
+                    <label>Max Paid Members (blank=unlimited)</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxPaidMembers" min="1" />
+                </div>
+                
+                <div class="form-divider full-width">🏢 Organization Quotas</div>
+                
+                <div class="form-group">
+                    <label>Max Organizations (0=disabled)</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxOrganizations" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Max Members/Org (0=unlimited)</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxMembersPerOrganization" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Max Workflows/Org (0=unlimited)</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxWorkflowsPerOrganization" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Max Nodes/Org Workflow</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxNodesPerOrgWorkflow" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Org Executions/Month</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxOrgExecutionsPerMonth" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Org Storage (MB)</label>
+                    <input type="number" class="form-control" @bind="orgStorageMb" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>Org Vector Docs</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.MaxOrgVectorDocs" min="0" />
+                </div>
+                
+                <div class="form-divider full-width">Display</div>
+                
+                <div class="form-group">
+                    <label>Display Order</label>
+                    <input type="number" class="form-control" @bind="editingPlan!.DisplayOrder" min="0" />
+                </div>
+                <div class="form-group checkbox-group">
+                    <label><input type="checkbox" @bind="editingPlan!.IsActive" /> Active</label>
+                </div>
+                
+                <div class="form-divider full-width">Badge Colors</div>
+                
+                <div class="form-group">
+                    <label>Gradient Start</label>
+                    <input type="color" class="form-control" @bind="editingPlan!.BadgeColorGradientStart" />
+                </div>
+                <div class="form-group">
+                    <label>Gradient End</label>
+                    <input type="color" class="form-control" @bind="editingPlan!.BadgeColorGradientEnd" />
+                </div>
+                <div class="form-group">
+                    <label>Text Color</label>
+                    <input type="color" class="form-control" @bind="editingPlan!.BadgeTextColor" />
+                </div>
+                <div class="form-group">
+                    <label>Border Color</label>
+                    <input type="color" class="form-control" @bind="editingPlan!.BadgeBorderColor" />
+                </div>
+                
+                <div class="form-group full-width">
+                    <label>SVG Icon (raw SVG code, max 24x24)</label>
+                    <textarea class="form-control" rows="3" @bind="editingPlan!.SvgIcon" placeholder="<svg>...</svg>"></textarea>
+                </div>
+                
+                @if (!string.IsNullOrEmpty(editingPlan?.SvgIcon))
+                {
+                    <div class="form-group full-width">
+                        <label>Preview:</label>
+                        <div class="plan-badge preview" style="@GetBadgeStyle(editingPlan)">
+                            @((MarkupString)editingPlan.SvgIcon)
+                            <span>@(editingPlan.Name ?? "Plan")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SavePlan" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save Plan")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .plans-manager {
+        padding: 1rem;
+    }
+    
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    
+    .section-header h3 {
+        margin: 0;
+        color: #fff;
+    }
+    
+    .plans-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.5rem;
+    }
+    
+    .plan-card {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1.25rem;
+        transition: all 0.2s;
+    }
+    
+    .plan-card:hover {
+        border-color: rgba(102, 126, 234, 0.4);
+    }
+    
+    .plan-card.inactive {
+        opacity: 0.6;
+    }
+    
+    .plan-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 0.75rem;
+    }
+    
+    .plan-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.25rem 0.6rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        overflow: hidden;
+    }
+    
+    .plan-badge :deep(svg) {
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px;
+        min-height: 16px;
+        max-width: 16px;
+        max-height: 16px;
+        flex-shrink: 0;
+    }
+    
+    .plan-badge.preview {
+        margin-top: 0.5rem;
+    }
+    
+    .plan-status {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+    
+    .plan-description {
+        color: #aaa;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    
+    .plan-quotas {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .quota-item {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+    }
+    
+    .quota-label {
+        color: #888;
+    }
+    
+    .quota-value {
+        color: #ddd;
+        font-weight: 500;
+    }
+    
+    .plan-features {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+    
+    .feature {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .feature.enabled {
+        color: #68d391;
+    }
+    
+    .feature.disabled {
+        color: #fc8181;
+    }
+    
+    .member-limit {
+        font-size: 0.8rem;
+        color: #f6ad55;
+        margin-bottom: 1rem;
+    }
+    
+    .plan-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+    
+    .plan-modal {
+        max-width: 1000px !important;
+        width: 90% !important;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+    
+    .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
+    
+    .form-group.full-width {
+        grid-column: 1 / -1;
+    }
+    
+    .form-divider {
+        color: #667eea;
+        font-weight: 600;
+        font-size: 0.85rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(102, 126, 234, 0.3);
+        margin-top: 0.5rem;
+    }
+    
+    .checkbox-group label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: #ddd;
+    }
+    
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+    }
+    
+    .badge-info {
+        background: #4299e1;
+        color: #fff;
+    }
+    
+    .badge-success {
+        background: #48bb78;
+        color: #fff;
+    }
+    
+    .badge-warning {
+        background: #ed8936;
+        color: #fff;
+    }
+    
+    .badge-secondary {
+        background: #718096;
+        color: #fff;
+    }
+    
+    input[type="color"] {
+        padding: 0.25rem;
+        height: 38px;
+    }
+    
+    .org-quotas {
+        background: rgba(102, 126, 234, 0.1);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    
+    .org-quota-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #667eea;
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+@code {
+    private List<MembershipPlan>? plans;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isSaving = false;
+    private MembershipPlan? editingPlan;
+    private long storageMb;
+    private long orgStorageMb;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPlansAsync();
+    }
+
+    private async Task LoadPlansAsync()
+    {
+        isLoading = true;
+        plans = await MembershipPlanService.GetAllPlansAsync(includeInactive: true);
+        isLoading = false;
+    }
+
+    private void OpenCreateModal()
+    {
+        editingPlan = new MembershipPlan
+        {
+            IsActive = true,
+            DisplayOrder = (plans?.Count ?? 0) + 1,
+            BadgeColorGradientStart = "#667eea",
+            BadgeColorGradientEnd = "#764ba2",
+            BadgeTextColor = "#ffffff",
+            BadgeBorderColor = "#667eea"
+        };
+        storageMb = 0;
+        orgStorageMb = 0;
+        showModal = true;
+    }
+
+    private void OpenEditModal(MembershipPlan plan)
+    {
+        editingPlan = new MembershipPlan
+        {
+            Id = plan.Id,
+            Name = plan.Name,
+            Description = plan.Description,
+            DetailedDescription = plan.DetailedDescription,
+            SvgIcon = plan.SvgIcon,
+            BadgeColorGradientStart = plan.BadgeColorGradientStart,
+            BadgeColorGradientEnd = plan.BadgeColorGradientEnd,
+            BadgeTextColor = plan.BadgeTextColor,
+            BadgeBorderColor = plan.BadgeBorderColor,
+            MonthlyPrice = plan.MonthlyPrice,
+            StripePriceId = plan.StripePriceId,
+            IsFree = plan.IsFree,
+            IsContactSales = plan.IsContactSales,
+            MaxExecutionsPerMonth = plan.MaxExecutionsPerMonth,
+            MaxStorageBytes = plan.MaxStorageBytes,
+            MaxWorkflows = plan.MaxWorkflows,
+            MaxNodesPerWorkflow = plan.MaxNodesPerWorkflow,
+            MaxVectorDocs = plan.MaxVectorDocs,
+            LogRetentionHours = plan.LogRetentionHours,
+            CanImportExport = plan.CanImportExport,
+            CanUseScheduling = plan.CanUseScheduling,
+            MaxHttpListeners = plan.MaxHttpListeners,
+            MaxPaidMembers = plan.MaxPaidMembers,
+            DisplayOrder = plan.DisplayOrder,
+            IsActive = plan.IsActive,
+            // Organization quotas
+            MaxOrganizations = plan.MaxOrganizations,
+            MaxMembersPerOrganization = plan.MaxMembersPerOrganization,
+            MaxWorkflowsPerOrganization = plan.MaxWorkflowsPerOrganization,
+            MaxNodesPerOrgWorkflow = plan.MaxNodesPerOrgWorkflow,
+            MaxOrgExecutionsPerMonth = plan.MaxOrgExecutionsPerMonth,
+            MaxOrgStorageBytes = plan.MaxOrgStorageBytes,
+            MaxOrgVectorDocs = plan.MaxOrgVectorDocs
+        };
+        storageMb = plan.MaxStorageBytes / (1024 * 1024);
+        orgStorageMb = plan.MaxOrgStorageBytes / (1024 * 1024);
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        editingPlan = null;
+    }
+
+    private async Task SavePlan()
+    {
+        if (editingPlan == null || string.IsNullOrWhiteSpace(editingPlan.Name))
+        {
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            editingPlan.MaxStorageBytes = storageMb * 1024 * 1024;
+            editingPlan.MaxOrgStorageBytes = orgStorageMb * 1024 * 1024;
+            
+            if (editingPlan.Id > 0)
+            {
+                await MembershipPlanService.UpdatePlanAsync(editingPlan);
+            }
+            else
+            {
+                await MembershipPlanService.CreatePlanAsync(editingPlan);
+            }
+            
+            await LoadPlansAsync();
+            CloseModal();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeactivatePlan(MembershipPlan plan)
+    {
+        await MembershipPlanService.DeletePlanAsync(plan.Id);
+        await LoadPlansAsync();
+    }
+
+    private async Task ActivatePlan(MembershipPlan plan)
+    {
+        plan.IsActive = true;
+        await MembershipPlanService.UpdatePlanAsync(plan);
+        await LoadPlansAsync();
+    }
+
+    private string GetBadgeStyle(MembershipPlan plan)
+    {
+        return $"background: linear-gradient(135deg, {plan.BadgeColorGradientStart ?? "#667eea"}, {plan.BadgeColorGradientEnd ?? "#764ba2"}); " +
+               $"color: {plan.BadgeTextColor ?? "#fff"}; " +
+               $"border: 1px solid {plan.BadgeBorderColor ?? "#667eea"};";
+    }
+
+    private string FormatNumber(int value)
+    {
+        if (value < 0) return "∞";
+        if (value >= 1_000_000) return $"{value / 1_000_000.0:F1}M";
+        if (value >= 1_000) return $"{value / 1_000.0:F0}k";
+        return value.ToString("N0");
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes < 0) return "∞";
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F0} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+    }
+
+    private string FormatLimit(int value)
+    {
+        return value < 0 ? "∞" : value.ToString("N0");
+    }
+
+    private string FormatHours(int hours)
+    {
+        if (hours < 0) return "∞";
+        if (hours < 24) return $"{hours}h";
+        return $"{hours / 24}d";
+    }
+}

@@ -1,0 +1,23 @@
+@page "/account/logout"
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager NavigationManager
+
+<PageTitle>Logout - @PlatformSettings.SiteName</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <h2>Sign Out</h2>
+        <p>Are you sure you want to sign out?</p>
+        
+        <form method="post" action="/account/perform-logout">
+            <AntiforgeryToken />
+            <button type="submit" class="btn btn-primary btn-block">Sign Out</button>
+        </form>
+        
+        <div class="auth-links">
+            <a href="/">Cancel</a>
+        </div>
+    </div>
+</div>

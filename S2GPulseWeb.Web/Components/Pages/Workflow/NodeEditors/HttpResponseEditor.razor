@@ -1,0 +1,96 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>Status Code:</label>
+        <input type="number" value="@Config.StatusCode" @onchange="OnStatusCodeChanged" class="form-control" placeholder="200" />
+    </div>
+    <div class="node-property">
+        <label>Content Type:</label>
+        <input type="text" value="@Config.ContentType" @onchange="OnContentTypeChanged" class="form-control" placeholder="text/plain" list="contentTypeList" />
+        <datalist id="contentTypeList">
+            <option value="text/plain">text/plain</option>
+            <option value="application/json">application/json</option>
+            <option value="text/html">text/html</option>
+            <option value="application/xml">application/xml</option>
+        </datalist>
+    </div>
+    <div class="node-property">
+        <label>Body:</label>
+        <textarea value="@Config.Body" @onchange="OnBodyChanged" class="form-control" rows="3" placeholder="Response body..."></textarea>
+    </div>
+    <div class="node-property">
+        <label>Headers (Key: Value per line):</label>
+        <textarea value="@HeadersString" @onchange="OnHeadersChanged" class="form-control" rows="3" placeholder="Cache-Control: no-cache"></textarea>
+    </div>
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private HttpResponseNode.HttpResponseConfig Config { get; set; } = new();
+    private string HeadersString { get; set; } = "";
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<HttpResponseNode.HttpResponseConfig>(Configuration) ?? new();
+                HeadersString = Config.Headers != null 
+                    ? string.Join("\n", Config.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}"))
+                    : "";
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnStatusCodeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int code))
+        {
+            Config.StatusCode = code;
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnContentTypeChanged(ChangeEventArgs e)
+    {
+        Config.ContentType = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnBodyChanged(ChangeEventArgs e)
+    {
+        Config.Body = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnHeadersChanged(ChangeEventArgs e)
+    {
+        HeadersString = e.Value?.ToString() ?? "";
+        Config.Headers = new Dictionary<string, string>();
+        var lines = HeadersString.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var parts = line.Split(':', 2);
+            if (parts.Length == 2)
+            {
+                Config.Headers[parts[0].Trim()] = parts[1].Trim();
+            }
+        }
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+}

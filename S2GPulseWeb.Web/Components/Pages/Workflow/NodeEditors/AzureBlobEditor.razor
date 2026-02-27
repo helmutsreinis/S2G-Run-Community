@@ -1,0 +1,383 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic.Nodes
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+@inject IJSRuntime JSRuntime
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>Operation</label>
+        <select value="@config.Operation" @onchange="OnOperationChanged" class="form-control">
+            <option value="Read">Read (Download blob content)</option>
+            <option value="Write">Write (Upload/Create blob)</option>
+            <option value="Edit">Edit (Modify existing blob)</option>
+            <option value="Delete">Delete (Remove blob)</option>
+            <option value="List">List (Show all blobs in container)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Connection String</label>
+        <div class="input-group">
+            <input type="password" value="@config.ConnectionString" 
+                   @onchange="@(e => UpdateConnectionString(e.Value?.ToString()))" 
+                   class="form-control" 
+                   placeholder="DefaultEndpointsProtocol=https;AccountName=..." />
+            <button class="btn btn-outline-secondary" type="button" @onclick="LoadContainersAsync" 
+                    disabled="@(string.IsNullOrEmpty(config.ConnectionString) || isLoadingContainers)"
+                    title="Load containers from storage account">
+                @if (isLoadingContainers)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                }
+                else
+                {
+                    <span>🔄</span>
+                }
+            </button>
+        </div>
+        <small class="text-muted">Azure Storage account connection string</small>
+        @if (!string.IsNullOrEmpty(connectionError))
+        {
+            <div class="text-danger small mt-1">@connectionError</div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Container Name</label>
+        @if (containers.Any() && !useCustomContainer)
+        {
+            <div class="input-group">
+                <select value="@config.ContainerName" @onchange="OnContainerChanged" class="form-control">
+                    <option value="">-- Select container --</option>
+                    @foreach (var container in containers)
+                    {
+                        <option value="@container">@container</option>
+                    }
+                    <option value="__custom__">📝 Enter custom name...</option>
+                </select>
+            </div>
+        }
+        else
+        {
+            <div class="input-group">
+                <input type="text" value="@config.ContainerName" 
+                       @onchange="@(e => UpdateConfig(c => c.ContainerName = e.Value?.ToString()))" 
+                       class="form-control" 
+                       placeholder="my-container" />
+                @if (containers.Any())
+                {
+                    <button class="btn btn-outline-secondary" type="button" 
+                            @onclick="@(() => { useCustomContainer = false; StateHasChanged(); })"
+                            title="Back to dropdown">
+                        <span>📋</span>
+                    </button>
+                }
+            </div>
+            <small class="text-muted">Click 🔄 above to browse available containers</small>
+        }
+    </div>
+
+    @if (config.Operation != "List")
+    {
+        <div class="form-group">
+            <label>Blob Path</label>
+            <div class="input-group">
+                @if (blobs.Any())
+                {
+                    <select value="@config.BlobPath" @onchange="OnBlobChanged" class="form-control">
+                        <option value="">-- Select blob --</option>
+                        @foreach (var blob in blobs)
+                        {
+                            <option value="@blob.Name">@blob.Name (@FormatFileSize(blob.Size))</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input type="text" value="@config.BlobPath" 
+                           @onchange="@(e => UpdateConfig(c => c.BlobPath = e.Value?.ToString()))" 
+                           class="form-control" 
+                           placeholder="folder/filename.txt" />
+                }
+                <button class="btn btn-outline-secondary" type="button" @onclick="LoadBlobsAsync"
+                        disabled="@(string.IsNullOrEmpty(config.ConnectionString) || string.IsNullOrEmpty(config.ContainerName) || isLoadingBlobs)"
+                        title="Load blobs from container">
+                    @if (isLoadingBlobs)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                    }
+                    else
+                    {
+                        <span>📂</span>
+                    }
+                </button>
+            </div>
+            @if (blobs.Any())
+            {
+                <input type="text" value="@config.BlobPath" 
+                       @onchange="@(e => UpdateConfig(c => c.BlobPath = e.Value?.ToString()))" 
+                       class="form-control mt-2" 
+                       placeholder="Or type a new path..." />
+            }
+            <small class="text-muted">Path to the blob within the container (type new path for Write operations)</small>
+        </div>
+    }
+
+    @if (config.Operation == "Write" || config.Operation == "Edit")
+    {
+        <div class="form-group">
+            <label>Content (Text)</label>
+            <textarea value="@config.Content" 
+                      @onchange="@(e => UpdateConfig(c => c.Content = e.Value?.ToString()))" 
+                      class="form-control" 
+                      rows="4" 
+                      placeholder="Enter text content to write to the blob..."></textarea>
+            <small class="text-muted">For text files (.txt, .json, .csv, etc.). Supports placeholders.</small>
+        </div>
+
+        <div class="form-group" style="background: rgba(155, 89, 182, 0.1); border: 1px solid rgba(155, 89, 182, 0.4); border-radius: 8px; padding: 12px; margin-top: 12px;">
+            <label style="color: #9b59b6;">⬇️ Binary Content (Base64)</label>
+            <input type="text" value="@config.ContentBase64" 
+                   @onchange="@(e => UpdateConfig(c => c.ContentBase64 = e.Value?.ToString()))" 
+                   class="form-control" 
+                   placeholder="{{FileDownload.ContentBase64}}" />
+            <small class="text-muted" style="color: #9b59b6;">
+                For downloaded files (images, PDFs, ZIPs). Use with File Download node: <code>@("{{FileDownload.ContentBase64}}")</code>
+                <br/>Takes precedence over Content when both are set.
+            </small>
+        </div>
+
+        <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.PlaceholderList 
+            Placeholders="@AvailablePlaceholders" />
+    }
+
+    @if (config.Operation == "Read" || config.Operation == "Edit")
+    {
+        <div class="form-group">
+            <label>Max File Size for Read/Edit</label>
+            <div class="d-flex align-items-center gap-2">
+                <input type="range" min="1" max="20" step="1"
+                       value="@GetMaxSizeMB()" 
+                       @onchange="OnMaxSizeChanged" 
+                       class="form-range flex-grow-1" 
+                       style="max-width: 200px;" />
+                <span class="badge bg-secondary">@FormatFileSize(config.MaxFileSizeBytes)</span>
+            </div>
+            <small class="text-muted">Files larger than this limit will be blocked from loading (max 20MB)</small>
+        </div>
+    }
+
+    <div class="form-group">
+        <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="createContainer"
+                   checked="@config.CreateContainerIfNotExists"
+                   @onchange="@(e => UpdateConfig(c => c.CreateContainerIfNotExists = (bool)(e.Value ?? false)))" />
+            <label class="form-check-label" for="createContainer">
+                Create container if it doesn't exist
+            </label>
+        </div>
+        <small class="text-muted">When enabled, the container will be automatically created during Write operations</small>
+    </div>
+
+    <details class="mt-3">
+        <summary style="cursor: pointer; color: var(--text-secondary);">📖 Output Placeholders</summary>
+        <div class="mt-2 small" style="color: var(--text-secondary);">
+            <ul class="mb-0">
+                @if (config.Operation == "Read")
+                {
+                    <li><code>@("{NodeName.Content}")</code> - Downloaded blob content as text</li>
+                    <li><code>@("{NodeName.BlobSize}")</code> - Size of the blob in bytes</li>
+                    <li><code>@("{NodeName.ContentType}")</code> - MIME type of the blob</li>
+                }
+                else if (config.Operation == "Write" || config.Operation == "Edit")
+                {
+                    <li><code>@("{NodeName.BytesWritten}")</code> - Number of bytes written</li>
+                }
+                else if (config.Operation == "Delete")
+                {
+                    <li><code>@("{NodeName.Deleted}")</code> - Whether the blob was deleted (true/false)</li>
+                }
+                else if (config.Operation == "List")
+                {
+                    <li><code>@("{NodeName.Content}")</code> - JSON array of blob info</li>
+                    <li><code>@("{NodeName.BlobCount}")</code> - Number of blobs in container</li>
+                }
+                <li><code>@("{NodeName.BlobPath}")</code> - Path of the blob</li>
+                <li><code>@("{NodeName.Success}")</code> - Operation success status</li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    private AzureBlobConfig config = new();
+    private List<string> containers = new();
+    private List<BlobInfo> blobs = new();
+    private bool isLoadingContainers = false;
+    private bool isLoadingBlobs = false;
+    private bool useCustomContainer = false;
+    private string? connectionError;
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<AzureBlobConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConnectionString(string? value)
+    {
+        config.ConnectionString = value;
+        containers.Clear();
+        blobs.Clear();
+        connectionError = null;
+        await NotifyChanged();
+    }
+
+    private async Task LoadContainersAsync()
+    {
+        if (string.IsNullOrEmpty(config.ConnectionString)) return;
+
+        isLoadingContainers = true;
+        connectionError = null;
+        containers.Clear();
+        blobs.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(config.ConnectionString);
+            await foreach (var container in blobServiceClient.GetBlobContainersAsync())
+            {
+                containers.Add(container.Name);
+            }
+            
+            if (!containers.Any())
+            {
+                connectionError = "No containers found in this storage account.";
+            }
+        }
+        catch (Exception ex)
+        {
+            connectionError = $"Failed to connect: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingContainers = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnContainerChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (value == "__custom__")
+        {
+            useCustomContainer = true;
+            config.ContainerName = "";
+        }
+        else
+        {
+            useCustomContainer = false;
+            config.ContainerName = value;
+            blobs.Clear();
+        }
+        await NotifyChanged();
+    }
+
+    private async Task LoadBlobsAsync()
+    {
+        if (string.IsNullOrEmpty(config.ConnectionString) || string.IsNullOrEmpty(config.ContainerName)) return;
+
+        isLoadingBlobs = true;
+        blobs.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(config.ConnectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(config.ContainerName);
+
+            await foreach (var blobItem in containerClient.GetBlobsAsync())
+            {
+                blobs.Add(new BlobInfo
+                {
+                    Name = blobItem.Name,
+                    Size = blobItem.Properties.ContentLength ?? 0
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            connectionError = $"Failed to load blobs: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingBlobs = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnBlobChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(value))
+        {
+            config.BlobPath = value;
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnOperationChanged(ChangeEventArgs e)
+    {
+        config.Operation = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnMaxSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var mb))
+        {
+            config.MaxFileSizeBytes = mb * 1024L * 1024L;
+            await NotifyChanged();
+        }
+    }
+
+    private int GetMaxSizeMB()
+    {
+        return (int)(config.MaxFileSizeBytes / (1024 * 1024));
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        if (bytes >= 1024)
+            return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes} bytes";
+    }
+
+    private async Task UpdateConfig(Action<AzureBlobConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private class BlobInfo
+    {
+        public string Name { get; set; } = "";
+        public long Size { get; set; }
+    }
+}

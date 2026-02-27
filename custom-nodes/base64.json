@@ -1,0 +1,98 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:13:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_Base64",
+        "displayName": "Base64 Encode/Decode",
+        "description": "Encodes text to Base64 or decodes Base64 to text. Select the operation mode and provide the input string.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 7V4H20V7M10 4V20M14 4V20M4 20H20\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><text x=\"12\" y=\"14\" text-anchor=\"middle\" font-size=\"6\" font-weight=\"bold\" fill=\"currentColor\">64</text></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// Base64 Encode/Decode\n// Pure JavaScript implementation for Jint runtime\n\nvar mode = input.get(\"mode\") || \"encode\";\nvar inputText = input.get(\"inputText\");\n\n// Base64 character set\nvar chars = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";\n\nfunction btoa(str) {\n    var output = \"\";\n    for (var i = 0; i < str.length; i += 3) {\n        var c1 = str.charCodeAt(i);\n        var c2 = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;\n        var c3 = i + 2 < str.length ? str.charCodeAt(i + 2) : 0;\n        \n        var e1 = c1 >> 2;\n        var e2 = ((c1 & 3) << 4) | (c2 >> 4);\n        var e3 = ((c2 & 15) << 2) | (c3 >> 6);\n        var e4 = c3 & 63;\n        \n        if (i + 1 >= str.length) {\n            e3 = 64;\n            e4 = 64;\n        } else if (i + 2 >= str.length) {\n            e4 = 64;\n        }\n        \n        output += chars.charAt(e1) + chars.charAt(e2);\n        output += e3 === 64 ? \"=\" : chars.charAt(e3);\n        output += e4 === 64 ? \"=\" : chars.charAt(e4);\n    }\n    return output;\n}\n\nfunction atob(str) {\n    str = str.replace(/=+$/, \"\");\n    var output = \"\";\n    for (var i = 0; i < str.length; i += 4) {\n        var e1 = chars.indexOf(str.charAt(i));\n        var e2 = chars.indexOf(str.charAt(i + 1));\n        var e3 = i + 2 < str.length ? chars.indexOf(str.charAt(i + 2)) : 0;\n        var e4 = i + 3 < str.length ? chars.indexOf(str.charAt(i + 3)) : 0;\n        \n        var c1 = (e1 << 2) | (e2 >> 4);\n        var c2 = ((e2 & 15) << 4) | (e3 >> 2);\n        var c3 = ((e3 & 3) << 6) | e4;\n        \n        output += String.fromCharCode(c1);\n        if (i + 2 < str.length + (str.length % 4 ? 4 - str.length % 4 : 0) - 1) {\n            output += String.fromCharCode(c2);\n        }\n        if (i + 3 < str.length + (str.length % 4 ? 4 - str.length % 4 : 0) - 1) {\n            output += String.fromCharCode(c3);\n        }\n    }\n    return output;\n}\n\nif (!inputText && inputText !== \"\") {\n    log.error(\"Input text is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Input text is required\");\n    output.set(\"Result\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        var result = \"\";\n        \n        if (mode.toLowerCase() === \"decode\") {\n            result = atob(inputText);\n            log.info(\"Decoded Base64 (\" + inputText.length + \" chars) to text (\" + result.length + \" chars)\");\n        } else {\n            result = btoa(inputText);\n            log.info(\"Encoded text (\" + inputText.length + \" chars) to Base64 (\" + result.length + \" chars)\");\n        }\n        \n        output.set(\"Result\", result);\n        output.set(\"InputLength\", inputText.length);\n        output.set(\"OutputLength\", result.length);\n        output.set(\"Mode\", mode.toLowerCase() === \"decode\" ? \"decode\" : \"encode\");\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Base64 operation failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Base64 \" + mode + \" failed: \" + ex.message);\n        output.set(\"Result\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "mode",
+                "displayLabel": "Mode",
+                "placeholderText": "encode or decode",
+                "helpText": "Select 'encode' to convert text to Base64, or 'decode' to convert Base64 back to text.",
+                "fieldType": "Dropdown",
+                "defaultValue": "encode",
+                "isRequired": true,
+                "allowPlaceholders": false,
+                "displayOrder": 1,
+                "dropdownOptions": "encode,decode"
+            },
+            {
+                "fieldName": "inputText",
+                "displayLabel": "Input",
+                "placeholderText": "Text to encode or Base64 to decode",
+                "helpText": "For encode mode: provide plain text. For decode mode: provide a valid Base64 string.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "The encoded Base64 string or decoded text",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "Mode",
+                "description": "The operation that was performed (encode or decode)",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "InputLength",
+                "description": "Length of the input string in characters",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "OutputLength",
+                "description": "Length of the result string in characters",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if an error occurred during the operation",
+                "dataType": "boolean",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if the operation failed",
+                "dataType": "string",
+                "displayOrder": 6
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when the encode/decode operation succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Operation completed successfully",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when the operation fails (e.g., invalid Base64 input)",
+                "color": "#ef4444",
+                "conditionDescription": "Operation failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

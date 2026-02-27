@@ -1,0 +1,252 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject IJSRuntime JSRuntime
+
+<div class="node-editor-fields">
+    @* Curl examples - expanded by default *@
+    @if (Node != null)
+    {
+        <div class="node-property">
+            <details open>
+                <summary style="cursor: pointer; color: var(--accent-color); font-size: 0.9rem; font-weight: bold;">🔗 Trigger URL &amp; Curl Examples</summary>
+                <div style="margin-top: 0.5rem; padding: 0.75rem; background: rgba(0,168,168,0.1); border: 1px solid rgba(0,168,168,0.3); border-radius: 6px;">
+                    <div style="margin-bottom: 0.75rem;">
+                        <small style="color: #888;">Node ID:</small>
+                        <code style="font-size: 0.8rem; margin-left: 0.25rem;">@Node.Id</code>
+                    </div>
+                    
+                    <div style="margin-bottom: 0.75rem;">
+                        <strong style="color: var(--accent-color); font-size: 0.85rem;">📌 Using Query Parameter:</strong>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+                            <code style="background: rgba(0,0,0,0.4); padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all; flex: 1;">curl -X @(Config.Method ?? "POST") "https://listener.s2g.run/api?nodeId=@Node.Id" -H "Content-Type: application/json" -d '{}'</code>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyCurlQuery" title="Copy curl">📋</button>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <strong style="color: var(--accent-color); font-size: 0.85rem;">📌 Using Header:</strong>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+                            <code style="background: rgba(0,0,0,0.4); padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all; flex: 1;">curl -X @(Config.Method ?? "POST") "https://listener.s2g.run/api" -H "X-S2G-Node-Id: @Node.Id" -H "Content-Type: application/json" -d '{}'</code>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyCurlHeader" title="Copy curl">📋</button>
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </div>
+    }
+
+    <div class="node-property">
+        <label>Method:</label>
+        <select value="@Config.Method" @onchange="OnMethodChanged" class="form-control">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="*">Any Method</option>
+        </select>
+    </div>
+    <div class="node-property">
+        <label>Default Response:</label>
+        <textarea value="@Config.DefaultResponse" @onchange="OnResponseChanged" class="form-control" rows="3" placeholder="OK"></textarea>
+        <small class="text-muted">Response sent if workflow times out or no HttpResponse node is reached</small>
+    </div>
+    <div class="node-property">
+        <label>Content Type:</label>
+        <input type="text" value="@Config.ContentType" @onchange="OnContentTypeChanged" class="form-control" placeholder="text/plain" list="contentTypeList" />
+        <datalist id="contentTypeList">
+            <option value="text/plain">text/plain</option>
+            <option value="application/json">application/json</option>
+            <option value="text/html">text/html</option>
+            <option value="application/xml">application/xml</option>
+        </datalist>
+    </div>
+    <div class="node-property">
+        <label>Default Status Code:</label>
+        <input type="number" value="@Config.DefaultStatusCode" @onchange="OnStatusCodeChanged" class="form-control" placeholder="200" />
+    </div>
+    <div class="node-property">
+        <label>Response Timeout (seconds):</label>
+        <input type="number" value="@Config.TimeoutSeconds" @onchange="OnTimeoutChanged" class="form-control" placeholder="300" />
+        <small class="text-muted">How long to wait for downstream nodes to complete (default: 300s = 5 min)</small>
+    </div>
+    
+    @if (!string.IsNullOrWhiteSpace(Config.LastBodySample) || !string.IsNullOrWhiteSpace(Config.LastQueryParams))
+    {
+        <div class="node-property mt-2">
+            <div class="small" style="background: rgba(0,200,100,0.1); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(0,200,100,0.3);">
+                <strong style="color: #00c864;">🔍 Detected Properties (from last request):</strong>
+                
+                @if (!string.IsNullOrWhiteSpace(Config.LastQueryParams))
+                {
+                    <div style="margin-top: 0.3rem;">
+                        <em style="color: #888;">Query Params:</em>
+                        <code style="margin-left: 0.3rem;">@Config.LastQueryParams</code>
+                    </div>
+                }
+                
+                @if (!string.IsNullOrWhiteSpace(Config.LastBodySample))
+                {
+                    <div style="margin-top: 0.3rem;">
+                        <em style="color: #888;">Body Properties:</em>
+                        @foreach (var prop in GetBodyProperties())
+                        {
+                            <span style="display: inline-block; margin: 0.1rem 0.2rem; padding: 0.1rem 0.4rem; background: rgba(0,168,168,0.2); border-radius: 3px; font-size: 0.75rem;">
+                                <code>@prop.Path</code>
+                                <small style="color: #888; margin-left: 0.2rem;">@prop.TypeBadge</small>
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>For downstream nodes use:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{HttpListener.Body}</code> - Request body content</li>
+                    <li><code>{HttpListener.Body.propertyPath}</code> - Nested JSON property</li>
+                    <li><code>{HttpListener.Method}</code> - HTTP method (GET, POST, etc.)</li>
+                    <li><code>{HttpListener.Path}</code> - Request path</li>
+                    <li><code>{HttpListener.QueryParamsJson}</code> - All query params as JSON</li>
+                    <li><code>{HttpListener.paramName}</code> - Individual query param value</li>
+                    <li><code>{HttpListener.RequestId}</code> - For HttpResponse node</li>
+                </ul>
+                <em>💡 Send a request to auto-detect JSON body properties</em>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public WorkflowNode? Node { get; set; }
+
+    private HttpListenerConfig Config { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<HttpListenerConfig>(Configuration) ?? new();
+            }
+            // Always enable proxy mode - port binding is no longer used
+            if (!Config.UseProxyMode)
+            {
+                Config.UseProxyMode = true;
+            }
+        }
+        catch { }
+    }
+
+    private string GetTriggerUrl()
+    {
+        if (Node == null) return "Loading...";
+        
+        // Hardcoded Azure Function proxy URL for convenience
+        var baseUrl = "https://listener.s2g.run";
+        var path = string.IsNullOrWhiteSpace(Config.Path) ? "" : Config.Path.TrimStart('/');
+        return $"{baseUrl}/{path}?nodeId={Node.Id}";
+    }
+
+    private async Task OnMethodChanged(ChangeEventArgs e)
+    {
+        Config.Method = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnPathChanged(ChangeEventArgs e)
+    {
+        Config.Path = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnResponseChanged(ChangeEventArgs e)
+    {
+        Config.DefaultResponse = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnContentTypeChanged(ChangeEventArgs e)
+    {
+        Config.ContentType = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnStatusCodeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int code))
+        {
+            Config.DefaultStatusCode = code;
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnTimeoutChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int timeout))
+        {
+            Config.TimeoutSeconds = timeout;
+            await NotifyChanged();
+        }
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    private List<(string Path, string TypeBadge)> GetBodyProperties()
+    {
+        if (string.IsNullOrWhiteSpace(Config.LastBodySample))
+            return new();
+        
+        var properties = JsonPropertyExtractor.ExtractPropertyPaths(Config.LastBodySample);
+        return JsonPropertyExtractor.GetPropertySummary(properties);
+    }
+
+    public class HttpListenerConfig
+    {
+        public string? Method { get; set; } = "POST";
+        public string? Path { get; set; } = "";
+        public int Port { get; set; } = 8080; // Kept for backward compatibility but not shown
+        public string? Host { get; set; } = "localhost"; // Kept for backward compatibility but not shown
+        public string? DefaultResponse { get; set; } = "OK";
+        public string? ContentType { get; set; } = "application/json";
+        public int DefaultStatusCode { get; set; } = 200;
+        public int TimeoutSeconds { get; set; } = 300;
+        public string? LastBodySample { get; set; }
+        public string? LastQueryParams { get; set; }
+        public bool UseProxyMode { get; set; } = true; // Always true now
+    }
+
+    private async Task CopyTriggerUrl()
+    {
+        var url = GetTriggerUrl();
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", url);
+    }
+
+    private async Task CopyCurlQuery()
+    {
+        if (Node == null) return;
+        var method = Config.Method ?? "POST";
+        var curl = $"curl -X {method} \"https://listener.s2g.run/api?nodeId={Node.Id}\" -H \"Content-Type: application/json\" -d '{{}}'";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", curl);
+    }
+
+    private async Task CopyCurlHeader()
+    {
+        if (Node == null) return;
+        var method = Config.Method ?? "POST";
+        var curl = $"curl -X {method} \"https://listener.s2g.run/api\" -H \"X-S2G-Node-Id: {Node.Id}\" -H \"Content-Type: application/json\" -d '{{}}'";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", curl);
+    }
+}

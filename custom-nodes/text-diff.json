@@ -1,0 +1,163 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T21:05:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_TextDiff",
+        "displayName": "Text Diff",
+        "description": "Compares two texts and outputs the differences. Shows additions, deletions, and unchanged lines with statistics.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M16 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V8L16 3Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M8 12H16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M8 16H13\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M12 8V4\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M10 6H14\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// Text Diff - Compare two texts\n// Uses LCS (Longest Common Subsequence) algorithm for line-based diff\n\nvar oldText = input.get(\"oldText\") || \"\";\nvar newText = input.get(\"newText\") || \"\";\nvar ignoreWhitespace = input.get(\"ignoreWhitespace\") === \"true\";\nvar contextLines = parseInt(input.get(\"contextLines\") || \"3\");\n\ntry {\n    // Normalize line endings\n    oldText = oldText.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');\n    newText = newText.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');\n    \n    var oldLines = oldText.split('\\n');\n    var newLines = newText.split('\\n');\n    \n    // Normalize for comparison if ignoring whitespace\n    function normalize(line) {\n        if (ignoreWhitespace) {\n            return line.trim().replace(/\\s+/g, ' ');\n        }\n        return line;\n    }\n    \n    // Build LCS table\n    var m = oldLines.length;\n    var n = newLines.length;\n    var dp = [];\n    \n    for (var i = 0; i <= m; i++) {\n        dp[i] = [];\n        for (var j = 0; j <= n; j++) {\n            if (i === 0 || j === 0) {\n                dp[i][j] = 0;\n            } else if (normalize(oldLines[i-1]) === normalize(newLines[j-1])) {\n                dp[i][j] = dp[i-1][j-1] + 1;\n            } else {\n                dp[i][j] = Math.max(dp[i-1][j], dp[i][j-1]);\n            }\n        }\n    }\n    \n    // Backtrack to find diff\n    var diff = [];\n    var i = m;\n    var j = n;\n    \n    while (i > 0 || j > 0) {\n        if (i > 0 && j > 0 && normalize(oldLines[i-1]) === normalize(newLines[j-1])) {\n            diff.unshift({ type: 'unchanged', oldLine: i, newLine: j, content: oldLines[i-1] });\n            i--;\n            j--;\n        } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {\n            diff.unshift({ type: 'added', oldLine: null, newLine: j, content: newLines[j-1] });\n            j--;\n        } else if (i > 0) {\n            diff.unshift({ type: 'deleted', oldLine: i, newLine: null, content: oldLines[i-1] });\n            i--;\n        }\n    }\n    \n    // Count statistics\n    var addedCount = 0;\n    var deletedCount = 0;\n    var unchangedCount = 0;\n    \n    for (var d = 0; d < diff.length; d++) {\n        if (diff[d].type === 'added') addedCount++;\n        else if (diff[d].type === 'deleted') deletedCount++;\n        else unchangedCount++;\n    }\n    \n    // Generate unified diff output\n    var unifiedDiff = [];\n    unifiedDiff.push('--- old');\n    unifiedDiff.push('+++ new');\n    \n    for (var d = 0; d < diff.length; d++) {\n        var item = diff[d];\n        var prefix = ' ';\n        if (item.type === 'added') prefix = '+';\n        else if (item.type === 'deleted') prefix = '-';\n        unifiedDiff.push(prefix + item.content);\n    }\n    \n    // Generate HTML diff\n    var htmlDiff = [];\n    htmlDiff.push('<div class=\"diff\">');\n    for (var d = 0; d < diff.length; d++) {\n        var item = diff[d];\n        var cls = item.type;\n        var lineNum = '';\n        if (item.type === 'deleted') {\n            lineNum = item.oldLine + ':';\n        } else if (item.type === 'added') {\n            lineNum = ':' + item.newLine;\n        } else {\n            lineNum = item.oldLine + ':' + item.newLine;\n        }\n        var escapedContent = item.content\n            .replace(/&/g, '&amp;')\n            .replace(/</g, '&lt;')\n            .replace(/>/g, '&gt;');\n        htmlDiff.push('<div class=\"line ' + cls + '\"><span class=\"line-num\">' + lineNum + '</span><span class=\"content\">' + escapedContent + '</span></div>');\n    }\n    htmlDiff.push('</div>');\n    \n    // Generate simple changes list\n    var changes = [];\n    for (var d = 0; d < diff.length; d++) {\n        if (diff[d].type !== 'unchanged') {\n            changes.push({\n                type: diff[d].type,\n                line: diff[d].type === 'added' ? diff[d].newLine : diff[d].oldLine,\n                content: diff[d].content\n            });\n        }\n    }\n    \n    var hasChanges = addedCount > 0 || deletedCount > 0;\n    \n    output.set(\"UnifiedDiff\", unifiedDiff.join('\\n'));\n    output.set(\"HtmlDiff\", htmlDiff.join('\\n'));\n    output.set(\"Changes\", json.stringify(changes));\n    output.set(\"DiffData\", json.stringify(diff));\n    output.set(\"AddedCount\", addedCount);\n    output.set(\"DeletedCount\", deletedCount);\n    output.set(\"UnchangedCount\", unchangedCount);\n    output.set(\"TotalChanges\", addedCount + deletedCount);\n    output.set(\"HasChanges\", hasChanges);\n    output.set(\"OldLineCount\", oldLines.length);\n    output.set(\"NewLineCount\", newLines.length);\n    output.set(\"HasErrors\", false);\n    output.set(\"ErrorMessage\", \"\");\n    \n    log.info(\"Diff complete: +\" + addedCount + \" -\" + deletedCount + \" =\" + unchangedCount);\n    \n    if (hasChanges) {\n        tags.trigger(\"different\");\n    } else {\n        tags.trigger(\"identical\");\n    }\n    tags.trigger(\"success\");\n    \n} catch (ex) {\n    log.error(\"Diff failed: \" + ex.message);\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", ex.message);\n    tags.trigger(\"error\");\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "oldText",
+                "displayLabel": "Old Text",
+                "placeholderText": "Original text content",
+                "helpText": "The original (old) text to compare from.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "newText",
+                "displayLabel": "New Text",
+                "placeholderText": "Modified text content",
+                "helpText": "The new (modified) text to compare to.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 2
+            },
+            {
+                "fieldName": "ignoreWhitespace",
+                "displayLabel": "Ignore Whitespace",
+                "helpText": "Ignore leading/trailing whitespace and normalize multiple spaces when comparing.",
+                "fieldType": "Boolean",
+                "defaultValue": "false",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 3
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "UnifiedDiff",
+                "description": "Unified diff format output (+ for added, - for deleted)",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "HtmlDiff",
+                "description": "HTML formatted diff with CSS classes for styling",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Changes",
+                "description": "JSON array of changes only (excludes unchanged lines)",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "DiffData",
+                "description": "Full diff as JSON array with type, line numbers, and content",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "AddedCount",
+                "description": "Number of lines added",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "DeletedCount",
+                "description": "Number of lines deleted",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "UnchangedCount",
+                "description": "Number of unchanged lines",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "TotalChanges",
+                "description": "Total number of changes (added + deleted)",
+                "dataType": "number",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "HasChanges",
+                "description": "True if any differences were found",
+                "dataType": "boolean",
+                "displayOrder": 9
+            },
+            {
+                "parameterName": "OldLineCount",
+                "description": "Number of lines in old text",
+                "dataType": "number",
+                "displayOrder": 10
+            },
+            {
+                "parameterName": "NewLineCount",
+                "description": "Number of lines in new text",
+                "dataType": "number",
+                "displayOrder": 11
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if diff failed",
+                "dataType": "boolean",
+                "displayOrder": 12
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if diff failed",
+                "dataType": "string",
+                "displayOrder": 13
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Diff completed successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Diff succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "different",
+                "description": "Texts have differences",
+                "color": "#f59e0b",
+                "conditionDescription": "Changes were found",
+                "displayOrder": 2
+            },
+            {
+                "tagName": "identical",
+                "description": "Texts are identical",
+                "color": "#3b82f6",
+                "conditionDescription": "No changes found",
+                "displayOrder": 3
+            },
+            {
+                "tagName": "error",
+                "description": "Diff failed",
+                "color": "#ef4444",
+                "conditionDescription": "Diff failed",
+                "displayOrder": 4
+            }
+        ],
+        "logConfigs": []
+    }
+}

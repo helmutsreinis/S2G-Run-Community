@@ -1,0 +1,188 @@
+@using System.Text.Json
+
+<div class="vectorclient-editor">
+    <div class="mb-3">
+        <label class="form-label">Operation</label>
+        <select class="form-select" @bind="config.Operation" @bind:after="SaveConfiguration">
+            <option value="Store">Store (Add document with embedding)</option>
+            <option value="Search">Search (Find similar documents)</option>
+            <option value="Delete">Delete (Remove document by ID)</option>
+            <option value="Clear">Clear (Remove all documents)</option>
+        </select>
+        <small class="text-muted">Choose the operation to perform on the connected Vector Store.</small>
+    </div>
+
+    @if (config.Operation == "Store")
+    {
+        <div class="mb-3">
+            <label class="form-label">Text Content</label>
+            <textarea class="form-control" @bind="config.Text" @bind:after="SaveConfiguration" rows="3" placeholder="The text content to store..."></textarea>
+            <small class="text-muted">The text that will be associated with the embedding.</small>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Embedding</label>
+            <textarea class="form-control" @bind="config.Embedding" @bind:after="SaveConfiguration" rows="2" placeholder="{{OpenAI.Embedding}}"></textarea>
+            <small class="text-muted">The vector embedding from an AI node (e.g., <code>{{OpenAI.Embedding}}</code>).</small>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Metadata (Optional)</label>
+            <input type="text" class="form-control" @bind="config.Metadata" @bind:after="SaveConfiguration" placeholder='{"source": "document.pdf", "page": 1}' />
+            <small class="text-muted">Optional JSON metadata to store with the document.</small>
+        </div>
+    }
+
+    @if (config.Operation == "Search")
+    {
+        <div class="mb-3">
+            <label class="form-label">Query Embedding</label>
+            <textarea class="form-control" @bind="config.QueryEmbedding" @bind:after="SaveConfiguration" rows="2" placeholder="{{OpenAI.Embedding}}"></textarea>
+            <small class="text-muted">The query vector from an AI node to search for similar documents.</small>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Result Limit</label>
+            <input type="number" class="form-control" style="width: 100px;" @bind="config.Limit" @bind:after="SaveConfiguration" min="1" max="100" />
+            <small class="text-muted">Maximum number of similar documents to return.</small>
+        </div>
+    }
+
+    @if (config.Operation == "Delete")
+    {
+        <div class="mb-3">
+            <label class="form-label">Document ID</label>
+            <input type="text" class="form-control" @bind="config.DocumentId" @bind:after="SaveConfiguration" placeholder="{{VectorClient.InsertedId}}" />
+            <small class="text-muted">The ID of the document to delete.</small>
+        </div>
+    }
+
+    @if (config.Operation == "Clear")
+    {
+        <div class="alert alert-warning py-2 small">
+            <strong>⚠️ Warning:</strong> This will delete ALL documents in the connected Vector Store.
+        </div>
+    }
+
+    <details class="mt-4">
+        <summary class="text-muted small" style="cursor: pointer;">📤 Output Placeholders</summary>
+        <div class="output-preview mt-2">
+            <ul class="small text-muted mb-0">
+                @if (config.Operation == "Store")
+                {
+                    <li><code>InsertedId</code> - ID of the stored document</li>
+                    <li><code>Count</code> - Total documents in store</li>
+                }
+                @if (config.Operation == "Search")
+                {
+                    <li><code>Results</code> - JSON array of results</li>
+                    <li><code>FirstResult</code> - Text of the most similar document</li>
+                    <li><code>TopSimilarity</code> - Similarity score (0-1)</li>
+                    <li><code>Count</code> - Number of results</li>
+                }
+                @if (config.Operation == "Delete" || config.Operation == "Clear")
+                {
+                    <li><code>Count</code> - Number of documents deleted</li>
+                }
+                <li><code>OperationResult</code> - Status message</li>
+            </ul>
+        </div>
+    </details>
+
+    @if (ConnectedVectorStoreNodeId.HasValue && ConnectedVectorStoreNodeId != Guid.Empty)
+    {
+        <div class="connected-store-info mt-3">
+            <span class="badge bg-success">✓ Connected to Vector Store</span>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning py-2 small mt-3">
+            <strong>⚠️ No Vector Store connected!</strong> Create a <code>storage</code> connection from this node to a Vector Store node.
+        </div>
+    }
+
+    <PlaceholderList Placeholders="@AvailablePlaceholders" />
+</div>
+
+<style>
+    .vectorclient-editor {
+        padding: 0.5rem 0;
+    }
+
+    .vectorclient-editor .form-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .vectorclient-editor .text-muted,
+    .vectorclient-editor small.text-muted {
+        color: var(--text-secondary, #b0b0b0) !important;
+    }
+
+    .vectorclient-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+    }
+
+    .connected-store-info .badge {
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public Guid? ConnectedVectorStoreNodeId { get; set; }
+
+    private VectorClientConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Configuration))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<VectorClientConfig>(Configuration) ?? new();
+            }
+            catch
+            {
+                config = new();
+            }
+        }
+    }
+
+    private async Task SaveConfiguration()
+    {
+        var json = JsonSerializer.Serialize(config);
+        if (Configuration != json)
+        {
+            await OnConfigurationChanged.InvokeAsync(json);
+        }
+    }
+
+    private class VectorClientConfig
+    {
+        public string Operation { get; set; } = "Search";
+        public string? Text { get; set; }
+        public string? Embedding { get; set; }
+        public string? Metadata { get; set; }
+        public string? QueryEmbedding { get; set; }
+        public int Limit { get; set; } = 3;
+        public string? DocumentId { get; set; }
+    }
+}

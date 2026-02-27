@@ -1,0 +1,3677 @@
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.JSInterop;
+using S2GPulseWeb.Web.Data;
+using S2GPulseWeb.Web.Logic;
+using S2GPulseWeb.Web.Logic.Nodes;
+using System.Text.Json;
+using System.Threading;
+
+namespace S2GPulseWeb.Web.Components.Pages.Workflow.Designer;
+
+public partial class Designer : IDisposable
+{
+    // Injected services
+    [Inject] private WorkflowAssistantService AssistantService { get; set; } = default!;
+    [Inject] private NodeExecutorFactory ExecutorFactory { get; set; } = default!;
+    [Inject] private UsageTrackingService UsageTrackingService { get; set; } = default!;
+    [Inject] private CustomNodeService CustomNodeService { get; set; } = default!;
+    [Inject] private BuiltInNodeCatalogService BuiltInNodeCatalogService { get; set; } = default!;
+    [Inject] private NodeKnowledgeService NodeKnowledgeService { get; set; } = default!;
+    [Inject] private UserSecretService SecretService { get; set; } = default!;
+    [Inject] private CopilotConnectorService CopilotService { get; set; } = default!;
+    [Inject] private OrganizationService OrganizationService { get; set; } = default!;
+    [Inject] private OrganizationUsageTrackingService OrgUsageTrackingService { get; set; } = default!;
+
+    // State - User and Workflow
+    private string? currentUserId;
+    private Guid? currentWorkflowId;
+    private string currentWorkflowName = "New Workflow";
+    private bool currentWorkflowIsActive = false; // Auto-start on app startup
+    private Guid? currentWorkflowOrganizationId; // Organization context (null = personal)
+    private bool canDeleteWorkflow = true; // Contributors cannot delete org workflows
+    private Guid? activeOrganizationId; // Currently active organization from user preferences
+    private List<Data.Workflow> userWorkflows = new();
+    private bool showWorkflowList = false;
+    private bool showCacheViewer = false;
+    private bool showStorageTableViewer = false;
+    private bool showVectorDbViewer = false;
+    private bool showBlobViewer = false;
+    private bool showS2GStorageViewer = false;
+    private Guid? viewingStorageTableNodeId;
+    private Guid? viewingCacheNodeId;
+    private Guid? viewingVectorDbNodeId;
+    private Guid? viewingBlobNodeId;
+    private Guid? viewingS2GStorageNodeId;
+    private bool showRemoteMachineMonitor = false;
+    private Guid? viewingRemoteNodeId;
+    private string? viewingRemoteClientId;
+    
+    // Workflow state tracking
+    private bool hasUnsavedChanges = false;
+    private string? workflowNotificationMessage = null;
+    private string workflowNotificationType = "warning"; // warning, danger, info, success
+    
+    // Tier limits for current user
+    private TierLimits? currentTierLimits;
+    
+    // Workflow deletion state
+    private bool showDeleteConfirmation = false;
+    private bool isDeleting = false;
+    private WorkflowDeletionInfo? deletionInfo;
+    
+    // Node deletion state
+    private bool showNodeDeleteConfirmation = false;
+    private CanvasNode? nodeToDelete = null;
+
+    // Canvas state
+    private ElementReference canvasRef;
+    private ElementReference importFileInput;
+    private List<CanvasNode> canvasNodes = new();
+    private List<NodeConnection> connections = new();
+    private string? draggedNodeType;
+    private Guid? selectedNodeId;
+    private CanvasNode? draggingNode;
+    private CanvasNode? resizingNode;
+    private double dragStartX, dragStartY;
+    private double nodeStartX, nodeStartY;
+    private double nodeStartWidth, nodeStartHeight;
+    
+    // Connection drawing
+    private bool isConnecting = false;
+    private CanvasNode? connectingFromNode;
+    private double connectingEndX, connectingEndY;
+    private bool wasDragged = false;
+    private bool wasResizing = false;
+    
+    // Connection context menu
+    private bool showConnectionContextMenu = false;
+    private NodeConnection? contextMenuConnection;
+    private double connectionContextMenuX, connectionContextMenuY;
+    private string connectionLabelInput = "";
+    
+    // Surface field context menu state
+    private bool showSurfaceFieldMenu = false;
+    private bool showAddSurfaceFieldMenu = false;
+    private CanvasNode? surfaceFieldMenuNode;
+    private string? surfaceFieldToRemove;
+    private double surfaceFieldMenuX, surfaceFieldMenuY;
+    private string surfaceFieldSearchText = "";
+    private string surfaceFieldEditText = "";
+    
+    // Workflow running state - computed from service
+    private bool isWorkflowRunning => currentWorkflowId.HasValue && WorkflowExecutionService.IsRunning(currentWorkflowId.Value);
+    
+    // Scheduler countdown refresh timer
+    private Timer? countdownRefreshTimer;
+    
+    // Canvas tracking
+    private double canvasOffsetX, canvasOffsetY;
+    private double canvasWidth = DesignerConstants.DefaultCanvasWidth;
+    private double canvasHeight = DesignerConstants.DefaultCanvasHeight;
+    
+    // Pan and zoom
+    private double panX = 0;
+    private double panY = 0;
+    private double zoomLevel = 1.0;
+    private bool isPanning = false;
+    private double panStartX, panStartY;
+    private double panStartPanX, panStartPanY;
+    
+    // UI state
+    private bool isPaletteCollapsed = false;
+    private bool isAiPanelCollapsed = true;
+    private string aiInputMessage = "";
+    private bool isAiThinking = false;
+    private ElementReference aiMessagesRef;
+    
+    // AI Builder - Provider and Mode
+    private string selectedAiProvider = "OpenAI";
+    private string selectedAiModel = "gpt-4o";
+    private List<string> availableModels = new() { "gpt-4o" };
+    private string aiChatMode = "Ask"; // Ask, Build, Edit
+    private string aiTemperatureMode = "Focused"; // Focused or Creative
+    private List<AiProviderInfo> aiProviders = new();
+    private Guid? copilotConnectionId = null; // Designated Copilot connection for AI Builder
+    private string? copilotConnectionEmail = null; // Display name for Copilot connection
+    
+    // AI Builder - Panel Position (draggable)
+    private double aiPanelX = 0;
+    private double aiPanelY = 160;
+    private bool isDraggingAiPanel = false;
+    private double aiPanelDragStartX;
+    private double aiPanelDragStartY;
+    
+    // AI Builder - Node Autocomplete
+    private bool showNodeAutocomplete = false;
+    private List<string> nodeAutocompleteMatches = new();
+    private int selectedAutocompleteIndex = 0;
+    
+    // AI Builder - Context-selected nodes
+    private List<CanvasNode> aiContextNodes = new();
+    
+    private bool showContextMenu = false;
+    private double contextMenuX;
+    private double contextMenuY;
+    private CanvasNode? contextMenuNode;
+    private CanvasNode? editingNode;
+    private string nodeSearchText = "";
+    private string activeModalTab = "properties";
+    private NodeLogEntry? selectedLogEntry;
+    private HashSet<Guid> executingNodeIds = new();
+    private HashSet<Guid> activeConnectionIds = new();
+    private bool showAllPlaceholders = false;
+    private string selectedToolbarCategory = "HTTP";
+
+    // Custom nodes from Admin Node Designer
+    private List<CustomNodeDefinition> customNodeDefinitions = new();
+    private List<CustomNodeCategory> customNodeCategories = new();
+    private List<CustomNodeCatalogItem> customNodeCatalogItems = new();  // Lightweight catalog (no LEFT JOINs)
+    
+    // Workflow loading state
+    private bool isLoadingWorkflowNodes = false;
+    private string workflowLoadingStatus = "";
+    
+    // Workflow saving state
+    private bool isSavingWorkflow = false;
+    private string workflowSavingStatus = "";
+
+    private bool overlayMouseDown = false;
+    private bool isCostPanelCollapsed = true;
+    private HashSet<string> expandedCategories = new() { "HTTP", "AI", "Data", "Files", "Integration", "Automation" };
+    private ConnectionSide? connectingFromSide;
+    
+    // Minimap state
+    private bool isMinimapCollapsed = true;
+    private bool isMinimapDragging = false;
+    private const double MaxCanvasWidth = 3000;
+    private const double MaxCanvasHeight = 3000;
+    private const double MinimapWidth = 180;
+    private const double MinimapHeight = 140;
+    
+    // Custom Node Panel state
+    private bool isCustomNodePanelCollapsed = true;
+    private string customNodeSearchText = "";
+    private HashSet<Guid> expandedCatalogCategories = new();
+    private HashSet<Guid> loadingCategories = new(); // Track which categories are currently loading
+    private bool isSearchLoading = false; // Track search loading state
+    
+    private void ToggleCatalogCategory(Guid categoryId)
+    {
+        // Toggle category expansion - no heavy loading, uses lightweight catalog
+        if (expandedCatalogCategories.Contains(categoryId))
+        {
+            expandedCatalogCategories.Remove(categoryId);
+        }
+        else
+        {
+            expandedCatalogCategories.Add(categoryId);
+        }
+    }
+    
+    private bool IsCatalogCategoryExpanded(Guid categoryId) => expandedCatalogCategories.Contains(categoryId);
+
+    
+    // Helper instance
+    private PlaceholderHelper? _placeholderHelper;
+    private PlaceholderHelper PlaceholderHelperInstance => _placeholderHelper ??= new PlaceholderHelper(CacheStorageService, CustomNodeService);
+
+    // Cost Calculation
+    private double TotalWorkflowCost => CalculateTotalWorkflowCost();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Register event handlers for execution updates
+        ExecutionManager.OnNodeLogAdded += HandleNodeLogAdded;
+        
+        // Register animation event handlers from WorkflowExecutionService
+        WorkflowExecutionService.OnConnectionTraversalStarted += HandleConnectionTraversalStarted;
+        WorkflowExecutionService.OnConnectionTraversalEnded += HandleConnectionTraversalEnded;
+        WorkflowExecutionService.OnNodeExecutionStarted += HandleNodeExecutionStarted;
+        WorkflowExecutionService.OnNodeExecutionCompleted += HandleNodeExecutionCompleted;
+        WorkflowExecutionService.OnNodeOutputDataUpdated += HandleNodeOutputDataUpdated;
+        
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        // Use claims to get user ID directly - avoids DbContext concurrency issues
+        currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            // Load user's workflows for the list (filtered by active organization context)
+            activeOrganizationId = await OrganizationService.GetActiveOrganizationIdAsync(currentUserId);
+            userWorkflows = await WorkflowService.GetUserWorkflowsAsync(currentUserId, activeOrganizationId);
+            
+            // Load tier limits for the user
+            currentTierLimits = await UsageTrackingService.GetUserTierLimitsAsync(currentUserId);
+
+            // Load last opened workflow - but only if it belongs to the current context
+            var lastWorkflowId = await PreferenceService.GetLastWorkflowAsync(currentUserId);
+            if (lastWorkflowId.HasValue)
+            {
+                var workflow = await WorkflowService.GetWorkflowAsync(lastWorkflowId.Value);
+                // Only load if workflow matches current org context:
+                // - In personal context (activeOrganizationId == null): load only personal workflows (workflow.OrganizationId == null)
+                // - In org context: load only workflows from that org
+                if (workflow != null && workflow.OrganizationId == activeOrganizationId)
+                {
+                    await LoadWorkflowFromData(workflow);
+                }
+            }
+        }
+        // Load categories and lightweight catalog (no LEFT JOINs)
+        customNodeCategories = await CustomNodeService.GetCategoriesAsync();
+        customNodeCatalogItems = await CustomNodeService.GetCatalogItemsAsync();
+        
+        // Load AI providers with API key status
+        await LoadAiProvidersAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UpdateCanvasOffset();
+            
+            // Subscribe to node configuration updates for real-time refresh
+            ExecutionManager.OnNodeConfigurationUpdated += HandleNodeConfigurationUpdated;
+            
+            // Start countdown refresh timer (updates every second for scheduler nodes)
+            countdownRefreshTimer = new Timer(
+                callback: _ => InvokeAsync(StateHasChanged),
+                state: null,
+                dueTime: 1000,
+                period: 1000);
+        }
+    }
+
+    public void Dispose()
+    {
+        // Stop countdown refresh timer
+        countdownRefreshTimer?.Dispose();
+        countdownRefreshTimer = null;
+        
+        ExecutionManager.OnNodeLogAdded -= HandleNodeLogAdded;
+        ExecutionManager.OnNodeConfigurationUpdated -= HandleNodeConfigurationUpdated;
+        
+        // Unsubscribe from animation events
+        WorkflowExecutionService.OnConnectionTraversalStarted -= HandleConnectionTraversalStarted;
+        WorkflowExecutionService.OnConnectionTraversalEnded -= HandleConnectionTraversalEnded;
+        WorkflowExecutionService.OnNodeExecutionStarted -= HandleNodeExecutionStarted;
+        WorkflowExecutionService.OnNodeExecutionCompleted -= HandleNodeExecutionCompleted;
+        WorkflowExecutionService.OnNodeOutputDataUpdated -= HandleNodeOutputDataUpdated;
+    }
+
+    // Animation event handlers
+    private void HandleConnectionTraversalStarted(Guid connectionId)
+    {
+        InvokeAsync(() =>
+        {
+            activeConnectionIds.Add(connectionId);
+            StateHasChanged();
+        });
+    }
+
+    private void HandleConnectionTraversalEnded(Guid connectionId)
+    {
+        InvokeAsync(() =>
+        {
+            activeConnectionIds.Remove(connectionId);
+            StateHasChanged();
+        });
+    }
+
+    private void HandleNodeExecutionStarted(Guid workflowId, Guid nodeId)
+    {
+        // Only update if this is the currently viewed workflow
+        if (currentWorkflowId != workflowId) return;
+        
+        InvokeAsync(() =>
+        {
+            var node = canvasNodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null)
+            {
+                node.Status = NodeStatus.Running;
+                executingNodeIds.Add(nodeId);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void HandleNodeExecutionCompleted(Guid workflowId, Guid nodeId)
+    {
+        // Only update if this is the currently viewed workflow
+        if (currentWorkflowId != workflowId) return;
+        
+        InvokeAsync(() =>
+        {
+            var node = canvasNodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null)
+            {
+                node.Status = NodeStatus.Success;
+                executingNodeIds.Remove(nodeId);
+                StateHasChanged();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Handler for when a node's output data is updated during execution.
+    /// Syncs the output data to the canvas node so surface fields can display real-time values.
+    /// </summary>
+    private void HandleNodeOutputDataUpdated(Guid nodeId, Dictionary<string, object?> outputData)
+    {
+        InvokeAsync(() =>
+        {
+            var node = canvasNodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null)
+            {
+                foreach (var kvp in outputData)
+                {
+                    node.OutputData[kvp.Key] = kvp.Value;
+                }
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void HandleNodeLogAdded(Guid nodeId, NodeLogEntry log)
+    {
+        var node = canvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        if (node != null)
+        {
+            InvokeAsync(() => 
+            {
+                // Only add if not already present (prevent duplicates from BaseNodeExecutor.Log)
+                if (!node.ActivityLogs.Any(l => l.Timestamp == log.Timestamp && l.Message == log.Message))
+                {
+                    node.ActivityLogs.Add(log);
+                }
+                
+                // If it's a trigger node (like HttpListener), store the data for UI display
+                if (node.IsTrigger && !string.IsNullOrEmpty(log.Detail))
+                {
+                    try
+                    {
+                        var data = JsonSerializer.Deserialize<Dictionary<string, object?>>(log.Detail);
+                        if (data != null)
+                        {
+                            foreach (var kvp in data)
+                            {
+                                node.OutputData[kvp.Key] = kvp.Value;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                StateHasChanged();
+            });
+        }
+    }
+
+    private void HandleNodeConfigurationUpdated(Guid nodeId, string newConfiguration)
+    {
+        // Find the node in canvas and update its configuration
+        var node = canvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        if (node != null)
+        {
+            // For AI nodes, only merge cost/token fields to preserve prompt placeholders
+            var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq";
+            if (isAiNode)
+            {
+                node.Configuration = MergeAiCostUpdates(node.Configuration, newConfiguration);
+            }
+            else
+            {
+                node.Configuration = newConfiguration;
+            }
+            InvokeAsync(StateHasChanged);
+        }
+    }
+    
+    /// <summary>
+    /// Merges only cost/token fields from the updated config back into the original config.
+    /// This preserves prompt placeholders while updating Cost, InputTokens, and OutputTokens.
+    /// </summary>
+    private string MergeAiCostUpdates(string? originalConfigJson, string? updatedConfigJson)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(originalConfigJson)) return updatedConfigJson ?? "{}";
+            if (string.IsNullOrEmpty(updatedConfigJson)) return originalConfigJson;
+
+            var originalConfig = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(originalConfigJson);
+            var updatedConfig = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(updatedConfigJson);
+            
+            if (originalConfig == null || updatedConfig == null) return originalConfigJson;
+
+            // Only copy cost/token fields from updated to original
+            var costFields = new[] { "Cost", "InputTokens", "OutputTokens" };
+            foreach (var field in costFields)
+            {
+                if (updatedConfig.TryGetValue(field, out var value))
+                {
+                    originalConfig[field] = value;
+                }
+            }
+
+            return System.Text.Json.JsonSerializer.Serialize(originalConfig);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Designer] Error merging AI config updates: {ex.Message}");
+            return originalConfigJson ?? "{}";
+        }
+    }
+
+    private void ShowLogDetail(NodeLogEntry log)
+    {
+        if (!string.IsNullOrEmpty(log.Detail))
+        {
+            selectedLogEntry = log;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseLogDetail()
+    {
+        selectedLogEntry = null;
+        StateHasChanged();
+    }
+
+    private bool IsCategoryExpanded(string category) => expandedCategories.Contains(category);
+    
+    private void ToggleCategory(string category)
+    {
+        if (expandedCategories.Contains(category))
+            expandedCategories.Remove(category);
+        else
+            expandedCategories.Add(category);
+    }
+
+    private bool IsNodeVisible(string name, string type)
+    {
+        if (string.IsNullOrWhiteSpace(nodeSearchText)) return true;
+        return name.Contains(nodeSearchText, StringComparison.OrdinalIgnoreCase) || 
+               type.Contains(nodeSearchText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void TogglePalette() => isPaletteCollapsed = !isPaletteCollapsed;
+    private void ToggleAiPanel() => isAiPanelCollapsed = !isAiPanelCollapsed;
+    private void ToggleCostPanel() => isCostPanelCollapsed = !isCostPanelCollapsed;
+    private void ToggleCustomNodePanel() => isCustomNodePanelCollapsed = !isCustomNodePanelCollapsed;
+
+    /// <summary>
+    /// Called when search text changes - loads all nodes into cache if needed.
+    /// </summary>
+    private async Task OnSearchTextChanged()
+    {
+        if (!string.IsNullOrWhiteSpace(customNodeSearchText))
+        {
+            isSearchLoading = true;
+            try
+            {
+                // Ensure all nodes are loaded for search to work properly
+                await CustomNodeService.EnsureAllNodesLoadedAsync();
+            }
+            finally
+            {
+                isSearchLoading = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets custom node categories filtered by search text.
+    /// When searching, limits to top 5 matching nodes total across all categories.
+    /// </summary>
+    private List<CustomNodeCategory> GetFilteredCustomNodes()
+    {
+        var hasSearch = !string.IsNullOrWhiteSpace(customNodeSearchText);
+        
+        if (!hasSearch)
+        {
+            // Return all enabled categories (nodes load lazily when expanded)
+            return customNodeCategories
+                .Where(c => c.IsEnabled)
+                .ToList();
+        }
+        
+        // Filter by search text - search in category name, node display name, and description
+        var searchLower = customNodeSearchText.ToLower();
+        var matchingNodes = new List<(CustomNodeCategory Category, CustomNodeDefinition Node)>();
+        var categoriesWithBuiltInMatches = new HashSet<Guid>();
+        var categoriesMatchingByName = new HashSet<Guid>();
+        
+        foreach (var category in customNodeCategories.Where(c => c.IsEnabled))
+        {
+            // Check if category name matches
+            var categoryMatches = category.Name.Contains(searchLower, StringComparison.OrdinalIgnoreCase);
+            if (categoryMatches)
+                categoriesMatchingByName.Add(category.Id);
+            
+            // Check cached custom nodes from global cache
+            var loadedNodes = CustomNodeService.GetCachedNodesForCategory(category.Id);
+            foreach (var node in loadedNodes)
+            {
+                var nodeMatches = node.DisplayName.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ||
+                                 (node.Description?.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ?? false);
+                
+                if (categoryMatches || nodeMatches)
+                {
+                    matchingNodes.Add((category, node));
+                }
+            }
+            
+            // Check built-in nodes assigned to this category
+            var assignedBuiltInNodes = BuiltInNodeCatalogService.GetAssignedNodes(category.Id);
+            if (assignedBuiltInNodes.Any())
+            {
+                var allBuiltInNodes = BuiltInNodeCatalogService.GetAllBuiltInNodeTypes();
+                var hasMatchingBuiltIn = allBuiltInNodes.Any(n => 
+                    assignedBuiltInNodes.Contains(n.NodeTypeKey) && (
+                        categoryMatches ||
+                        n.DisplayName.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ||
+                        n.NodeTypeKey.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ||
+                        (n.Description?.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ?? false)
+                    ));
+                
+                if (hasMatchingBuiltIn)
+                {
+                    categoriesWithBuiltInMatches.Add(category.Id);
+                }
+            }
+        }
+        
+        // Build result - categories with matching custom nodes
+        var result = matchingNodes
+            .GroupBy(x => x.Category)
+            .Select(g => new CustomNodeCategory
+            {
+                Id = g.Key.Id,
+                Name = g.Key.Name,
+                Description = g.Key.Description,
+                IconEmoji = g.Key.IconEmoji,
+                IconSvg = g.Key.IconSvg,
+                DisplayOrder = g.Key.DisplayOrder,
+                IsEnabled = g.Key.IsEnabled,
+                Nodes = g.Select(x => x.Node).ToList()
+            })
+            .ToList();
+        
+        // Add categories that match by name or have matching built-in nodes (not already in result)
+        var existingCategoryIds = result.Select(c => c.Id).ToHashSet();
+        var categoriesToAdd = categoriesWithBuiltInMatches.Union(categoriesMatchingByName)
+            .Where(id => !existingCategoryIds.Contains(id));
+        
+        foreach (var categoryId in categoriesToAdd)
+        {
+            var originalCategory = customNodeCategories.FirstOrDefault(c => c.Id == categoryId);
+            if (originalCategory != null)
+            {
+                result.Add(new CustomNodeCategory
+                {
+                    Id = originalCategory.Id,
+                    Name = originalCategory.Name,
+                    Description = originalCategory.Description,
+                    IconEmoji = originalCategory.IconEmoji,
+                    IconSvg = originalCategory.IconSvg,
+                    DisplayOrder = originalCategory.DisplayOrder,
+                    IsEnabled = originalCategory.IsEnabled,
+                    Nodes = new List<CustomNodeDefinition>()
+                });
+            }
+        }
+        
+        return result.OrderBy(c => c.DisplayOrder).Take(10).ToList();
+    }
+
+    /// <summary>
+    /// Gets built-in nodes assigned to a category from the catalog config.
+    /// </summary>
+    private List<BuiltInNodeInfo> GetBuiltInNodesForCategory(Guid categoryId)
+    {
+        var assignedNodeTypes = BuiltInNodeCatalogService.GetAssignedNodes(categoryId);
+        if (!assignedNodeTypes.Any())
+            return new List<BuiltInNodeInfo>();
+        
+        var allBuiltInNodes = BuiltInNodeCatalogService.GetAllBuiltInNodeTypes();
+        var result = allBuiltInNodes.Where(n => assignedNodeTypes.Contains(n.NodeTypeKey)).ToList();
+        
+        // Apply search filter if active
+        if (!string.IsNullOrWhiteSpace(customNodeSearchText))
+        {
+            var searchLower = customNodeSearchText.ToLower();
+            result = result.Where(n => 
+                n.DisplayName.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ||
+                n.NodeTypeKey.Contains(searchLower, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+        
+        return result;
+    }
+
+    /// <summary>
+    /// Gets lightweight catalog items for a category.
+    /// Uses the pre-loaded catalog cache - no database queries.
+    /// </summary>
+    private List<CustomNodeCatalogItem> GetCatalogItemsForCategory(Guid categoryId)
+    {
+        return customNodeCatalogItems.Where(c => c.CategoryId == categoryId).ToList();
+    }
+
+    private async Task UpdateCanvasOffset()
+    {
+        try
+        {
+            var rect = await JSRuntime.InvokeAsync<BoundingClientRect>("eval", 
+                $"(function() {{ var el = document.querySelector('.workflow-canvas-container'); if(el) {{ var r = el.getBoundingClientRect(); return {{ left: r.left, top: r.top }}; }} return {{ left: 0, top: 0 }}; }})()");
+            canvasOffsetX = rect.Left;
+            canvasOffsetY = rect.Top;
+        }
+        catch
+        {
+            canvasOffsetX = 0;
+            canvasOffsetY = 0;
+        }
+    }
+
+    private void StartDragFromPalette(string nodeType) => draggedNodeType = nodeType;
+    private void HandleDragOver(DragEventArgs e) { }
+
+    private async Task HandleDrop(DragEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(draggedNodeType))
+        {
+            // Check node limit for Free tier
+            if (currentTierLimits != null && canvasNodes.Count >= currentTierLimits.MaxNodesPerWorkflow)
+            {
+                workflowNotificationMessage = $"Node limit reached ({currentTierLimits.MaxNodesPerWorkflow} nodes max for your plan). Upgrade to add more nodes.";
+                workflowNotificationType = "warning";
+                draggedNodeType = null;
+                return;
+            }
+            
+            // Check HTTP listener limit (enforced across all user workflows)
+            if (draggedNodeType == "HttpListener" && !string.IsNullOrEmpty(currentUserId))
+            {
+                var (canAdd, currentCount, limit) = await UsageTrackingService.CanAddHttpListenerAsync(currentUserId);
+                if (!canAdd)
+                {
+                    workflowNotificationMessage = $"HTTP Listener limit reached ({currentCount}/{limit} listeners). Upgrade your plan for more listeners.";
+                    workflowNotificationType = "warning";
+                    draggedNodeType = null;
+                    return;
+                }
+            }
+            
+            // Check if Scheduler nodes are allowed for this plan
+            if (draggedNodeType == "Scheduler" && currentTierLimits != null && !currentTierLimits.CanUseScheduling)
+            {
+                workflowNotificationMessage = "Scheduling is not available on your current plan. Upgrade to use workflow scheduling.";
+                workflowNotificationType = "warning";
+                draggedNodeType = null;
+                return;
+            }
+            
+            var x = NodeHelper.SnapToGrid(e.OffsetX - 150); // Center the 300px node
+            var y = NodeHelper.SnapToGrid(e.OffsetY - 100); // Center the 200px node
+            
+            var newNode = new CanvasNode
+            {
+                Id = Guid.NewGuid(),
+                NodeType = draggedNodeType,
+                Name = NodeHelper.GetDefaultNodeName(draggedNodeType),
+                X = x,
+                Y = y,
+                Width = 300,
+                Height = 200,
+                Configuration = NodeHelper.GetDefaultConfiguration(draggedNodeType)
+            };
+            
+            // For custom nodes, load the full definition on-demand (for placeholder resolution)
+            if (draggedNodeType.StartsWith("Custom_"))
+            {
+                var existingDef = customNodeDefinitions.FirstOrDefault(d => d.NodeTypeKey == draggedNodeType);
+                if (existingDef == null)
+                {
+                    var def = await CustomNodeService.GetDefinitionByKeyAsync(draggedNodeType);
+                    if (def != null)
+                        customNodeDefinitions.Add(def);
+                }
+            }
+            
+            canvasNodes.Add(newNode);
+            MarkAsChanged();
+            draggedNodeType = null;
+        }
+    }
+
+    private void HandleCanvasMouseDown(MouseEventArgs e)
+    {
+        selectedNodeId = null;
+        
+        // Close any open context menus when clicking on canvas
+        showContextMenu = false;
+        showConnectionContextMenu = false;
+        showSurfaceFieldMenu = false;
+        showAddSurfaceFieldMenu = false;
+        
+        // Start panning with left mouse button on empty canvas
+        if (e.Button == 0 && draggingNode == null && !isConnecting)
+        {
+            isPanning = true;
+            panStartX = e.ClientX;
+            panStartY = e.ClientY;
+            panStartPanX = panX;
+            panStartPanY = panY;
+        }
+    }
+
+    private async Task HandleCanvasMouseMove(MouseEventArgs e)
+    {
+        // Handle panning
+        if (isPanning)
+        {
+            panX = panStartPanX + (e.ClientX - panStartX);
+            panY = panStartPanY + (e.ClientY - panStartY);
+            
+            // Constrain panning to canvas bounds (can't pan beyond the grid)
+            ClampPanToCanvasBounds();
+            
+            StateHasChanged();
+            return;
+        }
+        
+        if (draggingNode != null)
+        {
+            var deltaX = (e.ClientX - dragStartX) / zoomLevel;
+            var deltaY = (e.ClientY - dragStartY) / zoomLevel;
+            
+            if (Math.Abs(deltaX) > DesignerConstants.DragThreshold || Math.Abs(deltaY) > DesignerConstants.DragThreshold)
+            {
+                wasDragged = true;
+            }
+
+            draggingNode.X = NodeHelper.SnapToGrid(nodeStartX + deltaX);
+            draggingNode.Y = NodeHelper.SnapToGrid(nodeStartY + deltaY);
+            
+            draggingNode.X = Math.Max(0, draggingNode.X);
+            draggingNode.Y = Math.Max(0, draggingNode.Y);
+            
+            CheckCanvasBounds(draggingNode.X + draggingNode.Width, draggingNode.Y + draggingNode.Height);
+            StateHasChanged();
+        }
+        else if (resizingNode != null)
+        {
+            var deltaX = (e.ClientX - dragStartX) / zoomLevel;
+            var deltaY = (e.ClientY - dragStartY) / zoomLevel;
+            
+            // Calculate new dimensions with minimum size constraint
+            var newWidth = Math.Max(40, nodeStartWidth + deltaX);
+            var newHeight = Math.Max(40, nodeStartHeight + deltaY);
+            
+            // Snap to grid
+            resizingNode.Width = NodeHelper.SnapToGrid(newWidth);
+            resizingNode.Height = NodeHelper.SnapToGrid(newHeight);
+            
+            // Mark that we're resizing (to prevent click-to-open after resize)
+            wasResizing = true;
+            
+            CheckCanvasBounds(resizingNode.X + resizingNode.Width, resizingNode.Y + resizingNode.Height);
+            MarkAsChanged();
+            StateHasChanged();
+        }
+        else if (isConnecting && connectingFromNode != null)
+        {
+            await UpdateCanvasOffset();
+            connectingEndX = (e.ClientX - canvasOffsetX - panX) / zoomLevel;
+            connectingEndY = (e.ClientY - canvasOffsetY - panY) / zoomLevel;
+            StateHasChanged();
+        }
+    }
+
+    private void CheckCanvasBounds(double x, double y)
+    {
+        bool changed = false;
+        if (x > canvasWidth - 500) { canvasWidth += 1000; changed = true; }
+        if (y > canvasHeight - 500) { canvasHeight += 1000; changed = true; }
+        if (changed) StateHasChanged();
+    }
+
+    private async void HandleCanvasMouseUp(MouseEventArgs e)
+    {
+        var wasResizingActive = resizingNode != null;
+        
+        draggingNode = null;
+        resizingNode = null;
+        isConnecting = false;
+        isPanning = false;
+        
+        // Reset wasResizing after a short delay to allow onclick to check it first
+        if (wasResizingActive && wasResizing)
+        {
+            await Task.Delay(50);
+            wasResizing = false;
+        }
+    }
+
+    private void ZoomIn()
+    {
+        zoomLevel = Math.Min(DesignerConstants.MaxZoom, zoomLevel + DesignerConstants.ZoomStep);
+    }
+
+    private void ZoomOut()
+    {
+        zoomLevel = Math.Max(DesignerConstants.MinZoom, zoomLevel - DesignerConstants.ZoomStep);
+    }
+
+    private void ResetZoom()
+    {
+        zoomLevel = 1.0;
+        panX = 0;
+        panY = 0;
+    }
+
+    private void OnZoomSliderChange(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var value))
+        {
+            zoomLevel = value / 100.0;
+        }
+    }
+
+    /// <summary>
+    /// Constrains pan position so the viewport stays within canvas bounds.
+    /// </summary>
+    private void ClampPanToCanvasBounds()
+    {
+        // Effective canvas bounds (use max of current canvas size or max allowed)
+        var effectiveWidth = Math.Min(canvasWidth, MaxCanvasWidth);
+        var effectiveHeight = Math.Min(canvasHeight, MaxCanvasHeight);
+        
+        // Can't pan so that the left/top edge of canvas goes past the viewport
+        panX = Math.Min(0, panX);
+        panY = Math.Min(0, panY);
+        
+        // Can't pan so that the right/bottom edge of canvas is before the viewport
+        // This allows showing at least some content
+        panX = Math.Max(-(effectiveWidth * zoomLevel - 200), panX);
+        panY = Math.Max(-(effectiveHeight * zoomLevel - 200), panY);
+    }
+
+    private void ToggleMinimap()
+    {
+        isMinimapCollapsed = !isMinimapCollapsed;
+    }
+
+    /// <summary>
+    /// Gets the minimap scale factor to fit the canvas into the minimap dimensions.
+    /// </summary>
+    private double GetMinimapScale()
+    {
+        var effectiveWidth = Math.Max(Math.Min(canvasWidth, MaxCanvasWidth), 1);
+        var effectiveHeight = Math.Max(Math.Min(canvasHeight, MaxCanvasHeight), 1);
+        return Math.Min(MinimapWidth / effectiveWidth, MinimapHeight / effectiveHeight);
+    }
+
+    /// <summary>
+    /// Gets the viewport rectangle position and size for minimap display.
+    /// </summary>
+    private (double X, double Y, double Width, double Height) GetMinimapViewport()
+    {
+        var scale = GetMinimapScale();
+        // Pan is negative when scrolled, so we invert it for viewport position
+        var viewportX = (-panX / zoomLevel) * scale;
+        var viewportY = (-panY / zoomLevel) * scale;
+        // Viewport size depends on zoom and container size (approximate container to 800x600)
+        var viewportWidth = (800 / zoomLevel) * scale;
+        var viewportHeight = (600 / zoomLevel) * scale;
+        return (viewportX, viewportY, Math.Max(20, viewportWidth), Math.Max(15, viewportHeight));
+    }
+
+    private void HandleMinimapClick(MouseEventArgs e)
+    {
+        if (isMinimapCollapsed) return;
+        
+        var scale = GetMinimapScale();
+        // Calculate where user clicked relative to the minimap canvas area
+        // Convert minimap coordinates to canvas coordinates
+        var canvasX = e.OffsetX / scale;
+        var canvasY = e.OffsetY / scale;
+        
+        // Center the viewport on the clicked point
+        panX = -(canvasX - (400 / zoomLevel)) * zoomLevel;
+        panY = -(canvasY - (300 / zoomLevel)) * zoomLevel;
+        
+        ClampPanToCanvasBounds();
+        StateHasChanged();
+    }
+
+    private void HandleMinimapMouseDown(MouseEventArgs e)
+    {
+        if (isMinimapCollapsed) return;
+        isMinimapDragging = true;
+        HandleMinimapClick(e);
+    }
+
+    private void HandleMinimapMouseMove(MouseEventArgs e)
+    {
+        if (isMinimapDragging)
+        {
+            HandleMinimapClick(e);
+        }
+    }
+
+    private void HandleMinimapMouseUp(MouseEventArgs e)
+    {
+        isMinimapDragging = false;
+    }
+
+    private void MarkAsChanged()
+    {
+        hasUnsavedChanges = true;
+    }
+
+    private void HandleConfigurationChanged(CanvasNode node, string json)
+    {
+        node.Configuration = json;
+        MarkAsChanged();
+        StateHasChanged();
+    }
+
+    private void HandleLoggingSettingsChanged(CanvasNode node, NodeLoggingSettings settings)
+    {
+        node.LoggingSettings = settings;
+        MarkAsChanged();
+        StateHasChanged();
+    }
+
+    private void HandleIconChanged(CanvasNode node, string? icon)
+    {
+        node.IconOverride = icon;
+        MarkAsChanged();
+        StateHasChanged();
+    }
+
+    private void HandleNodeMouseDown(MouseEventArgs e, CanvasNode node)
+    {
+        if (e.Button == 0)
+        {
+            wasDragged = false;
+            wasResizing = false; // Reset resize flag on new mouse down
+            selectedNodeId = node.Id;
+            showContextMenu = false;
+            StartDragNode(e, node);
+        }
+    }
+
+    private void HandleNodeContextMenu(MouseEventArgs e, CanvasNode node)
+    {
+        contextMenuX = e.ClientX;
+        contextMenuY = e.ClientY;
+        contextMenuNode = node;
+        showContextMenu = true;
+        selectedNodeId = node.Id;
+    }
+
+    private void CloseContextMenu() => showContextMenu = false;
+
+    private void HandleConnectionContextMenu(MouseEventArgs e, NodeConnection connection)
+    {
+        connectionContextMenuX = e.ClientX;
+        connectionContextMenuY = e.ClientY;
+        contextMenuConnection = connection;
+        connectionLabelInput = connection.Label ?? "";
+        showConnectionContextMenu = true;
+        showContextMenu = false; // Close node context menu if open
+    }
+
+    private void CloseConnectionContextMenu() => showConnectionContextMenu = false;
+
+    private void SaveConnectionLabel()
+    {
+        if (contextMenuConnection != null)
+        {
+            contextMenuConnection.Label = string.IsNullOrWhiteSpace(connectionLabelInput) ? null : connectionLabelInput.Trim();
+            MarkAsChanged();
+        }
+        showConnectionContextMenu = false;
+    }
+
+    private void SetConnectionLabelPreset(string label)
+    {
+        connectionLabelInput = label;
+        SaveConnectionLabel();
+    }
+
+    private void DeleteConnection()
+    {
+        if (contextMenuConnection != null)
+        {
+            connections.RemoveAll(c => c.Id == contextMenuConnection.Id);
+            MarkAsChanged();
+        }
+        showConnectionContextMenu = false;
+    }
+
+    private void ToggleNodeTrigger()
+    {
+        if (contextMenuNode != null)
+        {
+            contextMenuNode.IsTrigger = !contextMenuNode.IsTrigger;
+            MarkAsChanged();
+        }
+        showContextMenu = false;
+    }
+
+    #region Surface Field Methods
+    
+    /// <summary>
+    /// Gets the resolved display text for a surface field, resolving any embedded {{placeholders}}.
+    /// Returns the field with all placeholders replaced by their values.
+    /// Supports nested JSON paths like {{HttpRequest.Body.access_token}}.
+    /// </summary>
+    private string GetSurfaceFieldDisplay(CanvasNode node, string fieldKey)
+    {
+        // Use regex to find and replace all {{NodeName.property}} patterns
+        var placeholderRegex = new System.Text.RegularExpressions.Regex(@"\{\{([^}]+)\}\}");
+        
+        var result = placeholderRegex.Replace(fieldKey, match =>
+        {
+            var innerKey = match.Groups[1].Value; // e.g., "HttpRequest.Body.access_token"
+            var parts = innerKey.Split('.', 2);
+            if (parts.Length < 2) return match.Value; // Can't resolve, keep original
+            
+            var nodeName = parts[0];
+            var propertyPath = parts[1]; // e.g., "Body.access_token" or just "SchedulerType"
+            
+            // Try to resolve from the current node
+            var resolvedValue = TryResolvePropertyPath(node, nodeName, propertyPath);
+            if (resolvedValue != null)
+            {
+                return resolvedValue.Length > 50 ? resolvedValue.Substring(0, 47) + "..." : resolvedValue;
+            }
+            
+            // Try upstream nodes
+            var upstreamNodes = GetUpstreamNodes(node);
+            foreach (var upstream in upstreamNodes)
+            {
+                resolvedValue = TryResolvePropertyPath(upstream, nodeName, propertyPath);
+                if (resolvedValue != null)
+                {
+                    return resolvedValue.Length > 50 ? resolvedValue.Substring(0, 47) + "..." : resolvedValue;
+                }
+            }
+            
+            // No value found - show just the last part of the property name as placeholder
+            var displayName = propertyPath.Contains('.') ? propertyPath.Split('.').Last() : propertyPath;
+            return $"[{displayName}]";
+        });
+        
+        return result;
+    }
+    
+    /// <summary>
+    /// Tries to resolve a property path from a node's OutputData.
+    /// Supports both direct properties and nested JSON paths (e.g., Body.access_token).
+    /// </summary>
+    private string? TryResolvePropertyPath(CanvasNode targetNode, string nodeName, string propertyPath)
+    {
+        if (targetNode.Name != nodeName) return null;
+        
+        // First try direct property lookup (e.g., "SchedulerType")
+        if (targetNode.OutputData.TryGetValue(propertyPath, out var directValue) && directValue != null)
+        {
+            return directValue.ToString();
+        }
+        
+        // Try nested JSON path (e.g., "Body.access_token")
+        var pathParts = propertyPath.Split('.', 2);
+        if (pathParts.Length == 2)
+        {
+            var rootProperty = pathParts[0]; // e.g., "Body"
+            var jsonPath = pathParts[1];      // e.g., "access_token"
+            
+            if (targetNode.OutputData.TryGetValue(rootProperty, out var rootValue) && rootValue != null)
+            {
+                var jsonString = rootValue.ToString();
+                if (!string.IsNullOrEmpty(jsonString))
+                {
+                    // Try to extract nested JSON value
+                    var extracted = ExtractJsonPathValue(jsonString, jsonPath);
+                    if (extracted != null) return extracted;
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /// <summary>
+    /// Extracts a value from a JSON string using a dot-separated path.
+    /// </summary>
+    private static string? ExtractJsonPathValue(string json, string path)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var element = doc.RootElement;
+            
+            foreach (var part in path.Split('.'))
+            {
+                if (element.ValueKind == System.Text.Json.JsonValueKind.Object && element.TryGetProperty(part, out var child))
+                {
+                    element = child;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            
+            return element.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => element.GetString(),
+                System.Text.Json.JsonValueKind.Number => element.GetRawText(),
+                System.Text.Json.JsonValueKind.True => "true",
+                System.Text.Json.JsonValueKind.False => "false",
+                System.Text.Json.JsonValueKind.Null => "",
+                _ => element.GetRawText()
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// Legacy: Gets the resolved value for a surface field placeholder.
+    /// For custom labels (non-placeholder text), returns an empty string (label only).
+    /// </summary>
+    private string? GetSurfaceFieldValue(CanvasNode node, string placeholderKey)
+    {
+        // Check if this is a placeholder pattern (starts with {{ and ends with }})
+        var isPlaceholder = placeholderKey.StartsWith("{{") && placeholderKey.EndsWith("}}");
+        
+        if (!isPlaceholder)
+        {
+            // Custom label - return empty so only the label is shown
+            return "";
+        }
+        
+        // Extract the key from {{NodeName.property}} format
+        var innerKey = placeholderKey.Trim('{', '}');
+        var parts = innerKey.Split('.', 2);
+        if (parts.Length < 2) return "";
+        
+        var nodeName = parts[0];
+        var propertyName = parts[1];
+        
+        // Check if it's this node's own property
+        if (nodeName == node.Name && node.OutputData.TryGetValue(propertyName, out var ownValue) && ownValue != null)
+        {
+            var strValue = ownValue.ToString() ?? "";
+            return strValue.Length > 50 ? strValue.Substring(0, 47) + "..." : strValue;
+        }
+        
+        // Check upstream nodes' OutputData
+        var upstreamNodes = GetUpstreamNodes(node);
+        foreach (var upstream in upstreamNodes)
+        {
+            if (upstream.Name == nodeName && upstream.OutputData.TryGetValue(propertyName, out var upstreamValue) && upstreamValue != null)
+            {
+                var strValue = upstreamValue.ToString() ?? "";
+                return strValue.Length > 50 ? strValue.Substring(0, 47) + "..." : strValue;
+            }
+        }
+        
+        // No runtime value yet - return empty string so placeholder still shows at design time
+        return "";
+    }
+    
+    /// <summary>
+    /// Gets a human-readable label from a placeholder key.
+    /// For custom labels, returns the text as-is.
+    /// </summary>
+    private string GetSurfaceFieldLabel(string placeholderKey)
+    {
+        // Check if this is a placeholder pattern
+        if (placeholderKey.StartsWith("{{") && placeholderKey.EndsWith("}}"))
+        {
+            // Extract the property name from "{{NodeName.propertyName}}" format
+            var inner = placeholderKey.Trim('{', '}');
+            var parts = inner.Split('.');
+            return parts.Length > 1 ? parts[^1] : inner;
+        }
+        
+        // Custom label - return as-is
+        return placeholderKey;
+    }
+    
+    /// <summary>
+    /// Gets upstream nodes that provide data to, this node.
+    /// </summary>
+    private List<CanvasNode> GetUpstreamNodes(CanvasNode node)
+    {
+        var result = new List<CanvasNode>();
+        var visited = new HashSet<Guid>();
+        var queue = new Queue<Guid>();
+        
+        // Find all nodes connected TO this node
+        foreach (var conn in connections.Where(c => c.TargetId == node.Id))
+        {
+            queue.Enqueue(conn.SourceId);
+        }
+        
+        while (queue.Count > 0)
+        {
+            var currentId = queue.Dequeue();
+            if (visited.Contains(currentId)) continue;
+            visited.Add(currentId);
+            
+            var currentNode = canvasNodes.FirstOrDefault(n => n.Id == currentId);
+            if (currentNode != null)
+            {
+                result.Add(currentNode);
+                foreach (var conn in connections.Where(c => c.TargetId == currentId))
+                {
+                    queue.Enqueue(conn.SourceId);
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    /// <summary>
+    /// Shows the context menu for editing/removing a surface field.
+    /// </summary>
+    private void ShowRemoveSurfaceFieldMenu(MouseEventArgs e, CanvasNode node, string fieldKey)
+    {
+        surfaceFieldMenuX = e.ClientX;
+        surfaceFieldMenuY = e.ClientY;
+        surfaceFieldMenuNode = node;
+        surfaceFieldToRemove = fieldKey;
+        surfaceFieldEditText = fieldKey; // Pre-populate with current value
+        showSurfaceFieldMenu = true;
+        showAddSurfaceFieldMenu = false;
+        showContextMenu = false;
+    }
+    
+    /// <summary>
+    /// Shows the "Add Surface Field" sub-menu from the node context menu.
+    /// </summary>
+    private void ShowAddSurfaceFieldMenu()
+    {
+        if (contextMenuNode != null)
+        {
+            surfaceFieldMenuNode = contextMenuNode;
+            surfaceFieldSearchText = "";
+            showAddSurfaceFieldMenu = true;
+            showSurfaceFieldMenu = false;
+        }
+    }
+    
+    /// <summary>
+    /// Closes all surface field menus.
+    /// </summary>
+    private void CloseSurfaceFieldMenu()
+    {
+        showSurfaceFieldMenu = false;
+        showAddSurfaceFieldMenu = false;
+        surfaceFieldMenuNode = null;
+        surfaceFieldToRemove = null;
+        surfaceFieldSearchText = "";
+        surfaceFieldEditText = "";
+    }
+    
+    /// <summary>
+    /// Saves the edited surface field value.
+    /// </summary>
+    private void SaveSurfaceFieldEdit()
+    {
+        if (surfaceFieldMenuNode != null && surfaceFieldToRemove != null && !string.IsNullOrWhiteSpace(surfaceFieldEditText))
+        {
+            var index = surfaceFieldMenuNode.SurfaceFields.IndexOf(surfaceFieldToRemove);
+            if (index >= 0)
+            {
+                surfaceFieldMenuNode.SurfaceFields[index] = surfaceFieldEditText;
+                MarkAsChanged();
+            }
+        }
+        CloseSurfaceFieldMenu();
+    }
+    
+    /// <summary>
+    /// Adds a placeholder field to the node's surface display.
+    /// </summary>
+    private void AddSurfaceField(string placeholderKey)
+    {
+        if (surfaceFieldMenuNode != null && !surfaceFieldMenuNode.SurfaceFields.Contains(placeholderKey))
+        {
+            surfaceFieldMenuNode.SurfaceFields.Add(placeholderKey);
+            MarkAsChanged();
+        }
+        CloseSurfaceFieldMenu();
+        showContextMenu = false;
+    }
+    
+    /// <summary>
+    /// Removes a surface field from the node.
+    /// </summary>
+    private void RemoveSurfaceField()
+    {
+        if (surfaceFieldMenuNode != null && surfaceFieldToRemove != null)
+        {
+            surfaceFieldMenuNode.SurfaceFields.Remove(surfaceFieldToRemove);
+            MarkAsChanged();
+        }
+        CloseSurfaceFieldMenu();
+    }
+    
+    /// <summary>
+    /// Gets filtered placeholders for the add surface field menu.
+    /// Includes both upstream node placeholders AND the current node's own output parameters.
+    /// </summary>
+    private List<string> GetFilteredPlaceholders()
+    {
+        if (surfaceFieldMenuNode == null) return new List<string>();
+        
+        var allPlaceholders = new List<string>();
+        
+        // Add upstream node placeholders
+        allPlaceholders.AddRange(GetAvailablePlaceholders(surfaceFieldMenuNode));
+        
+        // Add the current node's OWN output parameters (important for trigger/source nodes)
+        var ownParams = NodeHelper.GetOutputParametersForType(surfaceFieldMenuNode.NodeType);
+        foreach (var param in ownParams)
+        {
+            allPlaceholders.Add($"{{{{{surfaceFieldMenuNode.Name}.{param}}}}}");
+        }
+        
+        // For custom nodes, add output parameters from the node definition
+        if (NodeHelper.IsCustomNode(surfaceFieldMenuNode.NodeType))
+        {
+            var customDef = customNodeDefinitions.FirstOrDefault(d => d.NodeTypeKey == surfaceFieldMenuNode.NodeType);
+            if (customDef?.OutputParameters != null)
+            {
+                foreach (var param in customDef.OutputParameters)
+                {
+                    allPlaceholders.Add($"{{{{{surfaceFieldMenuNode.Name}.{param.ParameterName}}}}}");
+                }
+            }
+        }
+        
+        // Also add any keys from this node's OutputData (runtime values)
+        foreach (var key in surfaceFieldMenuNode.OutputData.Keys)
+        {
+            allPlaceholders.Add($"{{{{{surfaceFieldMenuNode.Name}.{key}}}}}");
+        }
+        
+        var existing = surfaceFieldMenuNode.SurfaceFields.ToHashSet();
+        
+        var filtered = allPlaceholders
+            .Distinct()
+            .Where(p => !existing.Contains(p))
+            .Where(p => string.IsNullOrEmpty(surfaceFieldSearchText) || 
+                       p.Contains(surfaceFieldSearchText, StringComparison.OrdinalIgnoreCase))
+            .Take(10)
+            .ToList();
+        
+        return filtered;
+    }
+    
+    #endregion
+
+    private async Task StartWorkflow()
+    {
+        // Guard 1: Must have triggers to start
+        var triggerNodes = canvasNodes.Where(n => n.IsTrigger).ToList();
+        if (!triggerNodes.Any())
+        {
+            workflowNotificationMessage = "Cannot start workflow: No trigger nodes marked. Right-click a node and select 'Mark as Trigger'.";
+            workflowNotificationType = "warning";
+            return;
+        }
+        
+        // Guard 2: New workflow must be saved first
+        if (!currentWorkflowId.HasValue)
+        {
+            workflowNotificationMessage = "Please save the workflow first before starting it.";
+            workflowNotificationType = "warning";
+            return;
+        }
+        
+        // Guard 3: Unsaved changes must be saved first
+        if (hasUnsavedChanges)
+        {
+            workflowNotificationMessage = "You have unsaved changes. Please save the workflow before starting it.";
+            workflowNotificationType = "warning";
+            return;
+        }
+        
+        // Clear any previous notification
+        workflowNotificationMessage = null;
+        
+        // Prepare workflow definition for background execution
+        var nodeDefinitions = canvasNodes.Select(n => (
+            n.Id,
+            n.NodeType,
+            n.Name,
+            n.Configuration,
+            n.IsTrigger,
+            n.LoggingSettings
+        )).ToList();
+        
+        var connectionDefinitions = connections.Select(c => (c.Id, c.SourceId, c.TargetId, c.Label)).ToList();
+        
+        // Start workflow in background service (handles execution independently)
+        var (success, error) = await WorkflowExecutionService.StartWorkflowAsync(
+            currentWorkflowId.Value, 
+            currentUserId ?? "", 
+            currentWorkflowName,
+            nodeDefinitions,
+            connectionDefinitions,
+            currentWorkflowOrganizationId);
+        
+        if (!success)
+        {
+            workflowNotificationMessage = error ?? "Cannot start workflow: Execution limit reached.";
+            workflowNotificationType = "error";
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task StopWorkflow()
+    {
+        // Stop all running node executions
+        foreach (var node in canvasNodes)
+        {
+            if (ExecutionManager.IsRunning(node.Id))
+            {
+                ExecutionManager.StopNode(node.Id);
+            }
+        }
+        executingNodeIds.Clear();
+        
+        // Update execution service
+        if (currentWorkflowId.HasValue)
+        {
+            await WorkflowExecutionService.StopWorkflowAsync(currentWorkflowId.Value);
+        }
+        
+        StateHasChanged();
+    }
+
+    private void HandleContextConnect()
+    {
+        if (contextMenuNode != null)
+        {
+            isConnecting = true;
+            connectingFromNode = contextMenuNode;
+            connectingEndX = contextMenuNode.X + contextMenuNode.Width;
+            connectingEndY = contextMenuNode.Y + contextMenuNode.Height / 2;
+            showContextMenu = false;
+        }
+    }
+
+    private void HandleContextDelete()
+    {
+        if (contextMenuNode != null)
+        {
+            DeleteNode(contextMenuNode.Id);
+        }
+    }
+
+    private void HandleNodeMouseUp(MouseEventArgs e, CanvasNode node)
+    {
+        draggingNode = null;
+        if (isConnecting) EndConnection(node);
+    }
+
+    private void StartDragNode(MouseEventArgs e, CanvasNode node)
+    {
+        draggingNode = node;
+        dragStartX = e.ClientX;
+        dragStartY = e.ClientY;
+        nodeStartX = node.X;
+        nodeStartY = node.Y;
+    }
+
+    private void StartResizeNode(MouseEventArgs e, CanvasNode node)
+    {
+        wasResizing = false; // Reset - will be set true on actual resize movement
+        resizingNode = node;
+        dragStartX = e.ClientX;
+        dragStartY = e.ClientY;
+        nodeStartWidth = node.Width;
+        nodeStartHeight = node.Height;
+    }
+
+    private void UpdateNodeTags(CanvasNode node, string tagsString)
+    {
+        node.Tags = tagsString
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Gets a field value from a custom node's JSON configuration.
+    /// </summary>
+    private string GetCustomNodeFieldValue(CanvasNode node, string fieldName)
+    {
+        if (string.IsNullOrEmpty(node.Configuration)) return "";
+        try
+        {
+            var config = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(node.Configuration);
+            if (config != null && config.TryGetValue(fieldName, out var value))
+            {
+                return value.ValueKind switch
+                {
+                    JsonValueKind.String => value.GetString() ?? "",
+                    JsonValueKind.Number => value.GetRawText(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    _ => value.GetRawText()
+                };
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    /// <summary>
+    /// Sets a field value in a custom node's JSON configuration.
+    /// </summary>
+    private void SetCustomNodeFieldValue(CanvasNode node, string fieldName, string? value)
+    {
+        try
+        {
+            var config = string.IsNullOrEmpty(node.Configuration) 
+                ? new Dictionary<string, object?>()
+                : JsonSerializer.Deserialize<Dictionary<string, object?>>(node.Configuration) ?? new();
+            
+            config[fieldName] = value;
+            node.Configuration = JsonSerializer.Serialize(config);
+            MarkAsChanged();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting custom node field: {ex.Message}");
+        }
+    }
+
+    private void SelectNode(CanvasNode node)
+    {
+        // Single click selects the node
+        selectedNodeId = node.Id;
+        showContextMenu = false;
+        
+        // If AI panel is open, add to context (if not already present)
+        if (!isAiPanelCollapsed && !aiContextNodes.Any(n => n.Id == node.Id))
+        {
+            aiContextNodes.Add(node);
+        }
+        
+        StateHasChanged();
+    }
+    
+    private void RemoveFromAiContext(CanvasNode node)
+    {
+        aiContextNodes.RemoveAll(n => n.Id == node.Id);
+        StateHasChanged();
+    }
+    
+    private void ClearAiContext()
+    {
+        aiContextNodes.Clear();
+        StateHasChanged();
+    }
+    
+    // AI Panel Drag Handlers
+    private void HandleAiPanelDragStart(MouseEventArgs e)
+    {
+        isDraggingAiPanel = true;
+        aiPanelDragStartX = e.ClientX - aiPanelX;
+        aiPanelDragStartY = e.ClientY - aiPanelY;
+    }
+    
+    private void HandleAiPanelDragMove(MouseEventArgs e)
+    {
+        if (!isDraggingAiPanel) return;
+        
+        aiPanelX = e.ClientX - aiPanelDragStartX;
+        aiPanelY = e.ClientY - aiPanelDragStartY;
+        
+        // Keep within viewport bounds
+        if (aiPanelX < 0) aiPanelX = 0;
+        if (aiPanelY < 60) aiPanelY = 60; // Below nav
+        
+        StateHasChanged();
+    }
+    
+    private void HandleAiPanelDragEnd(MouseEventArgs e)
+    {
+        isDraggingAiPanel = false;
+    }
+    
+    private void OpenPropertyModal(CanvasNode node)
+    {
+        // Don't open if we were dragging or resizing
+        if (wasDragged || wasResizing) return;
+        editingNode = node;
+        StateHasChanged();
+    }
+
+    private void ClosePropertyModal()
+    {
+        editingNode = null;
+        overlayMouseDown = false;
+        StateHasChanged();
+    }
+
+    private void HandleOverlayMouseDown() => overlayMouseDown = true;
+    private void HandleOverlayMouseUp()
+    {
+        if (overlayMouseDown) ClosePropertyModal();
+        overlayMouseDown = false;
+    }
+
+    private void StartConnectionFromHandle(MouseEventArgs e, CanvasNode node, ConnectionSide side)
+    {
+        isConnecting = true;
+        connectingFromNode = node;
+        connectingFromSide = side;
+        var port = ConnectionHelper.GetPortPosition(node, side);
+        connectingEndX = port.X;
+        connectingEndY = port.Y;
+    }
+
+    private void EndConnection(CanvasNode targetNode)
+    {
+        if (isConnecting && connectingFromNode != null && connectingFromNode.Id != targetNode.Id)
+        {
+            wasDragged = true; // Prevent opening the target node property popup
+            if (!connections.Any(c => (c.SourceId == connectingFromNode.Id && c.TargetId == targetNode.Id) || 
+                                     (c.SourceId == targetNode.Id && c.TargetId == connectingFromNode.Id)))
+            {
+                // Determine connection direction and label based on node types
+                var (sourceId, targetId, label) = ResolveConnectionDirectionAndLabel(
+                    connectingFromNode, targetNode);
+                
+                // Validate: Max 1 "orchestrate" connection per Orchestrator
+                if (label == "orchestrate")
+                {
+                    var orchestratorId = targetId; // Target is always the Orchestrator after direction resolution
+                    var existingOrchestrate = connections.Any(c => 
+                        c.Label == "orchestrate" && c.TargetId == orchestratorId);
+                    
+                    if (existingOrchestrate)
+                    {
+                        // Show warning - Orchestrator already has a Steering AI
+                        workflowNotificationMessage = "This Orchestrator already has a Steering AI connected. Only 1 orchestrate connection is allowed.";
+                        workflowNotificationType = "warning";
+                        isConnecting = false;
+                        connectingFromNode = null;
+                        return;
+                    }
+                }
+                
+                connections.Add(new NodeConnection
+                {
+                    Id = Guid.NewGuid(),
+                    SourceId = sourceId,
+                    TargetId = targetId,
+                    Label = label
+                });
+                MarkAsChanged();
+            }
+        }
+        isConnecting = false;
+        connectingFromNode = null;
+    }
+
+    /// <summary>
+    /// Resolves the correct connection direction and auto-assigns label for special connection types.
+    /// Vector Store ↔ Vector Client: Always interpreted as Client → Store with "storage" label.
+    /// Storage Table ↔ Storage Client: Always interpreted as Client → Table with "storage" label.
+    /// AI Node ↔ Orchestrator: Always interpreted as AI → Orchestrator with "orchestrate" label.
+    /// Agent Node ↔ Orchestrator: Always interpreted as Agent → Orchestrator with "agent" label.
+    /// </summary>
+    private (Guid sourceId, Guid targetId, string? label) ResolveConnectionDirectionAndLabel(
+        CanvasNode fromNode, CanvasNode toNode)
+    {
+        // AI Node ↔ Orchestrator: Always AI → Orchestrator (for Steering AI)
+        // Only non-agent AI nodes can be steering AI (DeepSeek, OpenAI, Anthropic, Gemini, Mistral, Groq)
+        var steeringAiTypes = new[] { "DeepSeek", "OpenAI", "Anthropic", "Gemini", "Mistral", "Groq" };
+        
+        if (fromNode.NodeType == "Orchestrator" && steeringAiTypes.Contains(toNode.NodeType))
+        {
+            // User drew Orchestrator→AI, swap to AI→Orchestrator
+            return (toNode.Id, fromNode.Id, "orchestrate");
+        }
+        if (steeringAiTypes.Contains(fromNode.NodeType) && toNode.NodeType == "Orchestrator")
+        {
+            // Correct direction, auto-assign label
+            return (fromNode.Id, toNode.Id, "orchestrate");
+        }
+        
+        // Agent Node ↔ Orchestrator: Always Agent → Orchestrator with "agent" label
+        var agentNodeTypes = new[] { "DeepSeekAgent", "OpenAIAgent", "AnthropicAgent", "GeminiAgent", "MistralAgent", "GroqAgent" };
+        
+        if (fromNode.NodeType == "Orchestrator" && agentNodeTypes.Contains(toNode.NodeType))
+        {
+            // User drew Orchestrator→Agent, swap to Agent→Orchestrator
+            return (toNode.Id, fromNode.Id, "agent");
+        }
+        if (agentNodeTypes.Contains(fromNode.NodeType) && toNode.NodeType == "Orchestrator")
+        {
+            // Correct direction, auto-assign label
+            return (fromNode.Id, toNode.Id, "agent");
+        }
+        
+        // Vector Store ↔ Vector Client: Always Client → Store
+        if (fromNode.NodeType == "VectorDb" && toNode.NodeType == "VectorClient")
+        {
+            // User drew Store→Client, swap to Client→Store
+            return (toNode.Id, fromNode.Id, "storage");
+        }
+        if (fromNode.NodeType == "VectorClient" && toNode.NodeType == "VectorDb")
+        {
+            // Correct direction, auto-assign label
+            return (fromNode.Id, toNode.Id, "storage");
+        }
+        
+        // Storage Table ↔ Storage Client: Always Client → Table
+        if (fromNode.NodeType == "StorageTable" && toNode.NodeType == "StorageClient")
+        {
+            // User drew Table→Client, swap to Client→Table
+            return (toNode.Id, fromNode.Id, "storage");
+        }
+        if (fromNode.NodeType == "StorageClient" && toNode.NodeType == "StorageTable")
+        {
+            // Correct direction, auto-assign label
+            return (fromNode.Id, toNode.Id, "storage");
+        }
+        
+        // RemoteCommand ↔ Remote: Always RemoteCommand → Remote with auto-incremented "run:rm-XX" label
+        if (fromNode.NodeType == "Remote" && toNode.NodeType == "RemoteCommand")
+        {
+            // User drew Remote→RemoteCommand, swap to RemoteCommand→Remote
+            var label = GetNextRunLabel(toNode.Id);
+            return (toNode.Id, fromNode.Id, label);
+        }
+        if (fromNode.NodeType == "RemoteCommand" && toNode.NodeType == "Remote")
+        {
+            // Correct direction, auto-assign incremental label
+            var label = GetNextRunLabel(fromNode.Id);
+            return (fromNode.Id, toNode.Id, label);
+        }
+        
+        // Default: keep original direction, no auto-label
+        return (fromNode.Id, toNode.Id, null);
+    }
+
+    /// <summary>
+    /// Gets the next available run:rm-XX label for a RemoteCommand node.
+    /// </summary>
+    private string GetNextRunLabel(Guid remoteCommandNodeId)
+    {
+        // Find existing run:rm-* connections from this RemoteCommand node
+        var existingLabels = connections
+            .Where(c => c.SourceId == remoteCommandNodeId && 
+                       c.Label?.StartsWith("run:rm-", StringComparison.OrdinalIgnoreCase) == true)
+            .Select(c => c.Label!)
+            .ToList();
+        
+        // Find the highest number used
+        int maxNumber = 0;
+        foreach (var label in existingLabels)
+        {
+            var suffix = label.Replace("run:rm-", "");
+            if (int.TryParse(suffix, out var num) && num > maxNumber)
+            {
+                maxNumber = num;
+            }
+        }
+        
+        // Return next incremental label
+        return $"run:rm-{(maxNumber + 1):D2}";
+    }
+
+    private void DeleteNode(Guid nodeId)
+    {
+        // Find the node and show confirmation modal
+        var node = canvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        if (node == null) return;
+        
+        nodeToDelete = node;
+        showNodeDeleteConfirmation = true;
+        showContextMenu = false;
+    }
+    
+    private async Task ConfirmDeleteNode()
+    {
+        if (nodeToDelete == null) return;
+        
+        var nodeId = nodeToDelete.Id;
+        
+        canvasNodes.RemoveAll(n => n.Id == nodeId);
+        connections.RemoveAll(c => c.SourceId == nodeId || c.TargetId == nodeId);
+        if (selectedNodeId == nodeId) selectedNodeId = null;
+        MarkAsChanged();
+        
+        // Also delete logs for this node from the database
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            try
+            {
+                await LogService.ClearLogsAsync(currentUserId, nodeId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to delete logs for node: {ex.Message}");
+            }
+        }
+        
+        showNodeDeleteConfirmation = false;
+        nodeToDelete = null;
+    }
+    
+    private void CancelDeleteNode()
+    {
+        showNodeDeleteConfirmation = false;
+        nodeToDelete = null;
+    }
+
+    private void DisconnectConnection(Guid sourceId, Guid targetId)
+    {
+        connections.RemoveAll(c => c.SourceId == sourceId && c.TargetId == targetId);
+        MarkAsChanged();
+        CloseContextMenu();
+        StateHasChanged();
+    }
+
+    private async Task ExecuteNode(CanvasNode node)
+    {
+        try
+        {
+            // Ensure workflow is saved before execution for DB consistency
+            if (!currentWorkflowId.HasValue || currentWorkflowId == Guid.Empty)
+            {
+                // Auto-save the workflow before first execution
+                await SaveWorkflow();
+                if (!currentWorkflowId.HasValue)
+                {
+                    node.ActivityLogs.Add(new NodeLogEntry 
+                    { 
+                        Message = "Please save the workflow before running nodes", 
+                        Level = NodeLogLevel.Warning 
+                    });
+                    return;
+                }
+            }
+            
+            // Track this node as executing for animation
+            executingNodeIds.Add(node.Id);
+            InvokeAsync(StateHasChanged);
+            
+            var executor = ExecutorFactory.CreateExecutor(node.NodeType);
+            var inputData = new Dictionary<string, object?>(node.OutputData);
+            
+            // Inject workflow context for agent nodes that need to execute tool nodes
+            if (currentWorkflowId.HasValue)
+            {
+                inputData["_WorkflowId"] = currentWorkflowId.Value;
+                inputData["_WorkflowExecutionService"] = WorkflowExecutionService;
+            }
+            // Inject direct execution context for "Run Node" mode (workflow not in running state)
+            inputData["_ExecutorFactory"] = ExecutorFactory;
+            inputData["_CanvasNodes"] = canvasNodes;
+            inputData["_UserId"] = currentUserId;
+            
+            // Resolve placeholders in configuration
+            var resolvedConfig = PlaceholderHelperInstance.ResolvePlaceholders(node.Configuration, node, canvasNodes);
+            
+            var workflowNode = new WorkflowNode
+            {
+                Id = node.Id,
+                NodeType = node.NodeType,
+                Name = node.Name,
+                Configuration = resolvedConfig,
+                Status = node.Status,
+                ActivityLogs = node.ActivityLogs
+            };
+
+            var result = await executor.ExecuteAsync(workflowNode, inputData, currentUserId ?? "");
+            node.Status = workflowNode.Status;
+            
+            // Update node output data from execution result if any
+            if (result.OutputData != null)
+            {
+                foreach (var kvp in result.OutputData)
+                {
+                    node.OutputData[kvp.Key] = kvp.Value;
+                }
+                
+                // Update node configuration with execution samples for dynamic placeholders
+                if (result.Success)
+                {
+                    PlaceholderHelperInstance.UpdateNodeConfigWithSamples(node, result.OutputData);
+                }
+            }
+            
+            // Trigger downstream nodes after successful execution
+            if (result.Success)
+            {
+                await ExecuteDownstream(node);
+            }
+        }
+        catch (Exception ex)
+        {
+            node.Status = NodeStatus.Failure;
+            node.ActivityLogs.Add(new NodeLogEntry { Message = $"Fatal Error: {ex.Message}", Level = NodeLogLevel.Error });
+        }
+        finally
+        {
+            // Remove from executing set when done
+            executingNodeIds.Remove(node.Id);
+            
+            // Persist logs to database
+            // Skip if workflow is running via WorkflowExecutionService (it handles log persistence)
+            try
+            {
+                var isWorkflowRunningInBackground = currentWorkflowId.HasValue && 
+                    WorkflowExecutionService.IsRunning(currentWorkflowId.Value);
+                
+                if (!isWorkflowRunningInBackground && !string.IsNullOrEmpty(currentUserId) && node.ActivityLogs.Any())
+                {
+                    // Filter logs based on node's logging settings
+                    var logsToSave = node.ActivityLogs
+                        .Where(l => ShouldPersistLog(node.LoggingSettings, l.Level))
+                        .Select(l => new NodeLog
+                        {
+                            Id = Guid.NewGuid(), // Generate new ID for database
+                            UserId = currentUserId,
+                            WorkflowId = currentWorkflowId,
+                            NodeId = node.Id,
+                            NodeName = node.Name,
+                            NodeType = node.NodeType,
+                            Timestamp = l.Timestamp,
+                            Level = l.Level,
+                            Message = l.Message,
+                            Detail = l.Detail
+                        }).ToList();
+
+                    if (logsToSave.Any())
+                    {
+                        await LogService.SaveLogsAsync(logsToSave);
+                    }
+                    
+                    // Clear the in-memory logs after persisting to avoid duplicates
+                    node.ActivityLogs.Clear();
+                }
+            }
+            catch (Exception logEx)
+            {
+                // Don't fail execution due to log persistence issues
+                Console.WriteLine($"Failed to persist logs: {logEx.Message}");
+            }
+            
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>
+    /// Determines if a log entry should be persisted based on node's logging settings.
+    /// </summary>
+    private static bool ShouldPersistLog(NodeLoggingSettings settings, NodeLogLevel level)
+    {
+        if (!settings.LoggingEnabled) return false;
+        
+        return level switch
+        {
+            NodeLogLevel.Info => settings.LogInfo,
+            NodeLogLevel.Warning => settings.LogWarning,
+            NodeLogLevel.Error => settings.LogError,
+            NodeLogLevel.Debug => settings.LogDebug,
+            _ => false
+        };
+    }
+
+    private async Task ExecuteDownstream(CanvasNode startNode)
+    {
+        // Get downstream connections, excluding special connection types (data-only or controlled by source node):
+        // - "reader" and "storage": data-only connections, no execution flow
+        // - "agent": orchestrator-to-agent connections (controlled by Orchestrator node)
+        // - "tool:*": agent-to-tool connections (controlled by Agent node - tools are executed via direct invocation)
+        var nextConnections = connections
+            .Where(c => c.SourceId == startNode.Id)
+            .Where(c => !string.Equals(c.Label, "reader", StringComparison.OrdinalIgnoreCase))
+            .Where(c => !string.Equals(c.Label, "storage", StringComparison.OrdinalIgnoreCase))
+            .Where(c => !string.Equals(c.Label, "agent", StringComparison.OrdinalIgnoreCase))
+            .Where(c => !(c.Label?.StartsWith("tool:", StringComparison.OrdinalIgnoreCase) == true))
+            .ToList();
+        
+        // If this is a Condition node, filter connections based on result
+        if (startNode.NodeType == "Condition" && startNode.OutputData.TryGetValue("ConditionResult", out var resultObj))
+        {
+            var result = resultObj is bool b ? b : resultObj?.ToString()?.ToLower() == "true";
+            var targetLabel = result ? "true" : "false";
+            nextConnections = nextConnections.Where(c => 
+                string.Equals(c.Label, targetLabel, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        
+        foreach (var conn in nextConnections)
+        {
+            var nextNode = canvasNodes.FirstOrDefault(n => n.Id == conn.TargetId);
+            if (nextNode != null)
+            {
+                try
+                {
+                    // Mark this connection as active for animation
+                    activeConnectionIds.Add(conn.Id);
+                    await InvokeAsync(StateHasChanged);
+                    
+                    // Pass output data to next node (exclude ConditionResult to prevent stale branching data)
+                    foreach (var kvp in startNode.OutputData)
+                    {
+                        if (kvp.Key != "ConditionResult")
+                        {
+                            nextNode.OutputData[kvp.Key] = kvp.Value;
+                        }
+                    }
+                    
+                    // Clear any stale ConditionResult in the next node before execution
+                    nextNode.OutputData.Remove("ConditionResult");
+
+                    await ExecuteNode(nextNode);
+                    
+                    // Clear this connection's active state
+                    activeConnectionIds.Remove(conn.Id);
+                    await InvokeAsync(StateHasChanged);
+                    
+                    // Recurse downstream (ExecuteNode now handles this, skip to avoid double-recursion)
+                }
+                catch (Exception ex)
+                {
+                    startNode.ActivityLogs.Add(new NodeLogEntry 
+                    { 
+                        Level = NodeLogLevel.Error, 
+                        Message = $"Failed to execute downstream: {nextNode.Name}",
+                        Detail = ex.Message
+                    });
+                }
+            }
+        }
+    }
+
+    private List<string> GetAvailablePlaceholders(CanvasNode node)
+    {
+        return PlaceholderHelperInstance.GetAvailablePlaceholders(
+            node, canvasNodes, connections, currentWorkflowId, showAllPlaceholders);
+    }
+
+    /// <summary>
+    /// Gets the stroke-dasharray value for a connection based on its label type.
+    /// </summary>
+    private string GetConnectionDashArray(string? label)
+    {
+        if (string.IsNullOrEmpty(label))
+            return ""; // Solid line
+            
+        var lowerLabel = label.ToLower();
+        
+        // Agent connections: dashed
+        if (lowerLabel == "agent")
+            return "8,4";
+            
+        // Tool connections: double-line effect
+        if (lowerLabel.StartsWith("tool:"))
+            return "1,0"; // Solid (handled separately with stroke-width)
+        
+        // Run connections (RemoteCommand → Remote): dash-dot pattern
+        if (lowerLabel.StartsWith("run:"))
+            return "8,4,2,4";
+            
+        return lowerLabel switch
+        {
+            "reader" => "5,5",        // Dotted line
+            "storage" => "10,3,2,3",  // Semi-dotted (dash-dot pattern)
+            "orchestrate" => "6,3",   // Dashed - bidirectional control flow
+            _ => ""                    // Solid line
+        };
+    }
+
+    /// <summary>
+    /// Gets the stroke width for a connection based on its label type.
+    /// </summary>
+    private int GetConnectionStrokeWidth(string? label)
+    {
+        if (string.IsNullOrEmpty(label))
+            return 2;
+            
+        // Tool connections: thicker (double-line effect)
+        if (label.StartsWith("tool:", StringComparison.OrdinalIgnoreCase))
+            return 4;
+        
+        // Orchestrate connections: slightly thicker for visibility
+        if (string.Equals(label, "orchestrate", StringComparison.OrdinalIgnoreCase))
+            return 3;
+        
+        // Run connections (RemoteCommand → Remote): slightly thicker
+        if (label.StartsWith("run:", StringComparison.OrdinalIgnoreCase))
+            return 3;
+            
+        return 2;
+    }
+
+    /// <summary>
+    /// Gets the connected Storage Table node ID for a Storage Client node.
+    /// Checks both directions: Client→Table (preferred) and Table→Client (fallback).
+    /// </summary>
+    private Guid? GetConnectedStorageTableId(CanvasNode node)
+    {
+        // First check: Client → Table (correct direction)
+        var storageConnection = connections
+            .FirstOrDefault(c => c.SourceId == node.Id && 
+                           string.Equals(c.Label, "storage", StringComparison.OrdinalIgnoreCase));
+        
+        if (storageConnection != null)
+        {
+            var targetNode = canvasNodes.FirstOrDefault(n => n.Id == storageConnection.TargetId);
+            if (targetNode?.NodeType == "StorageTable")
+            {
+                return targetNode.Id;
+            }
+        }
+        
+        // Fallback: Table → Client (reversed direction)
+        storageConnection = connections
+            .FirstOrDefault(c => c.TargetId == node.Id && 
+                           string.Equals(c.Label, "storage", StringComparison.OrdinalIgnoreCase));
+        
+        if (storageConnection != null)
+        {
+            var sourceNode = canvasNodes.FirstOrDefault(n => n.Id == storageConnection.SourceId);
+            if (sourceNode?.NodeType == "StorageTable")
+            {
+                return sourceNode.Id;
+            }
+        }
+        
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the connected Vector Store node ID for a Vector Client node.
+    /// Checks both directions: Client→Store (preferred) and Store→Client (fallback).
+    /// </summary>
+    private Guid? GetConnectedVectorStoreId(CanvasNode node)
+    {
+        // First check: Client → Store (correct direction)
+        var storageConnection = connections
+            .FirstOrDefault(c => c.SourceId == node.Id && 
+                           string.Equals(c.Label, "storage", StringComparison.OrdinalIgnoreCase));
+        
+        if (storageConnection != null)
+        {
+            var targetNode = canvasNodes.FirstOrDefault(n => n.Id == storageConnection.TargetId);
+            if (targetNode?.NodeType == "VectorDb")
+            {
+                return targetNode.Id;
+            }
+        }
+        
+        // Fallback: Store → Client (reversed direction)
+        storageConnection = connections
+            .FirstOrDefault(c => c.TargetId == node.Id && 
+                           string.Equals(c.Label, "storage", StringComparison.OrdinalIgnoreCase));
+        
+        if (storageConnection != null)
+        {
+            var sourceNode = canvasNodes.FirstOrDefault(n => n.Id == storageConnection.SourceId);
+            if (sourceNode?.NodeType == "VectorDb")
+            {
+                return sourceNode.Id;
+            }
+        }
+        
+        return null;
+    }
+
+    /// <summary>
+    /// Gets column names from the connected Storage Table node's configuration.
+    /// </summary>
+    private List<string> GetStorageTableColumns(CanvasNode node)
+    {
+        var columns = new List<string>();
+        
+        // Find the connected Storage Table
+        var storageConnection = connections
+            .FirstOrDefault(c => c.SourceId == node.Id && 
+                           string.Equals(c.Label, "storage", StringComparison.OrdinalIgnoreCase));
+        
+        if (storageConnection == null) return columns;
+        
+        var tableNode = canvasNodes.FirstOrDefault(n => n.Id == storageConnection.TargetId);
+        if (tableNode?.NodeType != "StorageTable" || string.IsNullOrEmpty(tableNode.Configuration))
+            return columns;
+        
+        try
+        {
+            using var doc = JsonDocument.Parse(tableNode.Configuration);
+            if (doc.RootElement.TryGetProperty("Columns", out var columnsElement) && 
+                columnsElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var column in columnsElement.EnumerateArray())
+                {
+                    if (column.TryGetProperty("Name", out var nameElement))
+                    {
+                        var columnName = nameElement.GetString();
+                        if (!string.IsNullOrWhiteSpace(columnName))
+                        {
+                            columns.Add(columnName);
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Invalid configuration JSON - return empty list
+        }
+        
+        return columns;
+    }
+
+    /// <summary>
+    /// Opens the Storage Table data viewer popup for a specific node.
+    /// </summary>
+    private void OpenStorageTableViewer(CanvasNode node)
+    {
+        viewingStorageTableNodeId = node.Id;
+        showStorageTableViewer = true;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Opens the Storage Table data viewer popup for a specific node ID.
+    /// </summary>
+    private void OpenStorageTableViewer(Guid nodeId)
+    {
+        viewingStorageTableNodeId = nodeId;
+        showStorageTableViewer = true;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Opens the Remote Machine Monitor popup for a specific node.
+    /// </summary>
+    private void OpenRemoteMachineMonitor(CanvasNode node)
+    {
+        viewingRemoteNodeId = node.Id;
+        // Extract ClientId from node configuration
+        try
+        {
+            var config = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(node.Configuration ?? "{}");
+            if (config != null && config.TryGetValue("ClientId", out var clientIdElement))
+            {
+                viewingRemoteClientId = clientIdElement.GetString();
+            }
+        }
+        catch { }
+        showRemoteMachineMonitor = true;
+        StateHasChanged();
+    }
+
+    private void ClearCanvas() 
+    { 
+        canvasNodes.Clear(); 
+        connections.Clear(); 
+        selectedNodeId = null; 
+        currentWorkflowId = null;
+        currentWorkflowName = "New Workflow";
+        currentWorkflowIsActive = false;
+        currentWorkflowOrganizationId = null;
+        canDeleteWorkflow = true; // New workflows can be deleted by creator
+    }
+
+    private async Task OnWorkflowSelected(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (string.IsNullOrEmpty(value))
+        {
+            ClearCanvas();
+            return;
+        }
+        
+        if (Guid.TryParse(value, out var workflowId))
+        {
+            await LoadWorkflow(workflowId);
+        }
+    }
+
+    private double CalculateTotalWorkflowCost()
+    {
+        double total = 0;
+        foreach (var node in canvasNodes)
+        {
+            if (string.IsNullOrEmpty(node.Configuration)) continue;
+            
+            try
+            {
+                // All AI nodes have Cost property - extract it generically
+                var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "PdfOcr";
+                if (isAiNode)
+                {
+                    using var doc = JsonDocument.Parse(node.Configuration);
+                    if (doc.RootElement.TryGetProperty("Cost", out var costProp))
+                    {
+                        total += costProp.GetDouble();
+                    }
+                }
+            }
+            catch { }
+        }
+        return total;
+    }
+
+    private record AINodeCostInfo(string IconSvg, string NodeType, string Name, double Cost, long InputTokens, long OutputTokens);
+    
+    private List<AINodeCostInfo> GetAINodeCostBreakdown()
+    {
+        var result = new List<AINodeCostInfo>();
+        
+        foreach (var node in canvasNodes)
+        {
+            if (string.IsNullOrEmpty(node.Configuration)) continue;
+            
+            try
+            {
+                var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "PdfOcr";
+                
+                if (isAiNode)
+                {
+                    using var doc = JsonDocument.Parse(node.Configuration);
+                    var root = doc.RootElement;
+                    
+                    double cost = root.TryGetProperty("Cost", out var c) ? c.GetDouble() : 0;
+                    long inputTokens = root.TryGetProperty("InputTokens", out var i) ? i.GetInt64() : 0;
+                    long outputTokens = root.TryGetProperty("OutputTokens", out var o) ? o.GetInt64() : 0;
+                    
+                    if (cost > 0 || inputTokens > 0 || outputTokens > 0)
+                    {
+                        // Get SVG icon from catalog (same as node header rendering)
+                        var iconSvg = BuiltInNodeCatalogService.GetIconOverride(node.NodeType) ?? "";
+                        result.Add(new AINodeCostInfo(iconSvg, node.NodeType, node.Name, cost, inputTokens, outputTokens));
+                    }
+                }
+            }
+            catch { }
+        }
+        
+        return result;
+    }
+    
+    private static string FormatTokenCount(long tokens)
+    {
+        if (tokens >= 1_000_000) return $"{tokens / 1_000_000.0:F1}M";
+        if (tokens >= 1_000) return $"{tokens / 1_000.0:F1}K";
+        return tokens.ToString();
+    }
+
+    private async Task SaveWorkflow() 
+    { 
+        if (string.IsNullOrEmpty(currentUserId)) return;
+
+        // Guard: Cannot save while workflow is running
+        if (isWorkflowRunning)
+        {
+            workflowNotificationMessage = "Cannot save while workflow is running. Please stop the workflow first.";
+            workflowNotificationType = "danger";
+            return;
+        }
+        
+        // Show saving overlay
+        isSavingWorkflow = true;
+        workflowSavingStatus = "Validating workflow...";
+        StateHasChanged();
+        await Task.Delay(100); // Small delay to ensure UI updates
+        
+        try
+        {
+            // Guard: Check workflow limit for new workflows
+            if (!currentWorkflowId.HasValue)
+            {
+                // Determine which context we're saving to
+                var targetOrgId = currentWorkflowOrganizationId ?? activeOrganizationId;
+                
+                if (targetOrgId.HasValue)
+                {
+                    // Saving to organization - check org limits (based on founder's plan)
+                    var (canCreate, reason) = await OrgUsageTrackingService.CanCreateWorkflowAsync(targetOrgId.Value);
+                    if (!canCreate)
+                    {
+                        workflowNotificationMessage = reason ?? "Cannot create more workflows for this organization.";
+                        workflowNotificationType = "warning";
+                        return;
+                    }
+                }
+                else
+                {
+                    // Saving to personal - check personal plan limits
+                    var (canCreate, currentCount, limit) = await UsageTrackingService.CanCreateWorkflowAsync(currentUserId);
+                    if (!canCreate)
+                    {
+                        workflowNotificationMessage = $"Workflow limit reached ({limit} workflow{(limit == 1 ? "" : "s")} max for your plan). Upgrade to create more workflows.";
+                        workflowNotificationType = "warning";
+                        return;
+                    }
+                }
+            }
+
+            // Guard: Check for duplicate node names
+            var duplicateNames = canvasNodes
+                .GroupBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToList();
+            
+            if (duplicateNames.Any())
+            {
+                var duplicateList = string.Join(", ", duplicateNames.Select(n => $"'{n}'"));
+                workflowNotificationMessage = $"Cannot save: Duplicate node names detected: {duplicateList}. Each node must have a unique name for placeholders to work correctly.";
+                workflowNotificationType = "danger";
+                return;
+            }
+
+            workflowSavingStatus = "Preparing workflow data...";
+            StateHasChanged();
+
+            var workflow = new Data.Workflow
+            {
+                Id = currentWorkflowId ?? Guid.NewGuid(),
+                Name = currentWorkflowName,
+                OwnerId = currentUserId,
+                OrganizationId = currentWorkflowOrganizationId ?? activeOrganizationId,
+                UpdatedAt = DateTime.UtcNow,
+                IsActive = currentWorkflowIsActive
+            };
+
+            var nodes = canvasNodes.Select(n => new WorkflowNode
+            {
+                Id = n.Id,
+                WorkflowId = workflow.Id,
+                NodeType = n.NodeType,
+                Name = n.Name,
+                Configuration = n.Configuration,
+                PositionX = n.X,
+                PositionY = n.Y,
+                Width = n.Width,
+                Height = n.Height,
+                Status = n.Status,
+                IsTrigger = n.IsTrigger,
+                TagsJson = n.Tags.Any() ? JsonSerializer.Serialize(n.Tags) : null,
+                LoggingSettingsJson = JsonSerializer.Serialize(n.LoggingSettings),
+                IconOverride = n.IconOverride,
+                SurfaceFieldsJson = n.SurfaceFields.Any() ? JsonSerializer.Serialize(n.SurfaceFields) : null
+            }).ToList();
+
+            var conns = connections.Select(c => new WorkflowConnection
+            {
+                Id = c.Id,
+                SourceNodeId = c.SourceId,
+                TargetNodeId = c.TargetId,
+                Label = c.Label
+            }).ToList();
+
+            workflowSavingStatus = $"Saving {nodes.Count} nodes...";
+            StateHasChanged();
+
+            var saved = await WorkflowService.SaveWorkflowAsync(workflow, nodes, conns);
+            currentWorkflowId = saved.Id;
+            
+            workflowSavingStatus = "Updating workflow list...";
+            StateHasChanged();
+            
+            userWorkflows = await WorkflowService.GetUserWorkflowsAsync(currentUserId, activeOrganizationId);
+            
+            // Save as last opened workflow
+            await PreferenceService.SetLastWorkflowAsync(currentUserId, saved.Id);
+            
+            // Clear unsaved changes flag and notification
+            hasUnsavedChanges = false;
+            workflowNotificationMessage = null;
+        }
+        catch (Exception ex)
+        {
+            // Error handling - log error
+            Console.WriteLine($"Failed to save workflow: {ex.Message}");
+            workflowNotificationMessage = $"Failed to save workflow: {ex.Message}";
+            workflowNotificationType = "danger";
+        }
+        finally
+        {
+            isSavingWorkflow = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ShowDeleteConfirmation()
+    {
+        if (!currentWorkflowId.HasValue || string.IsNullOrEmpty(currentUserId)) return;
+        
+        deletionInfo = await WorkflowService.GetWorkflowDeletionInfoAsync(currentWorkflowId.Value, currentUserId);
+        if (deletionInfo != null)
+        {
+            showDeleteConfirmation = true;
+        }
+        else
+        {
+            workflowNotificationMessage = "Could not load workflow information.";
+            workflowNotificationType = "danger";
+        }
+    }
+
+    private async Task ConfirmDeleteWorkflow()
+    {
+        if (!currentWorkflowId.HasValue || string.IsNullOrEmpty(currentUserId) || deletionInfo == null) return;
+        
+        isDeleting = true;
+        StateHasChanged();
+        
+        try
+        {
+            var result = await WorkflowService.DeleteWorkflowAsync(currentWorkflowId.Value, currentUserId);
+            
+            if (result.Success)
+            {
+                // Clear the canvas and reset state
+                ClearCanvas();
+                
+                // Refresh workflow list
+                userWorkflows = await WorkflowService.GetUserWorkflowsAsync(currentUserId, activeOrganizationId);
+                
+                // Clear last opened workflow preference
+                await PreferenceService.SetLastWorkflowAsync(currentUserId, null);
+                
+                workflowNotificationMessage = $"Workflow \"{result.WorkflowName}\" deleted successfully. Removed {result.NodeCount} nodes, {result.ConnectionCount} connections, and {result.LogsDeleted} logs.";
+                workflowNotificationType = "success";
+            }
+            else
+            {
+                workflowNotificationMessage = result.ErrorMessage ?? "Failed to delete workflow.";
+                workflowNotificationType = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            workflowNotificationMessage = $"Error deleting workflow: {ex.Message}";
+            workflowNotificationType = "danger";
+        }
+        finally
+        {
+            isDeleting = false;
+            showDeleteConfirmation = false;
+            deletionInfo = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadWorkflow(Guid id)
+    {
+        var workflow = await WorkflowService.GetWorkflowAsync(id);
+        if (workflow != null)
+        {
+            ClearCanvas();
+            currentWorkflowId = workflow.Id;
+            currentWorkflowName = workflow.Name;
+            currentWorkflowIsActive = workflow.IsActive;
+            currentWorkflowOrganizationId = workflow.OrganizationId;
+            
+            // Determine if user can delete workflow (Contributors cannot delete org workflows)
+            if (workflow.OrganizationId.HasValue && !string.IsNullOrEmpty(currentUserId))
+            {
+                var role = await OrganizationService.GetUserRoleAsync(workflow.OrganizationId.Value, currentUserId);
+                canDeleteWorkflow = role >= OrganizationRole.Owner; // Owner or Founder can delete
+            }
+            else
+            {
+                canDeleteWorkflow = true; // Personal workflows can always be deleted by owner
+            }
+            
+            foreach (var node in workflow.Nodes)
+            {
+                var loggingSettings = string.IsNullOrEmpty(node.LoggingSettingsJson)
+                    ? new NodeLoggingSettings()
+                    : JsonSerializer.Deserialize<NodeLoggingSettings>(node.LoggingSettingsJson) ?? new NodeLoggingSettings();
+                
+                Console.WriteLine($"[LoadWorkflow] Node {node.Name}: LoggingSettingsJson='{node.LoggingSettingsJson}', Enabled={loggingSettings.LoggingEnabled}");
+                
+                canvasNodes.Add(new CanvasNode
+                {
+                    Id = node.Id,
+                    NodeType = node.NodeType,
+                    Name = node.Name,
+                    X = node.PositionX,
+                    Y = node.PositionY,
+                    Width = node.Width,
+                    Height = node.Height,
+                    Configuration = node.Configuration,
+                    Status = node.Status,
+                    IsTrigger = node.IsTrigger,
+                    Tags = string.IsNullOrEmpty(node.TagsJson) 
+                        ? new List<string>() 
+                        : JsonSerializer.Deserialize<List<string>>(node.TagsJson) ?? new List<string>(),
+                    LoggingSettings = loggingSettings,
+                    IconOverride = node.IconOverride,
+                    SurfaceFields = string.IsNullOrEmpty(node.SurfaceFieldsJson)
+                        ? new List<string>()
+                        : JsonSerializer.Deserialize<List<string>>(node.SurfaceFieldsJson) ?? new List<string>()
+                });
+            }
+
+            foreach (var node in workflow.Nodes)
+            {
+                foreach (var conn in node.OutgoingConnections)
+                {
+                    connections.Add(new NodeConnection
+                    {
+                        Id = conn.Id,
+                        SourceId = conn.SourceNodeId,
+                        TargetId = conn.TargetNodeId,
+                        Label = conn.Label
+                    });
+                }
+            }
+            
+            // Pre-load custom node definitions for nodes in this workflow
+            var customNodeTypes = workflow.Nodes
+                .Where(n => n.NodeType.StartsWith("Custom_"))
+                .Select(n => n.NodeType)
+                .Distinct()
+                .ToList();
+            
+            if (customNodeTypes.Any())
+            {
+                isLoadingWorkflowNodes = true;
+                workflowLoadingStatus = $"Loading {customNodeTypes.Count} custom node{(customNodeTypes.Count > 1 ? "s" : "")}...";
+                StateHasChanged();
+                
+                try
+                {
+                    var definitions = await CustomNodeService.GetDefinitionsByKeysAsync(customNodeTypes);
+                    foreach (var def in definitions)
+                    {
+                        if (!customNodeDefinitions.Any(d => d.Id == def.Id))
+                            customNodeDefinitions.Add(def);
+                    }
+                }
+                finally
+                {
+                    isLoadingWorkflowNodes = false;
+                    workflowLoadingStatus = "";
+                }
+            }
+            
+            showWorkflowList = false;
+            hasUnsavedChanges = false; // Loading a saved workflow means no unsaved changes
+            workflowNotificationMessage = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadWorkflowFromData(Data.Workflow workflow)
+    {
+        currentWorkflowId = workflow.Id;
+        currentWorkflowName = workflow.Name;
+        currentWorkflowIsActive = workflow.IsActive;
+        currentWorkflowOrganizationId = workflow.OrganizationId;
+        
+        // Determine if user can delete workflow (Contributors cannot delete org workflows)
+        if (workflow.OrganizationId.HasValue && !string.IsNullOrEmpty(currentUserId))
+        {
+            var role = await OrganizationService.GetUserRoleAsync(workflow.OrganizationId.Value, currentUserId);
+            canDeleteWorkflow = role >= OrganizationRole.Owner; // Owner or Founder can delete
+        }
+        else
+        {
+            canDeleteWorkflow = true; // Personal workflows can always be deleted by owner
+        }
+        
+        canvasNodes.Clear();
+        connections.Clear();
+
+        foreach (var node in workflow.Nodes)
+        {
+            canvasNodes.Add(new CanvasNode
+            {
+                Id = node.Id,
+                NodeType = node.NodeType,
+                Name = node.Name,
+                X = node.PositionX,
+                Y = node.PositionY,
+                Width = node.Width,
+                Height = node.Height,
+                Configuration = node.Configuration,
+                Status = node.Status,
+                IsTrigger = node.IsTrigger,
+                Tags = string.IsNullOrEmpty(node.TagsJson) 
+                    ? new List<string>() 
+                    : JsonSerializer.Deserialize<List<string>>(node.TagsJson) ?? new List<string>(),
+                LoggingSettings = string.IsNullOrEmpty(node.LoggingSettingsJson)
+                    ? new NodeLoggingSettings()
+                    : JsonSerializer.Deserialize<NodeLoggingSettings>(node.LoggingSettingsJson) ?? new NodeLoggingSettings(),
+                IconOverride = node.IconOverride,
+                SurfaceFields = string.IsNullOrEmpty(node.SurfaceFieldsJson)
+                    ? new List<string>()
+                    : JsonSerializer.Deserialize<List<string>>(node.SurfaceFieldsJson) ?? new List<string>()
+            });
+        }
+
+        foreach (var node in workflow.Nodes)
+        {
+            foreach (var conn in node.OutgoingConnections)
+            {
+                connections.Add(new NodeConnection
+                {
+                    Id = conn.Id,
+                    SourceId = conn.SourceNodeId,
+                    TargetId = conn.TargetNodeId,
+                    Label = conn.Label
+                });
+            }
+        }
+        
+        // Pre-load custom node definitions for nodes in this workflow
+        var customNodeTypes = workflow.Nodes
+            .Where(n => n.NodeType.StartsWith("Custom_"))
+            .Select(n => n.NodeType)
+            .Distinct()
+            .ToList();
+        
+        if (customNodeTypes.Any())
+        {
+            isLoadingWorkflowNodes = true;
+            workflowLoadingStatus = $"Loading {customNodeTypes.Count} custom node{(customNodeTypes.Count > 1 ? "s" : "")}...";
+            StateHasChanged();
+            
+            try
+            {
+                var definitions = await CustomNodeService.GetDefinitionsByKeysAsync(customNodeTypes);
+                foreach (var def in definitions)
+                {
+                    if (!customNodeDefinitions.Any(d => d.Id == def.Id))
+                        customNodeDefinitions.Add(def);
+                }
+            }
+            finally
+            {
+                isLoadingWorkflowNodes = false;
+                workflowLoadingStatus = "";
+            }
+        }
+        
+        // Update last opened preference
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            await PreferenceService.SetLastWorkflowAsync(currentUserId, workflow.Id);
+        }
+        
+        StateHasChanged();
+    }
+
+    private WorkflowNode CreateWorkflowNodeFromCanvas(CanvasNode canvasNode)
+    {
+        return new WorkflowNode
+        {
+            Id = canvasNode.Id,
+            Name = canvasNode.Name,
+            NodeType = canvasNode.NodeType,
+            Configuration = canvasNode.Configuration
+        };
+    }
+
+    private async Task SendAiMessage()
+    {
+        if (string.IsNullOrWhiteSpace(aiInputMessage) || isAiThinking) return;
+        var message = aiInputMessage;
+        
+        // Build context for selected nodes (sent to AI but not displayed to user)
+        var contextJson = BuildAiContextNodesJson();
+        
+        // Build tier constraints info for AI
+        var tierConstraints = currentTierLimits != null ? new
+        {
+            maxNodesPerWorkflow = currentTierLimits.MaxNodesPerWorkflow,
+            currentNodeCount = canvasNodes.Count,
+            remainingNodes = currentTierLimits.MaxNodesPerWorkflow - canvasNodes.Count,
+            canUseScheduling = currentTierLimits.CanUseScheduling
+        } : null;
+        var tierConstraintsJson = tierConstraints != null ? System.Text.Json.JsonSerializer.Serialize(tierConstraints) : null;
+        
+        aiInputMessage = "";
+        isAiThinking = true;
+        StateHasChanged();
+        
+        // Pass provider, mode, model, context, temperature, tier constraints, and Copilot connection to the assistant service
+        var result = await AssistantService.SendMessageAsync(
+            message, 
+            currentUserId ?? "", 
+            selectedAiProvider,
+            aiChatMode,
+            selectedAiModel,
+            contextJson,
+            aiTemperatureMode,
+            tierConstraintsJson,
+            copilotConnectionId);
+        
+        if (result.Success && result.Actions.Any()) 
+            await ApplyAiActionsAsync(result.Actions);
+        
+        isAiThinking = false;
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("eval", "var el = document.querySelector('.ai-messages'); if(el) el.scrollTop = el.scrollHeight;");
+    }
+
+    private void HandleAiKey(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) _ = SendAiMessage(); }
+
+    private async Task ApplyAiActionsAsync(List<WorkflowAction> actions)
+    {
+        foreach (var action in actions)
+        {
+            var actionType = action.Action?.ToLower() ?? "";
+            
+            if (actionType == "create_node")
+            {
+                var type = action.Parameters["type"]?.ToString() ?? "Process";
+                var name = action.Parameters["name"]?.ToString() ?? "New Node";
+                var xPos = double.Parse(action.Parameters["x"]?.ToString() ?? "100");
+                var yPos = double.Parse(action.Parameters["y"]?.ToString() ?? "100");
+                
+                // Parse width/height with sensible defaults
+                var width = double.Parse(action.Parameters.TryGetValue("width", out var w) ? w?.ToString() ?? "300" : "300");
+                var height = double.Parse(action.Parameters.TryGetValue("height", out var h) ? h?.ToString() ?? "200" : "200");
+                
+                // Ensure minimum dimensions (hard limit: 300x100)
+                if (width < 300) width = 300;
+                if (height < 100) height = 200;
+                
+                // Start with default configuration
+                var config = NodeHelper.GetDefaultConfiguration(type);
+                
+                // Merge any properties specified by AI
+                if (action.Parameters.TryGetValue("properties", out var propsObj) && propsObj != null)
+                {
+                    try
+                    {
+                        var defaultConfig = string.IsNullOrEmpty(config) 
+                            ? new Dictionary<string, object>() 
+                            : JsonSerializer.Deserialize<Dictionary<string, object>>(config) ?? new();
+                        
+                        // Parse AI-provided properties
+                        var propsJson = propsObj is JsonElement je ? je.GetRawText() : propsObj.ToString();
+                        var aiProps = JsonSerializer.Deserialize<Dictionary<string, object>>(propsJson ?? "{}") ?? new();
+                        
+                        foreach (var kv in aiProps)
+                        {
+                            defaultConfig[kv.Key] = kv.Value?.ToString() ?? "";
+                        }
+                        
+                        config = JsonSerializer.Serialize(defaultConfig);
+                    }
+                    catch { /* Ignore parse errors, use default config */ }
+                }
+                
+                canvasNodes.Add(new CanvasNode 
+                { 
+                    Id = Guid.NewGuid(), 
+                    NodeType = type, 
+                    Name = name, 
+                    X = NodeHelper.SnapToGrid(xPos), 
+                    Y = NodeHelper.SnapToGrid(yPos), 
+                    Width = width, 
+                    Height = height, 
+                    Configuration = config 
+                });
+                
+                // For custom nodes, load the full definition on-demand (same as drop)
+                if (type.StartsWith("Custom_"))
+                {
+                    var existingDef = customNodeDefinitions.FirstOrDefault(d => d.NodeTypeKey == type);
+                    if (existingDef == null)
+                    {
+                        var def = await CustomNodeService.GetDefinitionByKeyAsync(type);
+                        if (def != null)
+                            customNodeDefinitions.Add(def);
+                    }
+                }
+            }
+            else if (actionType == "connect_nodes")
+            {
+                var sourceName = action.Parameters["sourceNodeName"]?.ToString();
+                var targetName = action.Parameters["targetNodeName"]?.ToString();
+                var label = action.Parameters.TryGetValue("label", out var labelVal) ? labelVal?.ToString() : null;
+                
+                var sourceNode = canvasNodes.FirstOrDefault(n => 
+                    n.Name?.Equals(sourceName, StringComparison.OrdinalIgnoreCase) == true);
+                var targetNode = canvasNodes.FirstOrDefault(n => 
+                    n.Name?.Equals(targetName, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (sourceNode != null && targetNode != null)
+                {
+                    connections.Add(new NodeConnection
+                    {
+                        Id = Guid.NewGuid(),
+                        SourceId = sourceNode.Id,
+                        TargetId = targetNode.Id,
+                        Label = label
+                    });
+                }
+            }
+            else if (actionType == "set_property")
+            {
+                var nodeName = action.Parameters["nodeName"]?.ToString();
+                var propertyName = action.Parameters["propertyName"]?.ToString();
+                var value = action.Parameters["value"]?.ToString();
+                
+                var node = canvasNodes.FirstOrDefault(n => 
+                    n.Name?.Equals(nodeName, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (node != null && !string.IsNullOrEmpty(propertyName))
+                {
+                    try
+                    {
+                        var config = string.IsNullOrEmpty(node.Configuration) 
+                            ? new Dictionary<string, object>() 
+                            : JsonSerializer.Deserialize<Dictionary<string, object>>(node.Configuration) ?? new();
+                        config[propertyName] = value ?? "";
+                        node.Configuration = JsonSerializer.Serialize(config);
+                    }
+                    catch { /* Ignore parse errors */ }
+                }
+            }
+            else if (actionType == "clear_workflow")
+            {
+                canvasNodes.Clear();
+                connections.Clear();
+            }
+            else if (actionType == "set_surface_fields")
+            {
+                var nodeName = action.Parameters["nodeName"]?.ToString();
+                var surfaceFieldsArray = action.Parameters.TryGetValue("surfaceFields", out var fields) 
+                    ? fields as System.Text.Json.JsonElement? 
+                    : null;
+                
+                var node = canvasNodes.FirstOrDefault(n => 
+                    n.Name?.Equals(nodeName, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (node != null && surfaceFieldsArray.HasValue)
+                {
+                    node.SurfaceFields.Clear();
+                    foreach (var field in surfaceFieldsArray.Value.EnumerateArray())
+                    {
+                        var fieldStr = field.GetString();
+                        if (!string.IsNullOrEmpty(fieldStr))
+                        {
+                            node.SurfaceFields.Add(fieldStr);
+                        }
+                    }
+                }
+            }
+            else if (actionType == "move_node")
+            {
+                var nodeName = action.Parameters["nodeName"]?.ToString();
+                var xPos = double.Parse(action.Parameters["x"]?.ToString() ?? "100");
+                var yPos = double.Parse(action.Parameters["y"]?.ToString() ?? "100");
+                
+                var node = canvasNodes.FirstOrDefault(n => 
+                    n.Name?.Equals(nodeName, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (node != null)
+                {
+                    node.X = NodeHelper.SnapToGrid(xPos);
+                    node.Y = NodeHelper.SnapToGrid(yPos);
+                }
+            }
+            else if (actionType == "resize_node")
+            {
+                var nodeName = action.Parameters["nodeName"]?.ToString();
+                var width = double.Parse(action.Parameters["width"]?.ToString() ?? "200");
+                var height = double.Parse(action.Parameters["height"]?.ToString() ?? "100");
+                
+                // Ensure minimum dimensions (hard limit: 300x100)
+                if (width < 300) width = 300;
+                if (height < 100) height = 100;
+                
+                var node = canvasNodes.FirstOrDefault(n => 
+                    n.Name?.Equals(nodeName, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (node != null)
+                {
+                    node.Width = width;
+                    node.Height = height;
+                }
+            }
+        }
+        
+        hasUnsavedChanges = true;
+        StateHasChanged();
+    }
+
+    private void UpdateNodeStatus(CanvasNode node, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int status)) node.StatusCode = status;
+    }
+
+    private async Task ExportWorkflow()
+    {
+        // Check tier permission
+        if (currentTierLimits != null && !currentTierLimits.CanImportExport)
+        {
+            workflowNotificationMessage = "Export is not available on your current plan. Upgrade to export workflows.";
+            workflowNotificationType = "warning";
+            return;
+        }
+        
+        if (!canvasNodes.Any())
+        {
+            workflowNotificationMessage = "No nodes to export. Please add nodes to the workflow first.";
+            workflowNotificationType = "warning";
+            return;
+        }
+
+        try
+        {
+            // Build export object
+            var exportData = new
+            {
+                Name = currentWorkflowName,
+                ExportedAt = DateTime.UtcNow.ToString("o"),
+                Version = "1.0",
+                Nodes = canvasNodes.Select(n => new
+                {
+                    n.Id,
+                    n.NodeType,
+                    n.Name,
+                    n.X,
+                    n.Y,
+                    n.Width,
+                    n.Height,
+                    n.Configuration,
+                    n.IsTrigger,
+                    n.Tags,
+                    n.IconOverride,
+                    n.SurfaceFields,
+                    n.LoggingSettings
+                }).ToList(),
+                Connections = connections.Select(c => new
+                {
+                    c.Id,
+                    c.SourceId,
+                    c.TargetId,
+                    c.Label
+                }).ToList()
+            };
+
+            var json = JsonSerializer.Serialize(exportData, new JsonSerializerOptions 
+            { 
+                WriteIndented = true 
+            });
+
+            // Create safe filename
+            var safeName = string.IsNullOrWhiteSpace(currentWorkflowName) 
+                ? "workflow" 
+                : new string(currentWorkflowName.Where(c => !Path.GetInvalidFileNameChars().Contains(c)).ToArray());
+            var fileName = $"{safeName}_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+
+            // Trigger download using JS interop
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    var blob = new Blob([{JsonSerializer.Serialize(json)}], {{ type: 'application/json' }});
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = '{fileName}';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }})();
+            ");
+
+            workflowNotificationMessage = $"Workflow exported successfully as {fileName}";
+            workflowNotificationType = "success";
+        }
+        catch (Exception ex)
+        {
+            workflowNotificationMessage = $"Failed to export workflow: {ex.Message}";
+            workflowNotificationType = "danger";
+        }
+    }
+    private void OpenCacheViewer(Guid nodeId)
+    {
+        viewingCacheNodeId = nodeId;
+        showCacheViewer = true;
+        StateHasChanged();
+    }
+
+    private void OpenVectorDbViewer(Guid nodeId)
+    {
+        viewingVectorDbNodeId = nodeId;
+        showVectorDbViewer = true;
+        StateHasChanged();
+    }
+
+    private void OpenBlobViewer(Guid nodeId)
+    {
+        viewingBlobNodeId = nodeId;
+        showBlobViewer = true;
+        StateHasChanged();
+    }
+
+    private void OpenS2GStorageViewer(Guid nodeId)
+    {
+        viewingS2GStorageNodeId = nodeId;
+        showS2GStorageViewer = true;
+        StateHasChanged();
+    }
+
+    private async Task TriggerImportDialog()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.querySelector('input[type=file][accept=\".json\"]').click();");
+    }
+
+    private async Task ImportWorkflow(ChangeEventArgs e)
+    {
+        // Check tier permission
+        if (currentTierLimits != null && !currentTierLimits.CanImportExport)
+        {
+            workflowNotificationMessage = "Import is not available on your current plan. Upgrade to import workflows.";
+            workflowNotificationType = "warning";
+            return;
+        }
+        
+        try
+        {
+            var files = e.Value?.ToString();
+            if (string.IsNullOrEmpty(files))
+            {
+                workflowNotificationMessage = "No file selected.";
+                workflowNotificationType = "warning";
+                return;
+            }
+
+            // Read file content via JS interop
+            var fileContent = await JSRuntime.InvokeAsync<string>("eval", @"
+                (async function() {
+                    var input = document.querySelector('input[type=file][accept="".json""]');
+                    if (input && input.files && input.files[0]) {
+                        var file = input.files[0];
+                        var text = await file.text();
+                        input.value = ''; // Reset for next import
+                        return text;
+                    }
+                    return null;
+                })()
+            ");
+
+            if (string.IsNullOrEmpty(fileContent))
+            {
+                workflowNotificationMessage = "Failed to read file content.";
+                workflowNotificationType = "danger";
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(fileContent);
+            var root = doc.RootElement;
+
+            // Clear current canvas
+            canvasNodes.Clear();
+            connections.Clear();
+            
+            // ID mapping: old ID -> new ID (to fix connection references)
+            var idMapping = new Dictionary<Guid, Guid>();
+
+            // Load name
+            if (root.TryGetProperty("Name", out var nameEl))
+            {
+                currentWorkflowName = nameEl.GetString() ?? "Imported Workflow";
+            }
+
+            // Load nodes - ALWAYS generate new IDs to avoid conflicts
+            if (root.TryGetProperty("Nodes", out var nodesEl))
+            {
+                foreach (var nodeEl in nodesEl.EnumerateArray())
+                {
+                    // Parse old ID for mapping, but always generate new ID
+                    var oldId = nodeEl.TryGetProperty("Id", out var idEl) && Guid.TryParse(idEl.GetString(), out var parsedId) 
+                        ? parsedId 
+                        : Guid.NewGuid();
+                    var newId = Guid.NewGuid();
+                    idMapping[oldId] = newId;
+                    
+                    var node = new CanvasNode
+                    {
+                        Id = newId,
+                        NodeType = nodeEl.TryGetProperty("NodeType", out var typeEl) ? typeEl.GetString() ?? "Process" : "Process",
+                        Name = nodeEl.TryGetProperty("Name", out var nameElN) ? nameElN.GetString() ?? "Node" : "Node",
+                        X = nodeEl.TryGetProperty("X", out var xEl) ? xEl.GetDouble() : 100,
+                        Y = nodeEl.TryGetProperty("Y", out var yEl) ? yEl.GetDouble() : 100,
+                        Width = nodeEl.TryGetProperty("Width", out var wEl) ? wEl.GetDouble() : 60,
+                        Height = nodeEl.TryGetProperty("Height", out var hEl) ? hEl.GetDouble() : 60,
+                        Configuration = nodeEl.TryGetProperty("Configuration", out var configEl) ? configEl.GetString() : null,
+                        IsTrigger = nodeEl.TryGetProperty("IsTrigger", out var triggerEl) && triggerEl.GetBoolean(),
+                        Tags = new List<string>()
+                    };
+
+                    if (nodeEl.TryGetProperty("Tags", out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var tag in tagsEl.EnumerateArray())
+                        {
+                            var tagStr = tag.GetString();
+                            if (!string.IsNullOrEmpty(tagStr))
+                                node.Tags.Add(tagStr);
+                        }
+                    }
+
+                    // Load custom icon override if present
+                    if (nodeEl.TryGetProperty("IconOverride", out var iconEl))
+                    {
+                        node.IconOverride = iconEl.GetString();
+                    }
+                    
+                    // Load surface fields if present
+                    if (nodeEl.TryGetProperty("SurfaceFields", out var surfaceFieldsEl) && surfaceFieldsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var sfEl in surfaceFieldsEl.EnumerateArray())
+                        {
+                            var sfStr = sfEl.GetString();
+                            if (!string.IsNullOrEmpty(sfStr))
+                                node.SurfaceFields.Add(sfStr);
+                        }
+                    }
+                    
+                    // Load logging settings if present
+                    if (nodeEl.TryGetProperty("LoggingSettings", out var loggingEl))
+                    {
+                        node.LoggingSettings = new NodeLoggingSettings
+                        {
+                            LoggingEnabled = loggingEl.TryGetProperty("LoggingEnabled", out var leEl) && leEl.GetBoolean(),
+                            LogInfo = loggingEl.TryGetProperty("LogInfo", out var liEl) && liEl.GetBoolean(),
+                            LogWarning = loggingEl.TryGetProperty("LogWarning", out var lwEl) && lwEl.GetBoolean(),
+                            LogError = loggingEl.TryGetProperty("LogError", out var loEl) && loEl.GetBoolean(),
+                            LogDebug = loggingEl.TryGetProperty("LogDebug", out var ldEl) && ldEl.GetBoolean()
+                        };
+                    }
+
+                    canvasNodes.Add(node);
+                }
+            }
+
+            // Load connections - remap source/target IDs to new node IDs
+            if (root.TryGetProperty("Connections", out var connsEl))
+            {
+                foreach (var connEl in connsEl.EnumerateArray())
+                {
+                    // Parse old IDs
+                    var oldSourceId = connEl.TryGetProperty("SourceId", out var srcEl) && Guid.TryParse(srcEl.GetString(), out var srcId) 
+                        ? srcId : Guid.Empty;
+                    var oldTargetId = connEl.TryGetProperty("TargetId", out var tgtEl) && Guid.TryParse(tgtEl.GetString(), out var tgtId) 
+                        ? tgtId : Guid.Empty;
+                    
+                    // Map to new IDs
+                    var newSourceId = idMapping.TryGetValue(oldSourceId, out var mappedSrc) ? mappedSrc : Guid.Empty;
+                    var newTargetId = idMapping.TryGetValue(oldTargetId, out var mappedTgt) ? mappedTgt : Guid.Empty;
+
+                    var conn = new NodeConnection
+                    {
+                        Id = Guid.NewGuid(), // Always new ID for connections too
+                        SourceId = newSourceId,
+                        TargetId = newTargetId,
+                        Label = connEl.TryGetProperty("Label", out var lblEl) ? lblEl.GetString() : null
+                    };
+
+                    if (conn.SourceId != Guid.Empty && conn.TargetId != Guid.Empty)
+                    {
+                        connections.Add(conn);
+                    }
+                }
+            }
+
+            currentWorkflowId = null; // New workflow (not saved yet)
+            hasUnsavedChanges = true;
+            workflowNotificationMessage = $"Workflow '{currentWorkflowName}' imported successfully with {canvasNodes.Count} nodes.";
+            workflowNotificationType = "success";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            workflowNotificationMessage = $"Failed to import workflow: {ex.Message}";
+            workflowNotificationType = "danger";
+        }
+    }
+    
+    #region AI Builder Helpers
+    
+    /// <summary>
+    /// Loads AI provider information including API key status.
+    /// Respects organization context: in org mode, checks org secrets/connections.
+    /// </summary>
+    private async Task LoadAiProvidersAsync()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+        
+        var providerSecrets = new[]
+        {
+            ("OpenAI", "OpenAI_ApiKey"),
+            ("DeepSeek", "DeepSeek_ApiKey"),
+            ("Anthropic", "Anthropic_ApiKey"),
+            ("Gemini", "Gemini_ApiKey"),
+            ("Mistral", "Mistral_ApiKey"),
+            ("Groq", "Groq_ApiKey")
+        };
+        
+        aiProviders.Clear();
+        foreach (var (name, secretKey) in providerSecrets)
+        {
+            // Use org secrets in org context, personal secrets otherwise
+            var key = await SecretService.GetSecretAsync(currentUserId, secretKey, activeOrganizationId);
+            aiProviders.Add(new AiProviderInfo(name, !string.IsNullOrEmpty(key)));
+        }
+        
+        // Add Copilot provider (uses OAuth connection instead of API key)
+        // In org context, only show org Copilot connections
+        var copilotConnections = await CopilotService.GetCopilotConnectionsAsync(currentUserId, activeOrganizationId);
+        bool hasCopilotConnection = copilotConnections.Any();
+        
+        if (hasCopilotConnection)
+        {
+            // Use first available connection in context
+            var connection = copilotConnections.First();
+            copilotConnectionId = connection.Id;
+            copilotConnectionEmail = connection.Email ?? connection.ConnectionName;
+        }
+        else
+        {
+            copilotConnectionId = null;
+            copilotConnectionEmail = null;
+        }
+        
+        aiProviders.Add(new AiProviderInfo("Copilot", hasCopilotConnection));
+        
+        // Default to first provider with a key, or OpenAI
+        var firstWithKey = aiProviders.FirstOrDefault(p => p.HasKey);
+        if (firstWithKey != null)
+        {
+            selectedAiProvider = firstWithKey.Name;
+        }
+        
+        // Set available models for selected provider
+        UpdateAvailableModels();
+    }
+    
+    /// <summary>
+    /// Updates the available models when provider changes
+    /// </summary>
+    private void UpdateAvailableModels()
+    {
+        availableModels = WorkflowAssistantService.GetModelsForProvider(selectedAiProvider);
+        selectedAiModel = WorkflowAssistantService.GetDefaultModel(selectedAiProvider);
+    }
+    
+    /// <summary>
+    /// Handles provider selection change
+    /// </summary>
+    private void OnProviderChanged(ChangeEventArgs e)
+    {
+        selectedAiProvider = e.Value?.ToString() ?? "OpenAI";
+        UpdateAvailableModels();
+    }
+    
+    /// <summary>
+    /// Builds a JSON context for context-selected nodes including their configs and connections
+    /// </summary>
+    private string BuildAiContextNodesJson()
+    {
+        if (!aiContextNodes.Any()) return "";
+        
+        var contextData = aiContextNodes.Select(node => new
+        {
+            name = node.Name,
+            type = node.NodeType,
+            configuration = node.Configuration,
+            incomingConnections = connections
+                .Where(c => c.TargetId == node.Id)
+                .Select(c => new { 
+                    fromNode = canvasNodes.FirstOrDefault(n => n.Id == c.SourceId)?.Name ?? "Unknown",
+                    label = c.Label 
+                }),
+            outgoingConnections = connections
+                .Where(c => c.SourceId == node.Id)
+                .Select(c => new { 
+                    toNode = canvasNodes.FirstOrDefault(n => n.Id == c.TargetId)?.Name ?? "Unknown",
+                    label = c.Label 
+                })
+        });
+        
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            selectedNodesForContext = contextData
+        }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    }
+    
+    /// <summary>
+    /// Gets the SVG icon for a node for display in AI context list
+    /// </summary>
+    private string GetNodeIconSvg(CanvasNode node)
+    {
+        // Check if it's a custom node with SVG
+        var customDef = customNodeDefinitions.FirstOrDefault(d => d.NodeTypeKey == node.NodeType);
+        if (customDef != null && !string.IsNullOrEmpty(customDef.IconSvg))
+        {
+            return customDef.IconSvg;
+        }
+        // Use standard icon
+        return NodeHelper.GetDisplayIcon(node.NodeType, null);
+    }
+    
+    /// <summary>
+    /// Handles AI input changes for node reference autocomplete detection
+    /// </summary>
+    private void HandleAiInputChanged(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? "";
+        aiInputMessage = text;
+        
+        // Detect {{ pattern for node autocomplete
+        var lastBraces = text.LastIndexOf("{{");
+        var lastCloseBraces = text.LastIndexOf("}}");
+        
+        if (lastBraces >= 0 && (lastCloseBraces < lastBraces || lastCloseBraces == -1))
+        {
+            var partial = text.Substring(lastBraces + 2);
+            nodeAutocompleteMatches = GetNodeAutocompleteSuggestions(partial);
+            showNodeAutocomplete = nodeAutocompleteMatches.Any();
+            selectedAutocompleteIndex = 0;
+        }
+        else
+        {
+            showNodeAutocomplete = false;
+        }
+    }
+    
+    /// <summary>
+    /// Gets node name suggestions for autocomplete
+    /// </summary>
+    private List<string> GetNodeAutocompleteSuggestions(string partial)
+    {
+        var matches = new List<string>();
+        var partialLower = partial.ToLower();
+        
+        if (aiChatMode == "Build")
+        {
+            // Build mode: Show generic placeholders
+            var genericNames = new[] { "Listener", "Response", "Request", "Query", "Condition", "Result", "Data" };
+            matches.AddRange(genericNames
+                .Where(n => string.IsNullOrEmpty(partial) || n.ToLower().Contains(partialLower))
+                .Take(5));
+        }
+        else
+        {
+            // Ask/Edit mode: Show actual canvas nodes
+            matches.AddRange(canvasNodes
+                .Where(n => !string.IsNullOrEmpty(n.Name) && 
+                           (string.IsNullOrEmpty(partial) || n.Name.ToLower().Contains(partialLower)))
+                .OrderBy(n => n.Name)
+                .Take(5)
+                .Select(n => n.Name));
+        }
+        
+        return matches;
+    }
+    
+    /// <summary>
+    /// Inserts a node reference at the current position
+    /// </summary>
+    private void InsertNodeReference(string nodeName)
+    {
+        var lastBraces = aiInputMessage.LastIndexOf("{{");
+        if (lastBraces >= 0)
+        {
+            aiInputMessage = aiInputMessage.Substring(0, lastBraces) + "{{" + nodeName + "}}";
+        }
+        showNodeAutocomplete = false;
+    }
+    
+    /// <summary>
+    /// Handles keyboard events for autocomplete navigation
+    /// </summary>
+    private void HandleAiInputKeyDown(KeyboardEventArgs e)
+    {
+        if (!showNodeAutocomplete) return;
+        
+        if (e.Key == "Tab" && nodeAutocompleteMatches.Any())
+        {
+            InsertNodeReference(nodeAutocompleteMatches[selectedAutocompleteIndex]);
+        }
+        else if (e.Key == "ArrowDown")
+        {
+            selectedAutocompleteIndex = Math.Min(selectedAutocompleteIndex + 1, nodeAutocompleteMatches.Count - 1);
+        }
+        else if (e.Key == "ArrowUp")
+        {
+            selectedAutocompleteIndex = Math.Max(selectedAutocompleteIndex - 1, 0);
+        }
+        else if (e.Key == "Escape")
+        {
+            showNodeAutocomplete = false;
+        }
+    }
+    
+    /// <summary>
+    /// Gets placeholder text for AI input based on current mode
+    /// </summary>
+    private string GetAiPlaceholder()
+    {
+        return aiChatMode switch
+        {
+            "Ask" => "Ask about workflows, nodes, or best practices...",
+            "Build" => "Describe the workflow you want to create...",
+            "Edit" => "Describe changes to make (use {{NodeName}} to reference nodes)...",
+            _ => "Type your message..."
+        };
+    }
+    
+    /// <summary>
+    /// Renders markdown content to HTML for chat display
+    /// </summary>
+    private string RenderMarkdown(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        
+        var html = content;
+        
+        // Escape HTML first
+        html = System.Web.HttpUtility.HtmlEncode(html);
+        
+        // Convert \n to actual line breaks (from JSON)
+        html = html.Replace("\\n", "\n");
+        
+        // Code blocks (```...```)
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"```(\w*)\n?([\s\S]*?)```", 
+            "<pre><code class=\"language-$1\">$2</code></pre>");
+        
+        // Inline code (`...`)
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"`([^`]+)`", 
+            "<code>$1</code>");
+        
+        // Bold (**...**)
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"\*\*([^*]+)\*\*", 
+            "<strong>$1</strong>");
+        
+        // Italic (*...*)
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"\*([^*]+)\*", 
+            "<em>$1</em>");
+        
+        // Headers (### ...)
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"^### (.+)$", 
+            "<h4>$1</h4>", 
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"^## (.+)$", 
+            "<h3>$1</h3>", 
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        
+        // Bullet lists (- ...)
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"^- (.+)$", 
+            "<li>$1</li>", 
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        
+        // Wrap consecutive <li> in <ul>
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, 
+            @"(<li>.*?</li>\n?)+", 
+            "<ul>$0</ul>");
+        
+        // Line breaks
+        html = html.Replace("\n\n", "</p><p>");
+        html = html.Replace("\n", "<br/>");
+        
+        // Wrap in paragraph if not already wrapped
+        if (!html.StartsWith("<"))
+        {
+            html = $"<p>{html}</p>";
+        }
+        
+        return html;
+    }
+    
+    #endregion
+}
+
+/// <summary>
+/// AI Provider information including API key availability
+/// </summary>
+public record AiProviderInfo(string Name, bool HasKey);
+

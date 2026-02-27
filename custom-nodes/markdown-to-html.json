@@ -1,0 +1,90 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T20:59:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_MarkdownToHtml",
+        "displayName": "Markdown → HTML",
+        "description": "Converts Markdown text to HTML. Supports headers, paragraphs, bold, italic, links, images, code blocks, inline code, lists, blockquotes, and horizontal rules.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 5H21V19H3V5Z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M6 15V9L8.5 12L11 9V15\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M15 9V15L18 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "// Markdown to HTML Converter\n\nvar markdown = input.get(\"markdown\");\nvar addWrapper = input.get(\"addWrapper\") === \"true\";\n\nif (!markdown) {\n    log.error(\"Markdown input is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Markdown input is required\");\n    output.set(\"Html\", \"\");\n    tags.trigger(\"error\");\n} else {\n    try {\n        // Normalize line endings to \\n\n        var html = markdown.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');\n        \n        // Escape HTML special characters\n        function escapeHtml(text) {\n            return text\n                .replace(/&/g, '&amp;')\n                .replace(/</g, '&lt;')\n                .replace(/>/g, '&gt;');\n        }\n        \n        // Process fenced code blocks first (```) to protect them\n        var codeBlocks = [];\n        // Match ``` optionally followed by language, then content until closing ```\n        var codeBlockPattern = /```(\\w*)\\n([\\s\\S]*?)\\n```/g;\n        var match;\n        while ((match = codeBlockPattern.exec(html)) !== null) {\n            var lang = match[1];\n            var code = match[2];\n            var langAttr = lang ? ' class=\"language-' + lang + '\"' : '';\n            var placeholder = '%%CODEBLOCK' + codeBlocks.length + '%%';\n            codeBlocks.push('<pre><code' + langAttr + '>' + escapeHtml(code) + '</code></pre>');\n            html = html.substring(0, match.index) + placeholder + html.substring(match.index + match[0].length);\n            codeBlockPattern.lastIndex = match.index + placeholder.length;\n        }\n        \n        // Also handle code blocks without newline after language\n        codeBlockPattern = /```(\\w*)([\\s\\S]*?)```/g;\n        while ((match = codeBlockPattern.exec(html)) !== null) {\n            var lang = match[1];\n            var code = match[2].trim();\n            var langAttr = lang ? ' class=\"language-' + lang + '\"' : '';\n            var placeholder = '%%CODEBLOCK' + codeBlocks.length + '%%';\n            codeBlocks.push('<pre><code' + langAttr + '>' + escapeHtml(code) + '</code></pre>');\n            html = html.substring(0, match.index) + placeholder + html.substring(match.index + match[0].length);\n            codeBlockPattern.lastIndex = match.index + placeholder.length;\n        }\n        \n        // Process inline code (`) - protect these too\n        var inlineCodes = [];\n        html = html.replace(/`([^`\\n]+)`/g, function(m, code) {\n            var idx = inlineCodes.length;\n            inlineCodes.push('<code>' + escapeHtml(code) + '</code>');\n            return '%%INLINECODE' + idx + '%%';\n        });\n        \n        // Headers (must be at start of line)\n        html = html.replace(/^######\\s+(.+)$/gm, '<h6>$1</h6>');\n        html = html.replace(/^#####\\s+(.+)$/gm, '<h5>$1</h5>');\n        html = html.replace(/^####\\s+(.+)$/gm, '<h4>$1</h4>');\n        html = html.replace(/^###\\s+(.+)$/gm, '<h3>$1</h3>');\n        html = html.replace(/^##\\s+(.+)$/gm, '<h2>$1</h2>');\n        html = html.replace(/^#\\s+(.+)$/gm, '<h1>$1</h1>');\n        \n        // Horizontal rules\n        html = html.replace(/^(---|___|\\*\\*\\*)\\s*$/gm, '<hr/>');\n        \n        // Blockquotes\n        html = html.replace(/^>\\s*(.+)$/gm, '<blockquote>$1</blockquote>');\n        html = html.replace(/<\\/blockquote>\\n<blockquote>/g, '\\n');\n        \n        // Images (before links)\n        html = html.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, '<img src=\"$2\" alt=\"$1\"/>');\n        \n        // Links\n        html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href=\"$2\">$1</a>');\n        \n        // Bold (** or __)\n        html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');\n        html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');\n        \n        // Italic (* or _) - be careful not to match inside words\n        html = html.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');\n        html = html.replace(/\\b_([^_]+)_\\b/g, '<em>$1</em>');\n        \n        // Strikethrough\n        html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');\n        \n        // Process lists\n        var lines = html.split('\\n');\n        var result = [];\n        var inList = null;\n        \n        for (var i = 0; i < lines.length; i++) {\n            var line = lines[i];\n            var ulMatch = line.match(/^\\s*[\\*\\-\\+]\\s+(.+)$/);\n            var olMatch = line.match(/^\\s*\\d+\\.\\s+(.+)$/);\n            \n            if (ulMatch) {\n                if (inList !== 'ul') {\n                    if (inList) result.push('</' + inList + '>');\n                    result.push('<ul>');\n                    inList = 'ul';\n                }\n                result.push('<li>' + ulMatch[1] + '</li>');\n            } else if (olMatch) {\n                if (inList !== 'ol') {\n                    if (inList) result.push('</' + inList + '>');\n                    result.push('<ol>');\n                    inList = 'ol';\n                }\n                result.push('<li>' + olMatch[1] + '</li>');\n            } else {\n                if (inList) {\n                    result.push('</' + inList + '>');\n                    inList = null;\n                }\n                result.push(line);\n            }\n        }\n        if (inList) result.push('</' + inList + '>');\n        html = result.join('\\n');\n        \n        // Paragraphs - wrap text blocks not already in block elements\n        var blocks = html.split(/\\n\\n+/);\n        var finalBlocks = [];\n        for (var b = 0; b < blocks.length; b++) {\n            var block = blocks[b].trim();\n            if (!block) continue;\n            \n            // Don't wrap if already a block element or placeholder\n            if (block.match(/^<(h[1-6]|ul|ol|blockquote|pre|hr|div|table|p)/) || \n                block.indexOf('%%CODEBLOCK') === 0) {\n                finalBlocks.push(block);\n            } else {\n                block = block.replace(/\\n/g, '<br/>\\n');\n                finalBlocks.push('<p>' + block + '</p>');\n            }\n        }\n        html = finalBlocks.join('\\n\\n');\n        \n        // Restore code blocks\n        for (var c = 0; c < codeBlocks.length; c++) {\n            html = html.replace('%%CODEBLOCK' + c + '%%', codeBlocks[c]);\n            html = html.replace('<p>%%CODEBLOCK' + c + '%%</p>', codeBlocks[c]);\n        }\n        \n        // Restore inline code\n        for (var ic = 0; ic < inlineCodes.length; ic++) {\n            html = html.replace(new RegExp('%%INLINECODE' + ic + '%%', 'g'), inlineCodes[ic]);\n        }\n        \n        if (addWrapper) {\n            html = '<div class=\"markdown-body\">\\n' + html + '\\n</div>';\n        }\n        \n        output.set(\"Html\", html);\n        output.set(\"InputLength\", markdown.length);\n        output.set(\"OutputLength\", html.length);\n        output.set(\"HasErrors\", false);\n        output.set(\"ErrorMessage\", \"\");\n        log.info(\"Converted markdown to HTML: \" + html.length + \" chars\");\n        tags.trigger(\"success\");\n        \n    } catch (ex) {\n        log.error(\"Markdown conversion failed: \" + ex.message);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", ex.message);\n        output.set(\"Html\", \"\");\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "markdown",
+                "displayLabel": "Markdown",
+                "placeholderText": "# Hello World\n\nThis is **bold** and *italic*.",
+                "helpText": "The Markdown text to convert to HTML.",
+                "fieldType": "TextArea",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "addWrapper",
+                "displayLabel": "Add Wrapper Div",
+                "helpText": "Wrap output in a <div class=\"markdown-body\"> container.",
+                "fieldType": "Boolean",
+                "defaultValue": "false",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Html",
+                "description": "The converted HTML output",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "InputLength",
+                "description": "Length of the markdown input",
+                "dataType": "number",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "OutputLength",
+                "description": "Length of the HTML output",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if conversion failed",
+                "dataType": "boolean",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details if conversion failed",
+                "dataType": "string",
+                "displayOrder": 5
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Markdown was converted successfully",
+                "color": "#22c55e",
+                "conditionDescription": "Conversion succeeded",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Conversion failed",
+                "color": "#ef4444",
+                "conditionDescription": "Conversion failed",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

@@ -1,0 +1,137 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-15T22:23:00Z",
+    "definition": {
+        "nodeTypeKey": "Custom_DateFormatter",
+        "displayName": "Date Formatter",
+        "description": "Parses and formats dates between different formats. Supports common patterns and timezone conversion.",
+        "categoryName": "Data Transformation",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M3 10H21\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M8 2V6\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M16 2V6\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+        "executionType": "DataTransformation",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 30,
+        "script": "var dateInput = input.get('date');\nvar outputFormat = input.get('outputFormat') || 'ISO';\nvar addDays = parseInt(input.get('addDays') || '0');\nvar addHours = parseInt(input.get('addHours') || '0');\n\nif (!dateInput) {\n    output.set('HasErrors', true);\n    output.set('ErrorMessage', 'Date input is required');\n    output.set('Result', '');\n    tags.trigger('error');\n} else {\n    try {\n        var date = new Date(dateInput);\n        if (isNaN(date.getTime())) {\n            throw new Error('Invalid date format');\n        }\n        \n        if (addDays) date.setDate(date.getDate() + addDays);\n        if (addHours) date.setHours(date.getHours() + addHours);\n        \n        function pad(n) { return n < 10 ? '0' + n : n; }\n        \n        var y = date.getFullYear();\n        var m = pad(date.getMonth() + 1);\n        var d = pad(date.getDate());\n        var h = pad(date.getHours());\n        var min = pad(date.getMinutes());\n        var s = pad(date.getSeconds());\n        \n        var result = '';\n        switch (outputFormat) {\n            case 'ISO': result = date.toISOString(); break;\n            case 'UTC': result = date.toUTCString(); break;\n            case 'YYYY-MM-DD': result = y + '-' + m + '-' + d; break;\n            case 'DD/MM/YYYY': result = d + '/' + m + '/' + y; break;\n            case 'MM/DD/YYYY': result = m + '/' + d + '/' + y; break;\n            case 'YYYY-MM-DD HH:mm:ss': result = y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + s; break;\n            case 'Unix': result = Math.floor(date.getTime() / 1000).toString(); break;\n            case 'UnixMs': result = date.getTime().toString(); break;\n            default: result = date.toISOString();\n        }\n        \n        output.set('Result', result);\n        output.set('ISO', date.toISOString());\n        output.set('Unix', Math.floor(date.getTime() / 1000));\n        output.set('Year', y);\n        output.set('Month', date.getMonth() + 1);\n        output.set('Day', date.getDate());\n        output.set('DayOfWeek', date.getDay());\n        output.set('HasErrors', false);\n        output.set('ErrorMessage', '');\n        \n        log.info('Formatted date: ' + result);\n        tags.trigger('success');\n        \n    } catch (ex) {\n        log.error('Date format failed: ' + ex.message);\n        output.set('HasErrors', true);\n        output.set('ErrorMessage', ex.message);\n        output.set('Result', '');\n        tags.trigger('error');\n    }\n}",
+        "initializationScript": "",
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "date",
+                "displayLabel": "Date Input",
+                "placeholderText": "2024-01-15 or Jan 15, 2024",
+                "helpText": "Date string to parse. Accepts ISO, RFC, or common formats.",
+                "fieldType": "Text",
+                "defaultValue": "",
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "outputFormat",
+                "displayLabel": "Output Format",
+                "helpText": "Target date format.",
+                "fieldType": "Dropdown",
+                "defaultValue": "ISO",
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "displayOrder": 2,
+                "dropdownOptions": "ISO,UTC,YYYY-MM-DD,DD/MM/YYYY,MM/DD/YYYY,YYYY-MM-DD HH:mm:ss,Unix,UnixMs"
+            },
+            {
+                "fieldName": "addDays",
+                "displayLabel": "Add Days",
+                "placeholderText": "0",
+                "helpText": "Days to add (negative to subtract).",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 3
+            },
+            {
+                "fieldName": "addHours",
+                "displayLabel": "Add Hours",
+                "placeholderText": "0",
+                "helpText": "Hours to add (negative to subtract).",
+                "fieldType": "Text",
+                "defaultValue": "0",
+                "isRequired": false,
+                "allowPlaceholders": true,
+                "displayOrder": 4
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "Result",
+                "description": "Formatted date string",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "ISO",
+                "description": "ISO 8601 format",
+                "dataType": "string",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "Unix",
+                "description": "Unix timestamp (seconds)",
+                "dataType": "number",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "Year",
+                "description": "Year component",
+                "dataType": "number",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Month",
+                "description": "Month (1-12)",
+                "dataType": "number",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "Day",
+                "description": "Day of month",
+                "dataType": "number",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "DayOfWeek",
+                "description": "Day of week (0=Sun)",
+                "dataType": "number",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "True if failed",
+                "dataType": "boolean",
+                "displayOrder": 8
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Error details",
+                "dataType": "string",
+                "displayOrder": 9
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Formatting succeeded",
+                "color": "#22c55e",
+                "conditionDescription": "Success",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Formatting failed",
+                "color": "#ef4444",
+                "conditionDescription": "Error",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

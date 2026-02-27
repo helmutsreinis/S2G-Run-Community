@@ -1,0 +1,216 @@
+{
+  "Name": "Orchestrator Test",
+  "ExportedAt": "2026-02-12T20:28:20.6684717Z",
+  "Version": "1.0",
+  "Nodes": [
+    {
+      "Id": "2b21848e-9020-4981-bb11-8de3f20ab2f8",
+      "NodeType": "Orchestrator",
+      "Name": "Orchestrator",
+      "X": 1180,
+      "Y": 60,
+      "Width": 200,
+      "Height": 200,
+      "Configuration": "{\u0022TaskDescription\u0022:\u0022Generate 30 passwords in text file \\u0022psw.txt\\u0022 each on new line under folder \\u0022passwords\\u0022 and verify if everything is generated correctly.\u0022,\u0022MaxIterations\u0022:20,\u0022SteeringAINodeId\u0022:\u002257c296b0-ce28-4cd3-bd49-85472eaad779\u0022,\u0022SteeringAINodeName\u0022:\u0022DeepSeek\u0022,\u0022SteeringAIPromptPrefix\u0022:null,\u0022EvaluationType\u0022:1,\u0022SuccessCriteria\u0022:\u0022psw.txt file contains 30 passwords, each on new line.\u0022,\u0022EvaluatorAIProvider\u0022:null,\u0022EvaluatorModel\u0022:null,\u0022Agents\u0022:[{\u0022NodeId\u0022:\u00224e0e37da-bad0-4cf4-9844-e7adc612dc67\u0022,\u0022RoleName\u0022:\u0022DeepSeek-Agent-1\u0022,\u0022NodeType\u0022:\u0022DeepSeekAgent\u0022,\u0022SkillDescription\u0022:\u0022Can read files and read content.\u0022,\u0022SystemPrompt\u0022:\u0022\u0022,\u0022AssignedTools\u0022:null,\u0022ExecutionOrder\u0022:0,\u0022IsEnabled\u0022:true},{\u0022NodeId\u0022:\u0022af0a8227-d6db-4da3-ba8d-b5f6e46a9e43\u0022,\u0022RoleName\u0022:\u0022DeepSeek Agent-3\u0022,\u0022NodeType\u0022:\u0022DeepSeekAgent\u0022,\u0022SkillDescription\u0022:\u0022Can generate passwords and store in a file.\u0022,\u0022SystemPrompt\u0022:\u0022\u0022,\u0022AssignedTools\u0022:null,\u0022ExecutionOrder\u0022:1,\u0022IsEnabled\u0022:true}],\u0022ToolChains\u0022:[],\u0022OutputTags\u0022:[\u0022complete\u0022,\u0022error\u0022],\u0022LastExecutedAt\u0022:null,\u0022LastIterationCount\u0022:null,\u0022LastSuccess\u0022:null}",
+      "IsTrigger": false,
+      "Tags": [
+        "sdfsdf"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Executions: {{Orchestrator.IterationCount}}",
+        "Result: {{Orchestrator.FinalResult}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "4e0e37da-bad0-4cf4-9844-e7adc612dc67",
+      "NodeType": "DeepSeekAgent",
+      "Name": "DeepSeek-Agent-1",
+      "X": 940,
+      "Y": 300,
+      "Width": 200,
+      "Height": 140,
+      "Configuration": "{\u0022Model\u0022:\u0022deepseek-chat\u0022,\u0022Prompt\u0022:\u0022Use tool - tool_mystorage (My Storage) - to: check if folder \\u0022passwords\\u0022 exist, if folder exists and there is a file psw.txt check if this file contains 30 lines of passwords.\u0022,\u0022SystemPrompt\u0022:\u0022You have access to multiple tools. When the task requires multiple steps, call each tool in sequence. After receiving a tool result, continue calling additional tools until the task is complete.\u0022,\u0022ApiKey\u0022:null,\u0022TimeoutSeconds\u0022:300,\u0022MaxToolCalls\u0022:10,\u0022Cost\u0022:0.048498099999999995,\u0022InputTokens\u0022:135646,\u0022OutputTokens\u0022:25041,\u0022Tools\u0022:[{\u0022Name\u0022:\u0022tool_mystorage\u0022,\u0022Description\u0022:\u0022Execute S2GStorage operation: My Storage\u0022,\u0022EntryNodeId\u0022:\u0022abfd1ad7-a12f-4f9f-b75c-6bbeb028ec18\u0022,\u0022Parameters\u0022:{\u0022operation\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Operation: write, read, delete, list, or create_folder\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022Operation\u0022},\u0022path\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022File path for write/read/delete operations\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022FilePath\u0022},\u0022content\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Content to write (for write operation)\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022Content\u0022},\u0022folder\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Folder path for list or create_folder operations\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022FolderPath\u0022}},\u0022Required\u0022:[\u0022operation\u0022],\u0022Outputs\u0022:[{\u0022Placeholder\u0022:\u0022{{My Storage.Content}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022File content (for read operation)\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{My Storage.Files}}\u0022,\u0022DataType\u0022:\u0022array\u0022,\u0022Description\u0022:\u0022File list (for list operation)\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{My Storage.Success}}\u0022,\u0022DataType\u0022:\u0022bool\u0022,\u0022Description\u0022:\u0022Operation success status\u0022,\u0022IsEnabled\u0022:true}],\u0022IsExpanded\u0022:true}]}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Model: {{DeepSeek-Agent-1.ModelUsed}}",
+        "Tool Calls: {{DeepSeek-Agent-1.ToolCallsUsed}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "57c296b0-ce28-4cd3-bd49-85472eaad779",
+      "NodeType": "DeepSeek",
+      "Name": "Steering AI",
+      "X": 760,
+      "Y": 80,
+      "Width": 260,
+      "Height": 160,
+      "Configuration": "{\u0022Model\u0022:\u0022deepseek-chat\u0022,\u0022Temperature\u0022:0.7,\u0022Prompt\u0022:\u0022\u0022,\u0022Cost\u0022:0.037897020000000024,\u0022InputTokens\u0022:75882,\u0022OutputTokens\u0022:39643}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "AI Model: {{Steering AI.ModelUsed}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "abfd1ad7-a12f-4f9f-b75c-6bbeb028ec18",
+      "NodeType": "S2GStorage",
+      "Name": "Payloads",
+      "X": 1160,
+      "Y": 580,
+      "Width": 280,
+      "Height": 160,
+      "Configuration": "{\u0022Operation\u0022:\u0022Write\u0022,\u0022FilePath\u0022:\u0022\u0022,\u0022FolderPath\u0022:\u0022\u0022,\u0022Content\u0022:\u0022\u0022,\u0022ContentBase64\u0022:null,\u0022MaxFileSizeBytes\u0022:20971520}",
+      "IsTrigger": false,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "af0a8227-d6db-4da3-ba8d-b5f6e46a9e43",
+      "NodeType": "DeepSeekAgent",
+      "Name": "DeepSeek Agent-3",
+      "X": 1440,
+      "Y": 280,
+      "Width": 180,
+      "Height": 160,
+      "Configuration": "{\u0022Model\u0022:\u0022deepseek-chat\u0022,\u0022Prompt\u0022:\u0022Use tool - tool_password (PasswordGenerator) - to: generate 30 passwords with new line separation\\nUse tool - tool_writepasswords (My Storage) - to: store passwords under passwords folder in psw.txt\u0022,\u0022SystemPrompt\u0022:\u0022You have access to multiple tools. When the task requires multiple steps, call each tool in sequence. After receiving a tool result, continue calling additional tools until the task is complete.\u0022,\u0022ApiKey\u0022:null,\u0022TimeoutSeconds\u0022:300,\u0022MaxToolCalls\u0022:10,\u0022Cost\u0022:0.06401024000000001,\u0022InputTokens\u0022:201332,\u0022OutputTokens\u0022:18184,\u0022Tools\u0022:[{\u0022Name\u0022:\u0022tool_password\u0022,\u0022Description\u0022:\u0022Execute Custom_PasswordGenerator operation: PasswordGenerator\u0022,\u0022EntryNodeId\u0022:\u0022e51631ca-718c-4e44-99be-b9a89089ab02\u0022,\u0022Parameters\u0022:{\u0022length\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Password length (4-128 characters).\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022length\u0022},\u0022mode\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Generation mode: strong (random), pronounceable, passphrase, or PIN.\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022mode\u0022},\u0022count\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Number of passwords to generate (1-100).\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022count\u0022},\u0022includeuppercase\u0022:{\u0022Type\u0022:\u0022boolean\u0022,\u0022Description\u0022:\u0022Include A-Z characters.\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022includeUppercase\u0022},\u0022includelowercase\u0022:{\u0022Type\u0022:\u0022boolean\u0022,\u0022Description\u0022:\u0022Include a-z characters.\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022includeLowercase\u0022},\u0022includenumbers\u0022:{\u0022Type\u0022:\u0022boolean\u0022,\u0022Description\u0022:\u0022Include 0-9 characters.\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022includeNumbers\u0022},\u0022includesymbols\u0022:{\u0022Type\u0022:\u0022boolean\u0022,\u0022Description\u0022:\u0022Include special characters.\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022includeSymbols\u0022},\u0022excludeambiguous\u0022:{\u0022Type\u0022:\u0022boolean\u0022,\u0022Description\u0022:\u0022Exclude similar-looking characters (0O1lI).\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022excludeAmbiguous\u0022},\u0022customsymbols\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Custom symbol set (overrides default if provided).\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022customSymbols\u0022}},\u0022Required\u0022:[],\u0022Outputs\u0022:[{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.Password}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022The first generated password\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.Passwords}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022All generated passwords (newline separated)\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.PasswordArray}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022All passwords as a JSON array\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.Count}}\u0022,\u0022DataType\u0022:\u0022number\u0022,\u0022Description\u0022:\u0022Number of passwords generated\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.Length}}\u0022,\u0022DataType\u0022:\u0022number\u0022,\u0022Description\u0022:\u0022Password length\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.Entropy}}\u0022,\u0022DataType\u0022:\u0022number\u0022,\u0022Description\u0022:\u0022Estimated entropy in bits\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.Strength}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Password strength rating\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.HasErrors}}\u0022,\u0022DataType\u0022:\u0022boolean\u0022,\u0022Description\u0022:\u0022True if generation failed\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{PasswordGenerator.ErrorMessage}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Error details if generation failed\u0022,\u0022IsEnabled\u0022:true}],\u0022IsExpanded\u0022:false},{\u0022Name\u0022:\u0022tool_writepasswords\u0022,\u0022Description\u0022:\u0022Execute S2GStorage operation: My Storage\u0022,\u0022EntryNodeId\u0022:\u0022abfd1ad7-a12f-4f9f-b75c-6bbeb028ec18\u0022,\u0022Parameters\u0022:{\u0022operation\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Operation: write, read, delete, list, or create_folder\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022Operation\u0022},\u0022path\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022File path for write/read/delete operations\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022FilePath\u0022},\u0022content\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Content to write (for write operation)\u0022,\u0022IsEnabled\u0022:true,\u0022NodeConfigField\u0022:\u0022Content\u0022},\u0022folder\u0022:{\u0022Type\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022Folder path for list or create_folder operations\u0022,\u0022IsEnabled\u0022:false,\u0022NodeConfigField\u0022:\u0022FolderPath\u0022}},\u0022Required\u0022:[\u0022operation\u0022],\u0022Outputs\u0022:[{\u0022Placeholder\u0022:\u0022{{My Storage.Content}}\u0022,\u0022DataType\u0022:\u0022string\u0022,\u0022Description\u0022:\u0022File content (for read operation)\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{My Storage.Files}}\u0022,\u0022DataType\u0022:\u0022array\u0022,\u0022Description\u0022:\u0022File list (for list operation)\u0022,\u0022IsEnabled\u0022:true},{\u0022Placeholder\u0022:\u0022{{My Storage.Success}}\u0022,\u0022DataType\u0022:\u0022bool\u0022,\u0022Description\u0022:\u0022Operation success status\u0022,\u0022IsEnabled\u0022:true}],\u0022IsExpanded\u0022:false}]}",
+      "IsTrigger": false,
+      "Tags": [
+        "asfasf"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [
+        "Total Calls: {{DeepSeek Agent-3.ModelUsed}}",
+        "{{DeepSeek Agent-3.ToolCallsUsed}}",
+        "{{DeepSeek Agent-3.ToolResults}}"
+      ],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "e0353a59-ab5b-4a10-9ade-20ef427d5f3a",
+      "NodeType": "Scheduler",
+      "Name": "Scheduler",
+      "X": 1580,
+      "Y": 80,
+      "Width": 160,
+      "Height": 160,
+      "Configuration": "{\u0022ScheduleType\u0022:\u0022Interval\u0022,\u0022IntervalValue\u0022:10,\u0022IntervalUnit\u0022:\u0022Seconds\u0022,\u0022TimeOfDay\u0022:\u002209:00\u0022,\u0022DaysOfWeek\u0022:[],\u0022DaysOfMonth\u0022:[],\u0022Timezone\u0022:\u0022UTC\u0022,\u0022EndDateTime\u0022:null,\u0022LastTriggeredAt\u0022:null,\u0022LastTriggeredLocalTime\u0022:null,\u0022NextScheduledRun\u0022:null}",
+      "IsTrigger": true,
+      "Tags": [],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    },
+    {
+      "Id": "e51631ca-718c-4e44-99be-b9a89089ab02",
+      "NodeType": "Custom_PasswordGenerator",
+      "Name": "PasswordGenerator",
+      "X": 1780,
+      "Y": 280,
+      "Width": 180,
+      "Height": 160,
+      "Configuration": "{}",
+      "IsTrigger": false,
+      "Tags": [
+        "asdasd"
+      ],
+      "IconOverride": null,
+      "SurfaceFields": [],
+      "LoggingSettings": {
+        "LoggingEnabled": true,
+        "LogInfo": true,
+        "LogWarning": true,
+        "LogError": true,
+        "LogDebug": true
+      }
+    }
+  ],
+  "Connections": [
+    {
+      "Id": "0dd6274c-c342-49f6-af99-1b81966f2b8d",
+      "SourceId": "4e0e37da-bad0-4cf4-9844-e7adc612dc67",
+      "TargetId": "2b21848e-9020-4981-bb11-8de3f20ab2f8",
+      "Label": "agent"
+    },
+    {
+      "Id": "b74b4e85-11ea-4967-9bb8-a0c44c945d4b",
+      "SourceId": "4e0e37da-bad0-4cf4-9844-e7adc612dc67",
+      "TargetId": "abfd1ad7-a12f-4f9f-b75c-6bbeb028ec18",
+      "Label": "tool:mystorage"
+    },
+    {
+      "Id": "81a08b6e-7b07-44a7-a4e1-3dcdf56ec488",
+      "SourceId": "57c296b0-ce28-4cd3-bd49-85472eaad779",
+      "TargetId": "2b21848e-9020-4981-bb11-8de3f20ab2f8",
+      "Label": "orchestrate"
+    },
+    {
+      "Id": "8339eb3a-5107-49d4-8e44-4ad3ee8d3981",
+      "SourceId": "af0a8227-d6db-4da3-ba8d-b5f6e46a9e43",
+      "TargetId": "2b21848e-9020-4981-bb11-8de3f20ab2f8",
+      "Label": "agent"
+    },
+    {
+      "Id": "a2ee092b-eb86-46e8-8d35-114860d50d88",
+      "SourceId": "af0a8227-d6db-4da3-ba8d-b5f6e46a9e43",
+      "TargetId": "abfd1ad7-a12f-4f9f-b75c-6bbeb028ec18",
+      "Label": "tool:writepasswords"
+    },
+    {
+      "Id": "c4a798e3-c564-4e08-bf8a-623c37975751",
+      "SourceId": "af0a8227-d6db-4da3-ba8d-b5f6e46a9e43",
+      "TargetId": "e51631ca-718c-4e44-99be-b9a89089ab02",
+      "Label": "tool:password"
+    },
+    {
+      "Id": "d4089b2b-9deb-4d71-ab13-7f1391bca201",
+      "SourceId": "e0353a59-ab5b-4a10-9ade-20ef427d5f3a",
+      "TargetId": "2b21848e-9020-4981-bb11-8de3f20ab2f8",
+      "Label": null
+    }
+  ]
+}

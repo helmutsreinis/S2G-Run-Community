@@ -1,0 +1,128 @@
+{
+  "exportVersion": 1,
+  "exportedAt": "2026-01-15T16:37:06.4480914Z",
+  "definition": {
+    "nodeTypeKey": "Custom_PartnerCenterCustomers",
+    "displayName": "Partner Center Customers",
+    "description": "Fetches all customers from Microsoft Partner Center API.\n",
+    "iconSvg": "\u003Csvg viewBox=\u00220 0 24 24\u0022 fill=\u0022none\u0022 xmlns=\u0022http://www.w3.org/2000/svg\u0022\u003E\u003Cg id=\u0022SVGRepo_bgCarrier\u0022 stroke-width=\u00220\u0022\u003E\u003C/g\u003E\u003Cg id=\u0022SVGRepo_tracerCarrier\u0022 stroke-linecap=\u0022round\u0022 stroke-linejoin=\u0022round\u0022\u003E\u003C/g\u003E\u003Cg id=\u0022SVGRepo_iconCarrier\u0022\u003E \u003Cpath d=\u0022M4 4H11.5V11.5H4V4ZM12.5 4H20V11.5H12.5V4ZM4 12.5H11.5V20H4V12.5ZM12.5 12.5H20V20H12.5V12.5Z\u0022 fill=\u0022#000000\u0022\u003E\u003C/path\u003E \u003C/g\u003E\u003C/svg\u003E",
+    "iconFallbackEmoji": null,
+    "categoryName": "Partner Center Integrations",
+    "executionType": "HttpRequest",
+    "executionDelayMs": 0,
+    "timeoutSeconds": 300,
+    "script": "// Configuration\nvar token = input.get(\u0022accessToken\u0022);\nvar maxPages = parseInt(input.get(\u0022maxPages\u0022)) || 100;\nvar pageSize = parseInt(input.get(\u0022pageSize\u0022)) || 100;\n\n// Validate token\nif (!token) {\n    log.error(\u0022Access token is required\u0022);\n    output.set(\u0022HasErrors\u0022, true);\n    output.set(\u0022ErrorMessage\u0022, \u0022Access token is required\u0022);\n    tags.trigger(\u0022error\u0022);\n} else {\n    // Initialize\n    var allCustomers = [];\n    var pagesProcessed = 0;\n    var hasErrors = false;\n    var errorMessage = \u0022\u0022;\n\n    // Build initial URL\n    var baseUrl = \u0022https://api.partnercenter.microsoft.com/v1/customers\u0022;\n    var nextUrl = baseUrl \u002B \u0022?size=\u0022 \u002B pageSize;\n    var continuationToken = null;\n\n    log.info(\u0022Starting Partner Center customer fetch, max pages: \u0022 \u002B maxPages);\n\n    // Pagination loop\n    while (nextUrl \u0026\u0026 pagesProcessed \u003C maxPages) {\n        pagesProcessed\u002B\u002B;\n        log.debug(\u0022Fetching page \u0022 \u002B pagesProcessed \u002B \u0022: \u0022 \u002B nextUrl);\n        \n        // Build headers for this request\n        var headers = {\n            \u0022Authorization\u0022: \u0022Bearer \u0022 \u002B token,\n            \u0022Accept\u0022: \u0022application/json\u0022,\n            \u0022MS-RequestId\u0022: nodeId,\n            \u0022MS-CorrelationId\u0022: nodeId\n        };\n        \n        // Add continuation token as header if we have one\n        if (continuationToken) {\n            headers[\u0022MS-ContinuationToken\u0022] = continuationToken;\n        }\n        \n        try {\n            var response = http.get(nextUrl, headers);\n            \n            if (!response.isSuccess) {\n                hasErrors = true;\n                errorMessage = \u0022API error on page \u0022 \u002B pagesProcessed \u002B \u0022: HTTP \u0022 \u002B response.statusCode;\n                log.error(errorMessage);\n                break;\n            }\n            \n            var data = json.parse(response.body);\n            \n            // Extract customers from response\n            if (data \u0026\u0026 data.items \u0026\u0026 Array.isArray(data.items)) {\n                for (var i = 0; i \u003C data.items.length; i\u002B\u002B) {\n                    allCustomers.push(data.items[i]);\n                }\n                log.info(\u0022Page \u0022 \u002B pagesProcessed \u002B \u0022: Retrieved \u0022 \u002B data.items.length \u002B \u0022 customers\u0022);\n            } else if (data \u0026\u0026 data.customers \u0026\u0026 Array.isArray(data.customers)) {\n                for (var j = 0; j \u003C data.customers.length; j\u002B\u002B) {\n                    allCustomers.push(data.customers[j]);\n                }\n                log.info(\u0022Page \u0022 \u002B pagesProcessed \u002B \u0022: Retrieved \u0022 \u002B data.customers.length \u002B \u0022 customers\u0022);\n            }\n            \n            // Check for next page - extract continuation token from headers\n            nextUrl = null;\n            continuationToken = null;\n            \n            if (data \u0026\u0026 data.links \u0026\u0026 data.links.next) {\n                var nextLink = data.links.next;\n                \n                // Extract continuation token from headers array\n                if (nextLink.headers \u0026\u0026 Array.isArray(nextLink.headers)) {\n                    for (var h = 0; h \u003C nextLink.headers.length; h\u002B\u002B) {\n                        if (nextLink.headers[h].key === \u0022MS-ContinuationToken\u0022) {\n                            continuationToken = nextLink.headers[h].value;\n                            break;\n                        }\n                    }\n                }\n                \n                // Build next URL if we have a continuation token\n                if (continuationToken \u0026\u0026 nextLink.uri) {\n                    nextUrl = nextLink.uri;\n                    if (nextUrl.startsWith(\u0022/\u0022)) {\n                        nextUrl = \u0022https://api.partnercenter.microsoft.com\u0022 \u002B nextUrl;\n                    }\n                    log.debug(\u0022Found continuation token, next URL: \u0022 \u002B nextUrl);\n                }\n            }\n            \n        } catch (ex) {\n            hasErrors = true;\n            errorMessage = \u0022Exception on page \u0022 \u002B pagesProcessed \u002B \u0022: \u0022 \u002B ex.message;\n            log.error(errorMessage);\n            break;\n        }\n    }\n\n    // Set outputs\n    output.set(\u0022Customers\u0022, allCustomers);\n    output.setJson(\u0022CustomersJson\u0022, allCustomers);\n    output.set(\u0022TotalCount\u0022, allCustomers.length);\n    output.set(\u0022PagesProcessed\u0022, pagesProcessed);\n    output.set(\u0022HasErrors\u0022, hasErrors);\n    output.set(\u0022ErrorMessage\u0022, errorMessage);\n\n    log.info(\u0022Completed: \u0022 \u002B allCustomers.length \u002B \u0022 customers in \u0022 \u002B pagesProcessed \u002B \u0022 pages\u0022);\n\n    // Trigger appropriate connection tag\n    if (hasErrors) {\n        tags.trigger(\u0022error\u0022);\n    } else if (allCustomers.length === 0) {\n        tags.trigger(\u0022empty\u0022);\n    } else {\n        tags.trigger(\u0022success\u0022);\n    }\n}",
+    "initializationScript": null,
+    "inputSchemaJson": null,
+    "defaultConfigurationJson": null,
+    "inputFields": [
+      {
+        "fieldName": "accessToken",
+        "displayLabel": "Access Token",
+        "placeholderText": "{{Auth.AccessToken}}",
+        "helpText": "Partner Center OAuth access token",
+        "fieldType": "Password",
+        "defaultValue": null,
+        "isRequired": true,
+        "allowPlaceholders": true,
+        "validationRegex": null,
+        "expectedDataType": null,
+        "jsonSchemaValidation": null,
+        "selectOptionsJson": null,
+        "displayOrder": 0
+      },
+      {
+        "fieldName": "maxPages",
+        "displayLabel": "Max Pages",
+        "placeholderText": null,
+        "helpText": "Maximum number of pages to fetch (safety limit)",
+        "fieldType": "Text",
+        "defaultValue": "100",
+        "isRequired": false,
+        "allowPlaceholders": false,
+        "validationRegex": null,
+        "expectedDataType": null,
+        "jsonSchemaValidation": null,
+        "selectOptionsJson": null,
+        "displayOrder": 1
+      },
+      {
+        "fieldName": "pageSize",
+        "displayLabel": "Page Size",
+        "placeholderText": null,
+        "helpText": "Number of customers per page (max 500)",
+        "fieldType": "Number",
+        "defaultValue": "100",
+        "isRequired": false,
+        "allowPlaceholders": false,
+        "validationRegex": null,
+        "expectedDataType": null,
+        "jsonSchemaValidation": null,
+        "selectOptionsJson": null,
+        "displayOrder": 2
+      }
+    ],
+    "outputParameters": [
+      {
+        "parameterName": "Customers",
+        "description": "Array of all customer objects",
+        "dataType": "array",
+        "displayOrder": 0
+      },
+      {
+        "parameterName": "CustomersJson",
+        "description": "JSON string of all customers",
+        "dataType": "string",
+        "displayOrder": 1
+      },
+      {
+        "parameterName": "TotalCount",
+        "description": "Total number of customers retrieved",
+        "dataType": "int",
+        "displayOrder": 2
+      },
+      {
+        "parameterName": "PagesProcessed",
+        "description": "Number of API pages processed",
+        "dataType": "int",
+        "displayOrder": 3
+      },
+      {
+        "parameterName": "HasErrors",
+        "description": "Whether any errors occurred during pagination",
+        "dataType": "bool",
+        "displayOrder": 4
+      },
+      {
+        "parameterName": "ErrorMessage",
+        "description": "Error message if HasErrors is true",
+        "dataType": "bool",
+        "displayOrder": 5
+      }
+    ],
+    "connectionTags": [
+      {
+        "tagName": "success",
+        "description": "All customers retrieved successfully",
+        "color": "#16ca34",
+        "conditionDescription": "",
+        "displayOrder": 0
+      },
+      {
+        "tagName": "error",
+        "description": "An error occurred during fetch",
+        "color": "#db0606",
+        "conditionDescription": "",
+        "displayOrder": 1
+      },
+      {
+        "tagName": "empty",
+        "description": "No customers found",
+        "color": "#fe9501",
+        "conditionDescription": "",
+        "displayOrder": 2
+      }
+    ],
+    "logConfigs": []
+  }
+}

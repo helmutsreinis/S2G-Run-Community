@@ -1,0 +1,275 @@
+@using System.Text.Json
+
+<div class="storage-client-editor">
+    <div class="mb-3">
+        <label class="form-label">Operation</label>
+        <select class="form-control" @bind="config.Operation">
+            <option value="Query">📖 Query - Find records</option>
+            <option value="Insert">➕ Insert - Add new record</option>
+            <option value="Upsert">🔄 Upsert - Insert or update by ID</option>
+            <option value="Update">✏️ Update - Modify existing record</option>
+            <option value="Delete">🗑️ Delete - Remove by record ID</option>
+            <option value="DeleteByFilter">🧹 Delete by Filter - Remove matching records</option>
+        </select>
+        <small class="text-muted">
+            @switch (config.Operation)
+            {
+                case "Query":
+                    <text>Search and retrieve records from the connected Storage Table.</text>
+                    break;
+                case "Insert":
+                    <text>Add a new record with the specified data.</text>
+                    break;
+                case "Upsert":
+                    <text>Insert a new record or update if the ID already exists.</text>
+                    break;
+                case "Update":
+                    <text>Update an existing record by its ID.</text>
+                    break;
+                case "Delete":
+                    <text>Remove a single record by its ID.</text>
+                    break;
+                case "DeleteByFilter":
+                    <text>Remove all records matching the filter criteria.</text>
+                    break;
+            }
+        </small>
+    </div>
+
+    @if (config.Operation == "Upsert" || config.Operation == "Update" || config.Operation == "Delete")
+    {
+        <div class="mb-3">
+            <label class="form-label">Record ID</label>
+            <input type="text" class="form-control" @bind="config.RecordId" 
+                   placeholder="{{NodeName.InsertedId}} or GUID" />
+            <small class="text-muted">The unique identifier of the record. Use placeholders to reference IDs from previous operations.</small>
+        </div>
+    }
+
+    @if (config.Operation == "Query" || config.Operation == "DeleteByFilter")
+    {
+        <div class="mb-3">
+            <label class="form-label">Filter (optional)</label>
+            <div class="filter-row">
+                <input type="text" class="form-control form-control-sm" @bind="config.FilterColumn" 
+                       placeholder="Column name" style="flex: 1;" />
+                <select class="form-select form-select-sm" @bind="config.FilterOperator" style="width: 100px;">
+                    <option value="==">==</option>
+                    <option value="!=">!=</option>
+                    <option value="Contains">Contains</option>
+                    <option value="StartsWith">StartsWith</option>
+                    <option value="EndsWith">EndsWith</option>
+                    <option value="&gt;">&gt;</option>
+                    <option value="&gt;=">&gt;=</option>
+                    <option value="&lt;">&lt;</option>
+                    <option value="&lt;=">&lt;=</option>
+                </select>
+                <input type="text" class="form-control form-control-sm" @bind="config.FilterValue" 
+                       placeholder="Value (supports {{placeholders}})" style="flex: 1;" />
+            </div>
+            <small class="text-muted">Filter by column value. Use <code>Timestamp</code> to filter by record date.</small>
+        </div>
+
+        @if (config.Operation == "Query")
+        {
+            <div class="mb-3">
+                <label class="form-label">Max Results</label>
+                <input type="number" class="form-control" style="width: 100px;" @bind="config.MaxResults" min="1" max="10000" />
+            </div>
+        }
+    }
+
+    @if (config.Operation == "Insert" || config.Operation == "Upsert" || config.Operation == "Update")
+    {
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label mb-0">Data (JSON)</label>
+                @if ((config.Operation == "Insert" || config.Operation == "Upsert") && StorageTableColumns?.Any() == true)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-info" @onclick="MapValues" title="Auto-generate JSON with table columns">
+                        🔗 Map Values
+                    </button>
+                }
+            </div>
+            <textarea class="form-control" rows="5" @bind="config.DataJson" 
+                      placeholder='{"ColumnName": "value", "AnotherColumn": 123}'></textarea>
+            <small class="text-muted">
+                JSON object with column names and values. Supports <code>{{"{{placeholders}}"}}</code> for dynamic values.
+            </small>
+        </div>
+    }
+
+    @if (AvailablePlaceholders != null && AvailablePlaceholders.Any())
+    {
+        <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.PlaceholderList Placeholders="@AvailablePlaceholders" />
+    }
+
+    @if (ConnectedStorageTableNodeId.HasValue && ConnectedStorageTableNodeId != Guid.Empty)
+    {
+        <div class="connected-table-info mt-3">
+            <span class="badge bg-success">✓ Connected to Storage Table</span>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning py-2 small mt-3">
+            <strong>⚠️ No Storage Table connected!</strong> Create a <code>storage</code> connection from this node to a Storage Table node.
+        </div>
+    }
+
+    <div class="output-preview mt-4">
+        <h6>📤 Output Parameters</h6>
+        <ul class="small text-muted mb-0">
+            <li><code>Records</code> - List of matching records (Query)</li>
+            <li><code>RecordsJson</code> - JSON array of records</li>
+            <li><code>FirstRecord</code> - First record as JSON</li>
+            <li><code>Count</code> - Number of records returned</li>
+            <li><code>AffectedCount</code> - Records affected (Delete/Update)</li>
+            <li><code>InsertedId</code> - ID of inserted/upserted record</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+    .storage-client-editor {
+        padding: 0.5rem 0;
+    }
+
+    .storage-client-editor .form-label {
+        color: var(--text-primary, #e0e0e0);
+        font-weight: 500;
+    }
+
+    .storage-client-editor .text-muted,
+    .storage-client-editor small.text-muted {
+        color: var(--text-secondary, #b0b0b0) !important;
+    }
+
+    .storage-client-editor code {
+        color: var(--accent-color, #00a8a8);
+        background: rgba(0, 168, 168, 0.1);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .filter-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .connected-table-info .badge {
+        font-size: 0.85rem;
+    }
+
+    .output-preview {
+        padding: 12px;
+        background: rgba(0, 168, 168, 0.1);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 168, 168, 0.2);
+    }
+
+    .output-preview h6 {
+        margin-bottom: 8px;
+        color: var(--accent-color);
+    }
+
+    .output-preview ul {
+        padding-left: 1.2rem;
+        color: var(--text-secondary, #b0b0b0);
+    }
+
+    .output-preview code {
+        color: var(--accent-color);
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public List<string>? AvailablePlaceholders { get; set; }
+    [Parameter] public List<string>? StorageTableColumns { get; set; }
+    [Parameter] public Guid? ConnectedStorageTableNodeId { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private StorageClientConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Configuration))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<StorageClientConfig>(Configuration) ?? new();
+            }
+            catch
+            {
+                config = new();
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await SaveConfiguration();
+    }
+
+    private async Task SaveConfiguration()
+    {
+        var json = JsonSerializer.Serialize(config);
+        if (Configuration != json)
+        {
+            await OnConfigurationChanged.InvokeAsync(json);
+        }
+    }
+
+    private void MapValues()
+    {
+        if (StorageTableColumns == null || !StorageTableColumns.Any()) return;
+        
+        var mappings = new Dictionary<string, string>();
+        
+        foreach (var column in StorageTableColumns)
+        {
+            // Try to find a matching placeholder from upstream nodes
+            var matchingPlaceholder = FindMatchingPlaceholder(column);
+            mappings[column] = matchingPlaceholder ?? "dummy";
+        }
+        
+        // Generate formatted JSON
+        var jsonLines = mappings.Select(kvp => $"  \"{kvp.Key}\": \"{kvp.Value}\"");
+        config.DataJson = "{\n" + string.Join(",\n", jsonLines) + "\n}";
+        StateHasChanged();
+    }
+    
+    private string? FindMatchingPlaceholder(string columnName)
+    {
+        if (AvailablePlaceholders == null) return null;
+        
+        // Search for a placeholder that ends with the column name (case-insensitive)
+        // e.g., for column "ResellerName", find "{{Listener.Body.ResellerName}}"
+        foreach (var placeholder in AvailablePlaceholders)
+        {
+            // Extract the property path from the placeholder: {{Node.Property}} -> Property
+            var inner = placeholder.Trim('{', '}');
+            var lastPart = inner.Split('.').LastOrDefault();
+            
+            if (string.Equals(lastPart, columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return placeholder;
+            }
+        }
+        
+        return null;
+    }
+
+    private class StorageClientConfig
+    {
+        public string Operation { get; set; } = "Query";
+        public string? RecordId { get; set; }
+        public string? FilterColumn { get; set; }
+        public string? FilterOperator { get; set; } = "==";
+        public string? FilterValue { get; set; }
+        public string? DataJson { get; set; }
+        public int MaxResults { get; set; } = 100;
+    }
+}

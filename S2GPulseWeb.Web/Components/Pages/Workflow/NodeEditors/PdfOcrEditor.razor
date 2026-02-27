@@ -1,0 +1,206 @@
+@using System.Text.Json
+
+<div class="pdfocr-editor">
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey" 
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))" 
+                   class="form-control" placeholder="Leave empty to use Settings page key"
+                   autocomplete="new-password" />
+        </div>
+        <small class="form-text text-muted">Override key for this node. If empty, uses Mistral_ApiKey from Settings.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Input Type</label>
+        <select value="@config.InputType" @onchange="@(e => UpdateConfig(c => c.InputType = e.Value?.ToString() ?? "Url"))" class="form-control">
+            <option value="Url">URL (direct link to PDF)</option>
+            <option value="Base64">Base64 (encoded PDF content)</option>
+        </select>
+        <small class="form-text text-muted">Choose how to provide the PDF document.</small>
+    </div>
+
+    <div class="form-group">
+        <label>@(config.InputType == "Base64" ? "PDF Content (Base64)" : "PDF URL")</label>
+        <textarea value="@config.DocumentSource" 
+                  @onchange="@(e => UpdateConfig(c => c.DocumentSource = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" 
+                  placeholder="@(config.InputType == "Base64" ? "Base64 encoded PDF content or {{placeholder}}" : "https://example.com/document.pdf or {{placeholder}}")"></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="extractTables" 
+                   checked="@config.ExtractTables" 
+                   @onchange="@(e => UpdateConfig(c => c.ExtractTables = (bool)(e.Value ?? true)))" />
+            <label class="form-check-label" for="extractTables">
+                Extract Tables as JSON
+            </label>
+        </div>
+        <small class="form-text text-muted">Parse markdown tables into structured JSON arrays.</small>
+    </div>
+
+    <div class="form-group">
+        <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="includeImages" 
+                   checked="@config.IncludeImages" 
+                   @onchange="@(e => UpdateConfig(c => c.IncludeImages = (bool)(e.Value ?? false)))" />
+            <label class="form-check-label" for="includeImages">
+                Include Embedded Images
+            </label>
+        </div>
+        <small class="form-text text-muted">Return embedded images as Base64 in the response.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for OCR processing (default: 300s = 5 minutes)</small>
+    </div>
+
+    @if (config.Cost > 0 || config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Cumulative Cost:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">$@config.Cost.ToString("F4")</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Pages processed: @config.InputTokens
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetCost" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="pricing-info mt-2 mb-3 p-2 border rounded" style="background-color: rgba(255, 165, 0, 0.1); border-color: rgba(255, 165, 0, 0.3) !important;">
+        <div class="d-flex align-items-center">
+            <span style="color: #ffa500;">💰 Pricing: $1 per 1,000 pages ($0.001/page)</span>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Output Properties</label>
+        <div class="output-properties">
+            <span class="output-chip" title="Plain text extraction (all pages)">{{PdfOcr.Text}}</span>
+            <span class="output-chip" title="Structured Markdown with formatting">{{PdfOcr.Markdown}}</span>
+            <span class="output-chip" title="JSON array of detected tables">{{PdfOcr.Tables}}</span>
+            <span class="output-chip" title="Number of pages processed">{{PdfOcr.PageCount}}</span>
+            <span class="output-chip" title="Cost of this execution in USD">{{PdfOcr.Cost}}</span>
+        </div>
+        <small class="form-text text-muted">Use these placeholders in downstream nodes.</small>
+    </div>
+</div>
+
+<style>
+    .pdfocr-editor {
+        padding: 0.5rem;
+    }
+
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    .chip {
+        background: rgba(255, 165, 0, 0.15);
+        border: 1px solid rgba(255, 165, 0, 0.4);
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: rgba(255, 165, 0, 0.3);
+    }
+
+    .output-properties {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .output-chip {
+        background: rgba(255, 140, 0, 0.15);
+        border: 1px solid rgba(255, 140, 0, 0.4);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        font-family: monospace;
+        color: #ffa500;
+        cursor: help;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public IEnumerable<string> AvailablePlaceholders { get; set; } = Enumerable.Empty<string>();
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private PdfOcrConfig config = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<PdfOcrConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task ResetCost()
+    {
+        config.Cost = 0;
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private async Task UpdateConfig(Action<PdfOcrConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.DocumentSource += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    // Local config class to match PdfOcrNode
+    private class PdfOcrConfig
+    {
+        public string DocumentSource { get; set; } = string.Empty;
+        public string InputType { get; set; } = "Url";
+        public bool ExtractTables { get; set; } = true;
+        public bool IncludeImages { get; set; } = false;
+        public string? ApiKey { get; set; }
+        public int TimeoutSeconds { get; set; } = 300;
+        public double Cost { get; set; } = 0;
+        public long InputTokens { get; set; } = 0;
+        public long OutputTokens { get; set; } = 0;
+    }
+}

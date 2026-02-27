@@ -1,0 +1,22 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  S2GPulseWeb.ServiceDefaults -> d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.ServiceDefaults\bin\Debug\net9.0\S2GPulseWeb.ServiceDefaults.dll
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Logic\Nodes\OpenAINode.cs(58,26): warning CS8619: Nullability of reference types in value of type 'Dictionary<string, object>' doesn't match target type 'Dictionary<string, object?>'. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(694,107): error CS0246: The type or namespace name 'JsonElement' could not be found (are you missing a using directive or an assembly reference?) [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(687,36): warning CS8601: Possible null reference assignment. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(688,32): warning CS8601: Possible null reference assignment. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(691,65): warning CS8604: Possible null reference argument for parameter 'nodeType' in 'string Designer.GetDefaultConfiguration(string nodeType)'. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+
+Build FAILED.
+
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Logic\Nodes\OpenAINode.cs(58,26): warning CS8619: Nullability of reference types in value of type 'Dictionary<string, object>' doesn't match target type 'Dictionary<string, object?>'. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(687,36): warning CS8601: Possible null reference assignment. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(688,32): warning CS8601: Possible null reference assignment. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(691,65): warning CS8604: Possible null reference argument for parameter 'nodeType' in 'string Designer.GetDefaultConfiguration(string nodeType)'. [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\Components\Pages\Workflow\Designer.razor(694,107): error CS0246: The type or namespace name 'JsonElement' could not be found (are you missing a using directive or an assembly reference?) [d:\Private Projects\S2G-Pulse-Web\S2GPulseWeb.Web\S2GPulseWeb.Web.csproj]
+    4 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:02.39
+
+Workload updates are available. Run `dotnet workload list` for more information.

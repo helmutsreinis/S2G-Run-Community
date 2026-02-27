@@ -1,0 +1,146 @@
+{
+    "exportVersion": 1,
+    "exportedAt": "2026-01-21T23:11:00.0000000Z",
+    "definition": {
+        "nodeTypeKey": "Custom_GraphUserByEmail",
+        "displayName": "Graph User By Email",
+        "description": "Retrieves a single user from Microsoft Graph API by their email address or User Principal Name (UPN). Returns the full user profile including display name, contact information, job details, and directory attributes. Useful for user lookups, validation, and fetching specific user data in workflows.\n",
+        "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g id=\"SVGRepo_bgCarrier\" stroke-width=\"0\"></g><g id=\"SVGRepo_tracerCarrier\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g id=\"SVGRepo_iconCarrier\"><path d=\"M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z\" stroke=\"#000000\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><path d=\"M12 14C8.13401 14 5 17.134 5 21H19C19 17.134 15.866 14 12 14Z\" stroke=\"#000000\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></g></svg>",
+        "iconFallbackEmoji": null,
+        "categoryName": "Microsoft Graph",
+        "executionType": "HttpRequest",
+        "executionDelayMs": 0,
+        "timeoutSeconds": 60,
+        "script": "// Configuration\nvar token = input.get(\"accessToken\");\nvar userEmail = input.get(\"userEmail\");\nvar selectFields = input.get(\"selectFields\") || \"\";\n\n// Validate inputs\nif (!token) {\n    log.error(\"Access token is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"Access token is required\");\n    tags.trigger(\"error\");\n} else if (!userEmail) {\n    log.error(\"User email is required\");\n    output.set(\"HasErrors\", true);\n    output.set(\"ErrorMessage\", \"User email is required\");\n    tags.trigger(\"error\");\n} else {\n    // Build URL\n    var url = \"https://graph.microsoft.com/v1.0/users/\" + encodeURIComponent(userEmail);\n    if (selectFields) {\n        url += \"?$select=\" + selectFields;\n    }\n\n    // Headers for Graph API\n    var headers = {\n        \"Authorization\": \"Bearer \" + token,\n        \"Accept\": \"application/json\"\n    };\n\n    log.info(\"Fetching user: \" + userEmail);\n    \n    try {\n        var response = http.get(url, headers);\n        \n        if (response.statusCode === 404) {\n            log.warn(\"User not found: \" + userEmail);\n            output.set(\"User\", null);\n            output.set(\"UserJson\", \"\");\n            output.set(\"Found\", false);\n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            tags.trigger(\"notfound\");\n        } else if (!response.isSuccess) {\n            log.error(\"API error: HTTP \" + response.statusCode);\n            output.set(\"User\", null);\n            output.set(\"UserJson\", \"\");\n            output.set(\"Found\", false);\n            output.set(\"HasErrors\", true);\n            output.set(\"ErrorMessage\", \"API error: HTTP \" + response.statusCode);\n            tags.trigger(\"error\");\n        } else {\n            var user = json.parse(response.body);\n            log.info(\"Found user: \" + (user.displayName || user.userPrincipalName));\n            \n            output.set(\"User\", user);\n            output.setJson(\"UserJson\", user);\n            output.set(\"Found\", true);\n            output.set(\"UserId\", user.id || \"\");\n            output.set(\"DisplayName\", user.displayName || \"\");\n            output.set(\"Mail\", user.mail || \"\");\n            output.set(\"UserPrincipalName\", user.userPrincipalName || \"\");\n            output.set(\"HasErrors\", false);\n            output.set(\"ErrorMessage\", \"\");\n            tags.trigger(\"success\");\n        }\n        \n    } catch (ex) {\n        log.error(\"Exception: \" + ex.message);\n        output.set(\"User\", null);\n        output.set(\"UserJson\", \"\");\n        output.set(\"Found\", false);\n        output.set(\"HasErrors\", true);\n        output.set(\"ErrorMessage\", \"Exception: \" + ex.message);\n        tags.trigger(\"error\");\n    }\n}",
+        "initializationScript": null,
+        "inputSchemaJson": null,
+        "defaultConfigurationJson": null,
+        "inputFields": [
+            {
+                "fieldName": "accessToken",
+                "displayLabel": "Access Token",
+                "placeholderText": "{{Auth.AccessToken}}",
+                "helpText": "Microsoft Graph OAuth access token with User.Read.All or Directory.Read.All permissions. Obtain via OAuth 2.0 flow or use the Connector Token node.",
+                "fieldType": "Password",
+                "defaultValue": null,
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 0
+            },
+            {
+                "fieldName": "userEmail",
+                "displayLabel": "User Email / UPN",
+                "placeholderText": "user@domain.com",
+                "helpText": "The email address or User Principal Name (UPN) of the user to retrieve. Can also use the user's GUID/object ID. Supports placeholders for dynamic lookups.",
+                "fieldType": "Text",
+                "defaultValue": null,
+                "isRequired": true,
+                "allowPlaceholders": true,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 1
+            },
+            {
+                "fieldName": "selectFields",
+                "displayLabel": "Select Fields",
+                "placeholderText": "id,displayName,mail,userPrincipalName",
+                "helpText": "Comma-separated list of user properties to return (e.g., id,displayName,mail,jobTitle,department). Reduces response payload. Leave empty to return all default properties.",
+                "fieldType": "Text",
+                "defaultValue": null,
+                "isRequired": false,
+                "allowPlaceholders": false,
+                "validationRegex": null,
+                "expectedDataType": null,
+                "jsonSchemaValidation": null,
+                "selectOptionsJson": null,
+                "displayOrder": 2
+            }
+        ],
+        "outputParameters": [
+            {
+                "parameterName": "User",
+                "description": "The complete user object containing all requested properties from Microsoft Graph",
+                "dataType": "object",
+                "displayOrder": 0
+            },
+            {
+                "parameterName": "UserJson",
+                "description": "Serialized JSON string of the user object, ready for storage or transmission to external systems",
+                "dataType": "string",
+                "displayOrder": 1
+            },
+            {
+                "parameterName": "Found",
+                "description": "Boolean indicating whether the user was found in the directory. False if user doesn't exist (404 response).",
+                "dataType": "bool",
+                "displayOrder": 2
+            },
+            {
+                "parameterName": "UserId",
+                "description": "The user's unique Azure AD object ID (GUID). Empty string if user not found.",
+                "dataType": "string",
+                "displayOrder": 3
+            },
+            {
+                "parameterName": "DisplayName",
+                "description": "The user's display name as shown in the directory. Empty string if user not found.",
+                "dataType": "string",
+                "displayOrder": 4
+            },
+            {
+                "parameterName": "Mail",
+                "description": "The user's primary email address. May be empty if not set in directory or user not found.",
+                "dataType": "string",
+                "displayOrder": 5
+            },
+            {
+                "parameterName": "UserPrincipalName",
+                "description": "The user's UPN (typically their sign-in address). Empty string if user not found.",
+                "dataType": "string",
+                "displayOrder": 6
+            },
+            {
+                "parameterName": "HasErrors",
+                "description": "Boolean flag indicating if an error occurred (excluding 404 not found, which is handled separately).",
+                "dataType": "bool",
+                "displayOrder": 7
+            },
+            {
+                "parameterName": "ErrorMessage",
+                "description": "Detailed error message including HTTP status code and exception details if applicable.",
+                "dataType": "string",
+                "displayOrder": 8
+            }
+        ],
+        "connectionTags": [
+            {
+                "tagName": "success",
+                "description": "Triggered when the user was found and their profile was successfully retrieved",
+                "color": "#16ca34",
+                "conditionDescription": "",
+                "displayOrder": 0
+            },
+            {
+                "tagName": "notfound",
+                "description": "Triggered when the specified user email/UPN does not exist in the directory (HTTP 404)",
+                "color": "#fe9501",
+                "conditionDescription": "",
+                "displayOrder": 1
+            },
+            {
+                "tagName": "error",
+                "description": "Triggered when an API error, authentication failure, or exception occurs during the request",
+                "color": "#db0606",
+                "conditionDescription": "",
+                "displayOrder": 2
+            }
+        ],
+        "logConfigs": []
+    }
+}

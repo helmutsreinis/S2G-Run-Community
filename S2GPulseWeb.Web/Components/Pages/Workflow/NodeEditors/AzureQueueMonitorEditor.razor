@@ -1,0 +1,228 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>Connection String:</label>
+        <input type="password" 
+               value="@Config.ConnectionString" 
+               @onchange="OnConnectionStringChanged"
+               class="form-control" 
+               autocomplete="new-password"
+               placeholder="DefaultEndpointsProtocol=https;AccountName=..." />
+    </div>
+
+    <div class="node-property">
+        <label>Queue Name:</label>
+        <input type="text" 
+               value="@Config.QueueName" 
+               @onchange="OnQueueNameChanged"
+               class="form-control" 
+               autocomplete="off"
+               placeholder="my-queue" />
+    </div>
+
+    <div class="node-property">
+        <label>Poll Interval (seconds):</label>
+        <input type="number" 
+               value="@Config.PollIntervalSeconds" 
+               @onchange="OnIntervalChanged"
+               class="form-control" 
+               min="10" 
+               max="3600" 
+               placeholder="30" />
+        <small class="text-muted">Minimum 10 seconds, maximum 1 hour</small>
+    </div>
+
+    <div class="node-property">
+        <label>Batch Size:</label>
+        <input type="number" 
+               value="@Config.BatchSize" 
+               @onchange="OnBatchSizeChanged"
+               class="form-control" 
+               min="1" 
+               max="32" 
+               placeholder="1" />
+        <small class="text-muted">Number of messages to receive per poll (max 32)</small>
+    </div>
+
+    <div class="node-property">
+        <label>Visibility Timeout (seconds):</label>
+        <input type="number" 
+               value="@Config.VisibilityTimeoutSeconds" 
+               @onchange="OnVisibilityChanged"
+               class="form-control" 
+               min="1" 
+               max="604800" 
+               placeholder="30" />
+        <small class="text-muted">How long to hide message while processing</small>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Config.LastMessageSample))
+    {
+        <div class="node-property mt-2">
+            <div class="small" style="background: rgba(0,200,100,0.1); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(0,200,100,0.3);">
+                <strong style="color: #00c864;">🔍 Detected Properties (from last message):</strong>
+                <div style="margin-top: 0.3rem;">
+                    @foreach (var prop in GetMessageProperties())
+                    {
+                        <span style="display: inline-block; margin: 0.1rem 0.2rem; padding: 0.1rem 0.4rem; background: rgba(0,168,168,0.2); border-radius: 3px; font-size: 0.75rem;">
+                            <code>@prop.Path</code>
+                            <small style="color: #888; margin-left: 0.2rem;">@prop.TypeBadge</small>
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>For each received message:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{{QueueMonitor.MessageId}}</code> - Message ID</li>
+                    <li><code>{{QueueMonitor.MessageText}}</code> - Raw message content</li>
+                    <li><code>{{QueueMonitor.InsertionTime}}</code> - When message was inserted</li>
+                    <li><code>{{QueueMonitor.ExpirationTime}}</code> - When message expires</li>
+                    <li><code>{{QueueMonitor.DequeueCount}}</code> - Times message was received</li>
+                    <li><code>{{QueueMonitor.IsJson}}</code> - Whether message is valid JSON</li>
+                </ul>
+                <strong>If message is JSON object:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{{QueueMonitor.propertyName}}</code> - Top-level property</li>
+                    <li><code>{{QueueMonitor.nested.property}}</code> - Nested property</li>
+                </ul>
+                <strong>If message is JSON array:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{{QueueMonitor.items}}</code> - Full JSON array</li>
+                    <li><code>{{QueueMonitor.itemCount}}</code> - Number of items</li>
+                </ul>
+                <em>💡 Start the monitor to auto-detect JSON properties</em>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+
+    private AzureQueueMonitorConfig Config { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<AzureQueueMonitorConfig>(Configuration) ?? new();
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnConnectionStringChanged(ChangeEventArgs e)
+    {
+        Config.ConnectionString = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnQueueNameChanged(ChangeEventArgs e)
+    {
+        Config.QueueName = e.Value?.ToString();
+        await NotifyChanged();
+    }
+
+    private async Task OnIntervalChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int interval))
+        {
+            Config.PollIntervalSeconds = Math.Max(10, Math.Min(3600, interval));
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnBatchSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int batch))
+        {
+            Config.BatchSize = Math.Max(1, Math.Min(32, batch));
+            await NotifyChanged();
+        }
+    }
+
+    private async Task OnVisibilityChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int visibility))
+        {
+            Config.VisibilityTimeoutSeconds = Math.Max(1, Math.Min(604800, visibility));
+            await NotifyChanged();
+        }
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    private List<(string Path, string TypeBadge)> GetMessageProperties()
+    {
+        if (string.IsNullOrWhiteSpace(Config.LastMessageSample))
+            return new();
+        
+        try
+        {
+            using var doc = JsonDocument.Parse(Config.LastMessageSample);
+            
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                // For arrays, show items/itemCount plus first element properties
+                var result = new List<(string Path, string TypeBadge)>
+                {
+                    ("items", "[array]"),
+                    ("itemCount", "[number]")
+                };
+                
+                if (doc.RootElement.GetArrayLength() > 0)
+                {
+                    var firstElement = doc.RootElement[0];
+                    if (firstElement.ValueKind == JsonValueKind.Object)
+                    {
+                        var firstElementJson = firstElement.GetRawText();
+                        var properties = JsonPropertyExtractor.ExtractPropertyPaths(firstElementJson);
+                        var propSummary = JsonPropertyExtractor.GetPropertySummary(properties);
+                        foreach (var prop in propSummary.Take(10)) // Limit to avoid clutter
+                        {
+                            result.Add(($"items[].{prop.Path}", prop.TypeBadge));
+                        }
+                    }
+                }
+                return result;
+            }
+            else
+            {
+                // For objects, extract properties directly
+                var properties = JsonPropertyExtractor.ExtractPropertyPaths(Config.LastMessageSample);
+                return JsonPropertyExtractor.GetPropertySummary(properties);
+            }
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    public class AzureQueueMonitorConfig
+    {
+        public string? ConnectionString { get; set; }
+        public string? QueueName { get; set; }
+        public int PollIntervalSeconds { get; set; } = 30;
+        public int BatchSize { get; set; } = 1;
+        public int VisibilityTimeoutSeconds { get; set; } = 30;
+        public string? LastMessageSample { get; set; }
+    }
+}
+

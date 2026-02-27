@@ -1,0 +1,197 @@
+@using System.Text.Json
+@using Microsoft.AspNetCore.Identity
+@using S2GPulseWeb.Web.Data
+@using S2GPulseWeb.Web.Logic
+@inject OAuthService OAuthService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="node-editor-fields">
+    <div class="node-property">
+        <label>OAuth Connection:</label>
+        @if (isLoadingConnections)
+        {
+            <div class="loading-text">Loading connections...</div>
+        }
+        else if (!connections.Any())
+        {
+            <div class="warning-message">
+                <span>⚠️</span> No connections found. <a href="/connections" target="_blank">Add a connection</a>
+            </div>
+        }
+        else
+        {
+            <select value="@Config.ConnectionId" @onchange="OnConnectionChanged" class="form-control">
+                <option value="">-- Select Connection --</option>
+                @foreach (var conn in connections)
+                {
+                    <option value="@conn.Id">@conn.ConnectionName (@(conn.Email ?? conn.Provider))</option>
+                }
+            </select>
+        }
+    </div>
+
+    @if (selectedConnection != null)
+    {
+        <div class="connection-info">
+            <div class="info-row">
+                <span class="info-label">Provider:</span>
+                <span class="info-value">@selectedConnection.Provider</span>
+            </div>
+            @if (!string.IsNullOrEmpty(selectedConnection.Email))
+            {
+                <div class="info-row">
+                    <span class="info-label">Account:</span>
+                    <span class="info-value">@selectedConnection.Email</span>
+                </div>
+            }
+            <div class="info-row">
+                <span class="info-label">Token Expires:</span>
+                <span class="info-value @(IsTokenExpired ? "expired" : "valid")">
+                    @(IsTokenExpired ? "Expired" : selectedConnection.TokenExpiry.ToLocalTime().ToString("g"))
+                </span>
+            </div>
+        </div>
+    }
+
+    <div class="node-property mt-2">
+        <details class="output-help">
+            <summary class="text-info" style="cursor: pointer; font-size: 0.85rem;">📤 Output Placeholders (click to expand)</summary>
+            <div class="small mt-1" style="background: rgba(0,168,168,0.1); padding: 0.5rem; border-radius: 4px;">
+                <strong>When executed:</strong>
+                <ul class="mb-1" style="padding-left: 1.2rem; margin-top: 0.25rem;">
+                    <li><code>{ConnectorToken.AccessToken}</code> - OAuth bearer token</li>
+                    <li><code>{ConnectorToken.Provider}</code> - Connection provider name</li>
+                    <li><code>{ConnectorToken.Email}</code> - Connected account email</li>
+                    <li><code>{ConnectorToken.Scopes}</code> - Granted OAuth scopes</li>
+                    <li><code>{ConnectorToken.TokenExpiry}</code> - Token expiration (ISO 8601)</li>
+                    <li><code>{ConnectorToken.Success}</code> - Boolean success indicator</li>
+                    <li><code>{ConnectorToken.ErrorMessage}</code> - Error details if failed</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>
+
+<style>
+    .connection-info {
+        background: rgba(0, 168, 168, 0.1);
+        border: 1px solid rgba(0, 168, 168, 0.3);
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-top: 0.5rem;
+    }
+    
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.25rem 0;
+        font-size: 0.85rem;
+    }
+    
+    .info-label {
+        color: #888;
+    }
+    
+    .info-value {
+        color: #e0e0e0;
+        font-family: monospace;
+    }
+    
+    .info-value.expired {
+        color: #ff6b6b;
+    }
+    
+    .info-value.valid {
+        color: #69db7c;
+    }
+    
+    .warning-message {
+        color: #ffc107;
+        font-size: 0.9rem;
+    }
+    
+    .warning-message a {
+        color: #4facfe;
+    }
+    
+    .loading-text {
+        color: #888;
+        font-style: italic;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    
+    // Organization context (null = personal workflow)
+    [Parameter] public Guid? OrganizationId { get; set; }
+
+    private ConnectorTokenConfig Config { get; set; } = new();
+    private List<OAuthConnection> connections = new();
+    private OAuthConnection? selectedConnection;
+    private bool isLoadingConnections = true;
+    private string? userId;
+
+    private bool IsTokenExpired => selectedConnection?.TokenExpiry <= DateTime.UtcNow;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        userId = UserManager.GetUserId(authState.User);
+        
+        if (userId != null)
+        {
+            // Use org context for connection filtering
+            connections = await OAuthService.GetConnectionsAsync(userId, OrganizationId);
+        }
+        isLoadingConnections = false;
+        
+        UpdateSelectedConnection();
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Configuration))
+            {
+                Config = JsonSerializer.Deserialize<ConnectorTokenConfig>(Configuration) ?? new();
+            }
+        }
+        catch { }
+        
+        UpdateSelectedConnection();
+    }
+
+    private void UpdateSelectedConnection()
+    {
+        if (!string.IsNullOrEmpty(Config.ConnectionId) && Guid.TryParse(Config.ConnectionId, out var connId))
+        {
+            selectedConnection = connections.FirstOrDefault(c => c.Id == connId);
+        }
+        else
+        {
+            selectedConnection = null;
+        }
+    }
+
+    private async Task OnConnectionChanged(ChangeEventArgs e)
+    {
+        Config.ConnectionId = e.Value?.ToString();
+        UpdateSelectedConnection();
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        var json = JsonSerializer.Serialize(Config);
+        await OnConfigurationChanged.InvokeAsync(json);
+    }
+
+    public class ConnectorTokenConfig
+    {
+        public string? ConnectionId { get; set; }
+    }
+}

@@ -1,0 +1,746 @@
+@using System.Text.Json
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey"
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))"
+                   class="form-control" placeholder="Enter API Key (overrides settings)"
+                   autocomplete="new-password" />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" @onclick="CopyApiKey" title="Copy API Key">📋</button>
+            </div>
+        </div>
+        <small class="form-text text-muted">Leave empty to use global setting.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <select value="@config.Model" @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString()))" class="form-control">
+            <option value="deepseek-chat">DeepSeek Chat (V3)</option>
+            <option value="deepseek-reasoner">DeepSeek Reasoner (R1)</option>
+        </select>
+        <div class="model-pricing small mt-1" style="color: var(--teal-light);">
+            $0.28 / 1M in, $0.42 / 1M out
+        </div>
+    </div>
+
+    @if (config.Cost > 0 || config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Cumulative Cost:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">$@config.Cost.ToString("F4")</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens in / @config.OutputTokens out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetCost" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <!-- Agent Mode Settings -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center" style="background: rgba(77, 170, 255, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <span style="margin-right: 8px;">🤖</span>
+            <strong>Agent Mode Settings</strong>
+        </div>
+        
+        <div class="form-group mb-2">
+            <label>Max Tool Calls</label>
+            <input type="number" value="@config.MaxToolCalls" 
+                   @onchange="@(e => UpdateConfig(c => c.MaxToolCalls = int.TryParse(e.Value?.ToString(), out var v) ? Math.Max(1, Math.Min(50, v)) : 10))" 
+                   class="form-control" min="1" max="50" />
+            <small class="form-text text-muted">Maximum number of tool invocations per execution (default: 10)</small>
+        </div>
+    </div>
+
+    <!-- Tools Section -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center justify-content-between" style="background: rgba(255, 193, 7, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div class="d-flex align-items-center">
+                <span style="margin-right: 8px;">🔧</span>
+                <strong>Tools (@config.Tools.Count)</strong>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" @onclick="AddTool" style="font-size: 0.75rem;">+ Add Tool</button>
+        </div>
+
+        @if (config.Tools.Count == 0)
+        {
+            <div class="alert alert-info" style="font-size: 0.85rem;">
+                <strong>No tools configured.</strong><br/>
+                Draw <code>tool:*</code> labeled connections FROM this node to tool nodes, or add tools manually.
+            </div>
+        }
+        else
+        {
+            @foreach (var tool in config.Tools)
+            {
+                var currentTool = tool;
+                var isDiscovered = discoveredToolIds.Contains(currentTool.EntryNodeId);
+                var enabledInputCount = currentTool.Parameters.Count(p => p.Value.IsEnabled);
+                var enabledOutputCount = currentTool.Outputs.Count(o => o.IsEnabled);
+                
+                <div class="tool-card mb-2 border rounded" style="background: var(--background-dark);">
+                    <!-- Tool Header - Collapsible -->
+                    <div class="tool-header d-flex align-items-center p-2" 
+                         @onclick="@(async () => { currentTool.IsExpanded = !currentTool.IsExpanded; await NotifyChanged(); })"
+                         style="cursor: pointer; border-bottom: @(currentTool.IsExpanded ? "1px solid var(--border-color)" : "none");">
+                        <span class="expand-icon mr-2" style="font-size: 0.7rem; color: var(--teal-light);">
+                            @(currentTool.IsExpanded ? "▼" : "▶")
+                        </span>
+                        @if (isDiscovered)
+                        {
+                            <span class="badge badge-success mr-2" style="font-size: 0.6rem;">Auto</span>
+                        }
+                        <input type="text" value="@currentTool.Name" 
+                               @onclick:stopPropagation="true"
+                               @onchange="@(async e => { currentTool.Name = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                               class="form-control form-control-sm" style="flex: 1; margin-right: 8px;" placeholder="Tool name" />
+                        <span class="badge badge-info mr-2" style="font-size: 0.6rem;">@enabledInputCount in</span>
+                        <span class="badge badge-secondary" style="font-size: 0.6rem;">@enabledOutputCount out</span>
+                        @if (!isDiscovered)
+                        {
+                            <button class="btn btn-sm btn-outline-danger ml-2" 
+                                    @onclick="@(() => RemoveTool(currentTool))" @onclick:stopPropagation="true" 
+                                    title="Remove tool">×</button>
+                        }
+                    </div>
+                    
+                    <!-- Expanded Content -->
+                    @if (currentTool.IsExpanded)
+                    {
+                        <div class="tool-body p-2">
+                            <!-- Description -->
+                            <div class="mb-2">
+                                <input type="text" value="@currentTool.Description" 
+                                       @onchange="@(async e => { currentTool.Description = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                       class="form-control form-control-sm" placeholder="Description for the AI" />
+                            </div>
+                            
+                            @if (currentTool.EntryNodeId != Guid.Empty)
+                            {
+                                var nodeName = GetNodeName(currentTool.EntryNodeId);
+                                <small class="text-muted d-block mb-2">→ @nodeName</small>
+                            }
+                            
+                            <!-- Input Fields Section -->
+                            @if (currentTool.Parameters.Any())
+                            {
+                                <div class="fields-section mb-2">
+                                    <div class="section-label d-flex align-items-center mb-1">
+                                        <span style="font-size: 0.75rem; color: var(--teal-light);">📥 Input Fields</span>
+                                    </div>
+                                    <div class="fields-list">
+                                        @foreach (var param in currentTool.Parameters)
+                                        {
+                                            var paramKey = param.Key;
+                                            var paramValue = param.Value;
+                                            <div class="field-row d-flex align-items-center mb-1 p-1 rounded" 
+                                                 style="background: rgba(0,0,0,0.2); font-size: 0.8rem;">
+                                                <input type="checkbox" checked="@paramValue.IsEnabled" 
+                                                       @onchange="@(async e => { paramValue.IsEnabled = (bool)(e.Value ?? false); await NotifyChanged(); })"
+                                                       class="mr-2" style="width: 14px; height: 14px;" />
+                                                <span class="field-name mr-2" style="min-width: 80px; color: @(paramValue.IsEnabled ? "var(--teal-light)" : "#666");">
+                                                    @paramKey
+                                                </span>
+                                                <span class="field-config mr-2" style="font-size: 0.7rem; color: #888;">
+                                                    → @paramValue.NodeConfigField
+                                                </span>
+                                                <span class="badge mr-2" style="font-size: 0.6rem; background: rgba(100,100,100,0.3);">
+                                                    @paramValue.Type
+                                                </span>
+                                                <input type="text" value="@paramValue.Description" 
+                                                       @onchange="@(async e => { paramValue.Description = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                                       class="form-control form-control-sm" style="flex: 1; font-size: 0.75rem;" 
+                                                       placeholder="Description for AI..." />
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            
+                            <!-- Output Values Section -->
+                            @if (currentTool.Outputs.Any())
+                            {
+                                <div class="outputs-section">
+                                    <div class="section-label d-flex align-items-center mb-1">
+                                        <span style="font-size: 0.75rem; color: var(--teal-light);">📤 Output Values</span>
+                                    </div>
+                                    <div class="outputs-list d-flex flex-wrap gap-1">
+                                        @foreach (var output in currentTool.Outputs)
+                                        {
+                                            var currentOutput = output;
+                                            <div class="output-chip d-flex align-items-center p-1 rounded" 
+                                                 style="background: @(currentOutput.IsEnabled ? "rgba(0, 168, 168, 0.2)" : "rgba(100,100,100,0.2)"); font-size: 0.7rem; cursor: pointer;"
+                                                 @onclick="@(async () => { currentOutput.IsEnabled = !currentOutput.IsEnabled; await NotifyChanged(); })"
+                                                 title="@currentOutput.Description">
+                                                <input type="checkbox" checked="@currentOutput.IsEnabled" 
+                                                       class="mr-1" style="width: 12px; height: 12px;" 
+                                                       @onclick:stopPropagation="true"
+                                                       @onchange="@(async e => { currentOutput.IsEnabled = (bool)(e.Value ?? false); await NotifyChanged(); })" />
+                                                <span style="color: @(currentOutput.IsEnabled ? "var(--teal-light)" : "#666");">
+                                                    @currentOutput.Placeholder
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+        <small class="form-text text-muted">Draw connections with "tool:sql", "tool:storage", etc. labels to auto-discover tools.</small>
+    </div>
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or instructions for tool use..."></textarea>
+        <small class="form-text text-muted">Instruct the AI on how and when to use tools.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))" 
+                  class="form-control" rows="4" placeholder="Enter the task for the AI agent..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds" 
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))" 
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s)</small>
+    </div>
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .tool-card {
+        border-color: var(--border-color) !important;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public Guid NodeId { get; set; }
+    
+    // Canvas data for discovering connections
+    [Parameter] public List<CanvasNodeInfo>? CanvasNodes { get; set; }
+    [Parameter] public List<CanvasConnectionInfo>? CanvasConnections { get; set; }
+
+    [Inject] IJSRuntime JSRuntime { get; set; } = default!;
+    [Inject] CustomNodeService CustomNodeService { get; set; } = default!;
+
+    private DeepSeekAgentConfig config = new();
+    private HashSet<Guid> discoveredToolIds = new();
+    private bool isDiscovering = false;
+
+    protected override void OnParametersSet()
+    {
+        // Skip if already discovering to prevent duplicate tool creation
+        if (isDiscovering)
+            return;
+            
+        try
+        {
+            config = JsonSerializer.Deserialize<DeepSeekAgentConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+        
+        // Discover tools from connections (fire-and-forget async with guard)
+        _ = InvokeAsync(async () => 
+        {
+            if (isDiscovering) return;
+            isDiscovering = true;
+            try
+            {
+                await DiscoverToolsFromConnectionsAsync();
+                StateHasChanged();
+            }
+            finally
+            {
+                isDiscovering = false;
+            }
+        });
+    }
+
+    private async Task DiscoverToolsFromConnectionsAsync()
+    {
+        if (CanvasConnections == null || CanvasNodes == null || NodeId == Guid.Empty)
+            return;
+            
+        var needsConfigUpdate = false;
+        discoveredToolIds.Clear();
+        
+        // Find tool:* connections FROM this node
+        var toolConnections = CanvasConnections
+            .Where(c => c.Label?.StartsWith("tool:", StringComparison.OrdinalIgnoreCase) == true &&
+                       (c.SourceId == NodeId || c.TargetId == NodeId))
+            .ToList();
+            
+        foreach (var conn in toolConnections)
+        {
+            // Get the tool node (the one that's NOT this agent)
+            var toolNodeId = conn.SourceId == NodeId ? conn.TargetId : conn.SourceId;
+            var toolNode = CanvasNodes.FirstOrDefault(n => n.Id == toolNodeId);
+            var toolTag = conn.Label ?? "tool:unknown";
+            var toolName = toolTag.Replace(":", "_"); // tool:sql → tool_sql
+            
+            discoveredToolIds.Add(toolNodeId);
+            
+            // Add or update tool in config
+            var existingTool = config.Tools.FirstOrDefault(t => t.EntryNodeId == toolNodeId);
+            if (existingTool == null)
+            {
+                var nodeTypeStr = toolNode?.NodeType ?? "";
+                var nodeNameStr = toolNode?.Name ?? "Unknown";
+                
+                Dictionary<string, DeepSeekAgentToolParameter> defaultParams;
+                List<string> requiredParams;
+                List<DeepSeekAgentToolOutput> defaultOutputs;
+                
+                // Check if this is a custom node
+                if (nodeTypeStr.StartsWith("Custom_"))
+                {
+                    (defaultParams, requiredParams, defaultOutputs) = await DetectCustomNodeFieldsAsync(nodeTypeStr, nodeNameStr);
+                }
+                else
+                {
+                    (defaultParams, requiredParams, defaultOutputs) = GetDefaultParametersForNodeType(nodeTypeStr, nodeNameStr);
+                }
+                
+                config.Tools.Add(new DeepSeekAgentToolDefinition
+                {
+                    Name = toolName,
+                    Description = $"Execute {nodeTypeStr} operation: {nodeNameStr}",
+                    EntryNodeId = toolNodeId,
+                    Parameters = defaultParams,
+                    Required = requiredParams,
+                    Outputs = defaultOutputs
+                });
+                
+                // Auto-append tool instruction template to prompt
+                var toolInstructionLine = $"Use tool - {toolName} ({nodeNameStr}) - to: [describe what to do with this tool]";
+                if (string.IsNullOrWhiteSpace(config.Prompt))
+                {
+                    config.Prompt = toolInstructionLine;
+                }
+                else if (!config.Prompt.Contains(toolName))
+                {
+                    config.Prompt = config.Prompt.TrimEnd() + "\n" + toolInstructionLine;
+                }
+                
+                needsConfigUpdate = true;
+            }
+        }
+        
+        // Remove tools that are no longer connected (only auto-discovered ones)
+        var toolsToRemove = config.Tools.Where(t => t.EntryNodeId != Guid.Empty && !discoveredToolIds.Contains(t.EntryNodeId)).ToList();
+        foreach (var tool in toolsToRemove)
+        {
+            // Clean up tool instruction line from prompt
+            if (!string.IsNullOrEmpty(config.Prompt))
+            {
+                var lines = config.Prompt.Split('\n')
+                    .Where(line => !line.Contains($"Use tool - {tool.Name}"))
+                    .ToArray();
+                config.Prompt = string.Join("\n", lines).Trim();
+            }
+            
+            config.Tools.Remove(tool);
+            needsConfigUpdate = true;
+        }
+        
+        if (needsConfigUpdate)
+        {
+            await NotifyChanged();
+        }
+    }
+
+    private string GetNodeName(Guid nodeId)
+    {
+        var node = CanvasNodes?.FirstOrDefault(n => n.Id == nodeId);
+        return node != null ? $"{node.Name} ({node.NodeType})" : nodeId.ToString()[..8] + "...";
+    }
+
+    private async Task UpdateConfig(Action<DeepSeekAgentConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task CopyApiKey()
+    {
+        if (!string.IsNullOrEmpty(config.ApiKey))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", config.ApiKey);
+        }
+    }
+
+    private async Task ResetCost()
+    {
+        config.Cost = 0;
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private async Task AddTool()
+    {
+        config.Tools.Add(new DeepSeekAgentToolDefinition
+        {
+            Name = $"tool_{config.Tools.Count + 1}",
+            Description = "Describe what this tool does"
+        });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveTool(DeepSeekAgentToolDefinition tool)
+    {
+        config.Tools.Remove(tool);
+        await NotifyChanged();
+    }
+
+    /// <summary>
+    /// Detects input fields and outputs from a custom node definition.
+    /// </summary>
+    private async Task<(Dictionary<string, DeepSeekAgentToolParameter> Parameters, List<string> Required, List<DeepSeekAgentToolOutput> Outputs)> 
+        DetectCustomNodeFieldsAsync(string nodeType, string nodeName)
+    {
+        var parameters = new Dictionary<string, DeepSeekAgentToolParameter>();
+        var required = new List<string>();
+        var outputs = new List<DeepSeekAgentToolOutput>();
+        
+        // Use async version to properly load definition from database if not cached
+        var definition = await CustomNodeService.GetDefinitionByKeyAsync(nodeType);
+        if (definition == null)
+        {
+            // Fallback - return generic data parameter
+            parameters["data"] = new DeepSeekAgentToolParameter 
+            { 
+                Type = "string", 
+                Description = "Data to pass to the custom node",
+                NodeConfigField = "Data",
+                IsEnabled = true
+            };
+            return (parameters, required, outputs);
+        }
+        
+        // Map input fields from definition
+        foreach (var field in definition.InputFields.OrderBy(f => f.DisplayOrder))
+        {
+            var paramName = field.FieldName.ToLowerInvariant();
+            parameters[paramName] = new DeepSeekAgentToolParameter
+            {
+                Type = MapFieldTypeToJsonType(field.FieldType, field.ExpectedDataType),
+                Description = field.HelpText ?? field.DisplayLabel ?? field.FieldName,
+                NodeConfigField = field.FieldName,
+                IsEnabled = true
+            };
+            
+            if (field.IsRequired)
+            {
+                required.Add(paramName);
+            }
+        }
+        
+        // Map output parameters from definition
+        foreach (var param in definition.OutputParameters)
+        {
+            outputs.Add(new DeepSeekAgentToolOutput
+            {
+                Placeholder = $"{{{{{nodeName}.{param.ParameterName}}}}}",
+                DataType = param.DataType ?? "string",
+                Description = param.Description ?? param.ParameterName,
+                IsEnabled = true
+            });
+        }
+        
+        return (parameters, required, outputs);
+    }
+    
+    /// <summary>
+    /// Maps custom field type to JSON schema type.
+    /// </summary>
+    private string MapFieldTypeToJsonType(Data.CustomFieldType fieldType, string? expectedDataType)
+    {
+        // Check expected data type first
+        if (!string.IsNullOrEmpty(expectedDataType))
+        {
+            return expectedDataType.ToLowerInvariant() switch
+            {
+                "int" or "integer" => "integer",
+                "number" or "decimal" or "float" or "double" => "number",
+                "bool" or "boolean" => "boolean",
+                "json" or "object" => "object",
+                "array" => "array",
+                _ => "string"
+            };
+        }
+        
+        // Fall back to field type
+        return fieldType switch
+        {
+            Data.CustomFieldType.Number => "number",
+            Data.CustomFieldType.Boolean => "boolean",
+            Data.CustomFieldType.Json => "object",
+            _ => "string"
+        };
+    }
+
+    /// <summary>
+    /// Returns default parameters, required fields, and outputs based on node type.
+    /// Pre-seeded with known fields for built-in nodes.
+    /// </summary>
+    private (Dictionary<string, DeepSeekAgentToolParameter> Parameters, List<string> Required, List<DeepSeekAgentToolOutput> Outputs) 
+        GetDefaultParametersForNodeType(string nodeType, string nodeName)
+    {
+        var parameters = new Dictionary<string, DeepSeekAgentToolParameter>();
+        var required = new List<string>();
+        var outputs = new List<DeepSeekAgentToolOutput>();
+
+        switch (nodeType)
+        {
+            case "S2GStorage":
+                parameters["operation"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Operation: write, read, delete, list, or create_folder",
+                    NodeConfigField = "Operation",
+                    IsEnabled = true
+                };
+                parameters["path"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "File path for write/read/delete operations",
+                    NodeConfigField = "FilePath",
+                    IsEnabled = true
+                };
+                parameters["content"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Content to write (for write operation)",
+                    NodeConfigField = "Content",
+                    IsEnabled = true
+                };
+                parameters["folder"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Folder path for list or create_folder operations",
+                    NodeConfigField = "FolderPath",
+                    IsEnabled = false  // Optional, disabled by default
+                };
+                required.Add("operation");
+                
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Content}}}}", DataType = "string", Description = "File content (for read operation)", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Files}}}}", DataType = "array", Description = "File list (for list operation)", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Success}}}}", DataType = "bool", Description = "Operation success status", IsEnabled = true });
+                break;
+
+            case "AzureBlob":
+                parameters["operation"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Operation: upload, download, delete, or list",
+                    NodeConfigField = "Operation",
+                    IsEnabled = true
+                };
+                parameters["path"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Blob path",
+                    NodeConfigField = "BlobPath",
+                    IsEnabled = true
+                };
+                parameters["content"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Content to upload",
+                    NodeConfigField = "Content",
+                    IsEnabled = true
+                };
+                required.Add("operation");
+                
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Content}}}}", DataType = "string", Description = "Downloaded content", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Blobs}}}}", DataType = "array", Description = "Blob list", IsEnabled = true });
+                break;
+
+            case "SqlServer":
+            case "Postgresql":
+                parameters["query"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "SQL query to execute",
+                    NodeConfigField = "Query",
+                    IsEnabled = true
+                };
+                required.Add("query");
+                
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Results}}}}", DataType = "json", Description = "Query results as JSON array", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.RowCount}}}}", DataType = "int", Description = "Number of rows returned", IsEnabled = true });
+                break;
+
+            case "HttpRequest":
+                parameters["url"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "URL to request",
+                    NodeConfigField = "Url",
+                    IsEnabled = true
+                };
+                parameters["method"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "HTTP method: GET, POST, PUT, DELETE",
+                    NodeConfigField = "Method",
+                    IsEnabled = true
+                };
+                parameters["body"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Request body (for POST/PUT)",
+                    NodeConfigField = "Body",
+                    IsEnabled = true
+                };
+                required.Add("url");
+                
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Body}}}}", DataType = "string", Description = "Response body", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.StatusCode}}}}", DataType = "int", Description = "HTTP status code", IsEnabled = true });
+                break;
+
+            case "OpenAI":
+            case "DeepSeek":
+            case "Anthropic":
+            case "Gemini":
+            case "Mistral":
+            case "Groq":
+                parameters["prompt"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "The prompt to send to the AI",
+                    NodeConfigField = "Prompt",
+                    IsEnabled = true
+                };
+                required.Add("prompt");
+                
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Response}}}}", DataType = "string", Description = "AI response text", IsEnabled = true });
+                break;
+
+            case "Condition":
+                parameters["value"] = new DeepSeekAgentToolParameter 
+                { 
+                    Type = "string", 
+                    Description = "Value to evaluate",
+                    NodeConfigField = "ConditionExpression",
+                    IsEnabled = true
+                };
+                
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Result}}}}", DataType = "bool", Description = "Condition result", IsEnabled = true });
+                break;
+
+            default:
+                // Check if this is a custom node - we'll detect fields differently
+                if (nodeType.StartsWith("Custom_"))
+                {
+                    // Custom nodes will be handled by DetectCustomNodeFieldsAsync
+                    // Return empty - caller will populate from CustomNodeDefinition
+                }
+                else
+                {
+                    // Generic fallback - allow passing any data
+                    parameters["data"] = new DeepSeekAgentToolParameter 
+                    { 
+                        Type = "string", 
+                        Description = "Data to pass to the tool",
+                        NodeConfigField = "Data",
+                        IsEnabled = true
+                    };
+                }
+                break;
+        }
+
+        return (parameters, required, outputs);
+    }
+    
+    // DTOs for canvas data
+    public class CanvasNodeInfo
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string NodeType { get; set; } = "";
+    }
+
+    public class CanvasConnectionInfo
+    {
+        public Guid SourceId { get; set; }
+        public Guid TargetId { get; set; }
+        public string? Label { get; set; }
+    }
+}
