@@ -34,6 +34,7 @@ ENV ASPNETCORE_URLS=http://+:8080
 
 COPY --from=publish /app/publish .
 COPY --from=build /src/workflow-samples /app/workflow-samples
+COPY --from=build /src/clients /app/clients
 COPY --from=build /src/custom-nodes /app/custom-nodes
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

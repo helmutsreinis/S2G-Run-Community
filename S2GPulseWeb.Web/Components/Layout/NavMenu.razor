@@ -154,7 +154,7 @@
                 {
                     // Use IsAdminAsync for proper self-hosted first-user-admin detection
                     isAdmin = await SubscriptionService.IsAdminAsync(userId);
-                    
+
                     // Try to get the membership plan first (new system)
                     currentPlan = await SubscriptionService.GetUserPlanAsync(userId);
                     

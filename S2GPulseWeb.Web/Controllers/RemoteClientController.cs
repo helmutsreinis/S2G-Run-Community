@@ -29,7 +29,7 @@ public class RemoteClientController : ControllerBase
         if (string.IsNullOrWhiteSpace(listenerId) || string.IsNullOrWhiteSpace(clientId))
             return BadRequest(new { error = "listenerId and clientId query parameters are required." });
 
-        var scriptPath = Path.Combine(_env.ContentRootPath, "..", "clients", "remote_client.py");
+        var scriptPath = Path.Combine(GetClientsDirectory(), "remote_client.py");
         if (!System.IO.File.Exists(scriptPath))
             return NotFound(new { error = "Python client script not found on server." });
 
@@ -53,7 +53,7 @@ public class RemoteClientController : ControllerBase
         if (string.IsNullOrWhiteSpace(listenerId) || string.IsNullOrWhiteSpace(clientId))
             return BadRequest(new { error = "listenerId and clientId query parameters are required." });
 
-        var scriptPath = Path.Combine(_env.ContentRootPath, "..", "clients", "RemoteClient.ps1");
+        var scriptPath = Path.Combine(GetClientsDirectory(), "RemoteClient.ps1");
         if (!System.IO.File.Exists(scriptPath))
             return NotFound(new { error = "PowerShell client script not found on server." });
 
@@ -72,6 +72,18 @@ public class RemoteClientController : ControllerBase
             result,
             "application/octet-stream",
             "RemoteClient.ps1");
+    }
+
+    private string GetClientsDirectory()
+    {
+        // 1. Check inside ContentRootPath (Docker: COPY'd into /app/clients)
+        var clientsDir = Path.Combine(_env.ContentRootPath, "clients");
+        if (Directory.Exists(clientsDir))
+            return clientsDir;
+
+        // 2. Fallback: one level up from ContentRootPath (local dev: solution root)
+        clientsDir = Path.Combine(Directory.GetParent(_env.ContentRootPath)?.FullName ?? _env.ContentRootPath, "clients");
+        return clientsDir;
     }
 
     private static string ReplacePlaceholders(string content, string listenerId, string clientId)
