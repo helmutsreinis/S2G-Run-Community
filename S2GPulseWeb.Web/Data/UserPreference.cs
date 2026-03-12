@@ -24,5 +24,17 @@ public class UserPreference
     /// </summary>
     public Guid? ActiveOrganizationId { get; set; }
     
+    /// <summary>
+    /// Whether the user has completed or skipped the onboarding tutorial.
+    /// False = show tutorial on next visit to /workflow.
+    /// </summary>
+    public bool TutorialCompleted { get; set; } = false;
+
+    /// <summary>
+    /// The step index where the user left off (for resume support).
+    /// Null = not started or fully completed.
+    /// </summary>
+    public int? TutorialLastStep { get; set; }
+    
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

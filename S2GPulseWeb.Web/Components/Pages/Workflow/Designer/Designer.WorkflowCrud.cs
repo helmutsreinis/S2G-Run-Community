@@ -11,7 +11,7 @@ namespace S2GPulseWeb.Web.Components.Pages.Workflow.Designer;
 /// </summary>
 public partial class Designer
 {
-    private void ClearCanvas() 
+    private async Task ClearCanvas() 
     { 
         canvasNodes.Clear(); 
         connections.Clear(); 
@@ -21,6 +21,10 @@ public partial class Designer
         currentWorkflowIsActive = false;
         currentWorkflowOrganizationId = null;
         canDeleteWorkflow = true; // New workflows can be deleted by creator
+        
+        // Advance tutorial if waiting on "new-workflow" step
+        if (showTutorial && tutorialOverlayRef != null)
+            await tutorialOverlayRef.AdvanceIfWaiting("new-workflow");
     }
 
     private async Task OnWorkflowSelected(ChangeEventArgs e)
@@ -28,7 +32,7 @@ public partial class Designer
         var value = e.Value?.ToString();
         if (string.IsNullOrEmpty(value))
         {
-            ClearCanvas();
+            await ClearCanvas();
             return;
         }
         
@@ -205,7 +209,7 @@ public partial class Designer
             if (result.Success)
             {
                 // Clear the canvas and reset state
-                ClearCanvas();
+                await ClearCanvas();
                 
                 // Refresh workflow list
                 userWorkflows = await WorkflowService.GetUserWorkflowsAsync(currentUserId, activeOrganizationId);
@@ -241,7 +245,7 @@ public partial class Designer
         var workflow = await WorkflowService.GetWorkflowAsync(id);
         if (workflow != null)
         {
-            ClearCanvas();
+            await ClearCanvas();
             currentWorkflowId = workflow.Id;
             currentWorkflowName = workflow.Name;
             currentWorkflowIsActive = workflow.IsActive;

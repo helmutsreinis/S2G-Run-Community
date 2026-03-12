@@ -108,4 +108,81 @@ public class UserPreferenceService
 
         await context.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Check if the user has completed or skipped the onboarding tutorial
+    /// </summary>
+    public async Task<bool> IsTutorialCompletedAsync(string userId)
+    {
+        if (string.IsNullOrEmpty(userId)) return true;
+        
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var pref = await context.UserPreferences
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+        
+        return pref?.TutorialCompleted ?? false;
+    }
+
+    /// <summary>
+    /// Mark the tutorial as completed or reset it
+    /// </summary>
+    public async Task SetTutorialCompletedAsync(string userId, bool completed)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var pref = await context.UserPreferences
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (pref == null)
+        {
+            pref = new UserPreference
+            {
+                UserId = userId,
+                TutorialCompleted = completed,
+                TutorialLastStep = completed ? null : 0,
+                UpdatedAt = DateTime.UtcNow
+            };
+            context.UserPreferences.Add(pref);
+        }
+        else
+        {
+            pref.TutorialCompleted = completed;
+            if (completed) pref.TutorialLastStep = null;
+            pref.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Save the tutorial step the user is currently on (for resume)
+    /// </summary>
+    public async Task SetTutorialLastStepAsync(string userId, int? step)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var pref = await context.UserPreferences
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (pref == null)
+        {
+            pref = new UserPreference
+            {
+                UserId = userId,
+                TutorialLastStep = step,
+                UpdatedAt = DateTime.UtcNow
+            };
+            context.UserPreferences.Add(pref);
+        }
+        else
+        {
+            pref.TutorialLastStep = step;
+            pref.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await context.SaveChangesAsync();
+    }
 }

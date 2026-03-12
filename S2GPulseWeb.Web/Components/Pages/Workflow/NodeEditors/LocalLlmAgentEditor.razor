@@ -1,0 +1,942 @@
+@using System.Text.Json
+@using System.Net.Http
+@using S2GPulseWeb.Web.Logic
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>Base URL</label>
+        <input type="text" value="@config.BaseUrl"
+               @onchange="@(e => UpdateConfig(c => c.BaseUrl = e.Value?.ToString() ?? ""))"
+               class="form-control" placeholder="http://192.168.1.89:8000/v1" />
+        <small class="form-text text-muted">OpenAI-compatible API endpoint (vLLM, Ollama, LM Studio, etc.)</small>
+    </div>
+
+    <div class="form-group">
+        <label>API Key</label>
+        <div class="input-group">
+            <input type="password" value="@config.ApiKey"
+                   @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))"
+                   class="form-control" placeholder="Optional — leave empty if not required"
+                   autocomplete="new-password" />
+        </div>
+        <small class="form-text text-muted">Only needed if your server requires authentication.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <input type="text" value="@config.Model"
+               @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString() ?? ""))"
+               class="form-control" placeholder="e.g. huihui, llama-3, qwen3" />
+        <small class="form-text text-muted">Use the diagnostics panel to discover available models.</small>
+    </div>
+
+    @if (config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Token Usage:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">@((config.InputTokens + config.OutputTokens).ToString("N0")) total</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens.ToString("N0") in / @config.OutputTokens.ToString("N0") out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetStats" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="form-group">
+        <div class="custom-control custom-switch">
+            <input type="checkbox" class="custom-control-input" id="agentThinkingSwitch"
+                   checked="@config.EnableThinking"
+                   @onchange="@(e => UpdateConfig(c => c.EnableThinking = (bool)(e.Value ?? false)))" />
+            <label class="custom-control-label" for="agentThinkingSwitch">Enable Thinking Mode</label>
+        </div>
+        <small class="form-text text-muted">For Qwen3/reasoning models. Separates &lt;think&gt; chain from final response.</small>
+    </div>
+
+    <!-- Agent Mode Settings -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center" style="background: rgba(77, 170, 255, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <span style="margin-right: 8px;">🤖</span>
+            <strong>Agent Mode Settings</strong>
+        </div>
+
+        <div class="form-group mb-2">
+            <label>Max Tool Calls</label>
+            <input type="number" value="@config.MaxToolCalls"
+                   @onchange="@(e => UpdateConfig(c => c.MaxToolCalls = int.TryParse(e.Value?.ToString(), out var v) ? Math.Max(1, Math.Min(50, v)) : 10))"
+                   class="form-control" min="1" max="50" />
+            <small class="form-text text-muted">Maximum number of tool invocations per execution (default: 10)</small>
+        </div>
+    </div>
+
+    <!-- Tools Section -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center justify-content-between" style="background: rgba(255, 193, 7, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div class="d-flex align-items-center">
+                <span style="margin-right: 8px;">🔧</span>
+                <strong>Tools (@config.Tools.Count)</strong>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" @onclick="AddTool" style="font-size: 0.75rem;">+ Add Tool</button>
+        </div>
+
+        @if (config.Tools.Count == 0)
+        {
+            <div class="alert alert-info" style="font-size: 0.85rem;">
+                <strong>No tools configured.</strong><br/>
+                Draw <code>tool:*</code> labeled connections FROM this node to tool nodes, or add tools manually.
+            </div>
+        }
+        else
+        {
+            @foreach (var tool in config.Tools)
+            {
+                var currentTool = tool;
+                var isDiscovered = discoveredToolIds.Contains(currentTool.EntryNodeId);
+                var enabledInputCount = currentTool.Parameters.Count(p => p.Value.IsEnabled);
+                var enabledOutputCount = currentTool.Outputs.Count(o => o.IsEnabled);
+
+                <div class="tool-card mb-2 border rounded" style="background: var(--background-dark);">
+                    <!-- Tool Header -->
+                    <div class="tool-header d-flex align-items-center p-2"
+                         @onclick="@(async () => { currentTool.IsExpanded = !currentTool.IsExpanded; await NotifyChanged(); })"
+                         style="cursor: pointer; border-bottom: @(currentTool.IsExpanded ? "1px solid var(--border-color)" : "none");">
+                        <span class="expand-icon mr-2" style="font-size: 0.7rem; color: var(--teal-light);">
+                            @(currentTool.IsExpanded ? "▼" : "▶")
+                        </span>
+                        @if (isDiscovered)
+                        {
+                            <span class="badge badge-success mr-2" style="font-size: 0.6rem;">Auto</span>
+                        }
+                        <input type="text" value="@currentTool.Name"
+                               @onclick:stopPropagation="true"
+                               @onchange="@(async e => { currentTool.Name = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                               class="form-control form-control-sm" style="flex: 1; margin-right: 8px;" placeholder="Tool name" />
+                        <span class="badge badge-info mr-2" style="font-size: 0.6rem;">@enabledInputCount in</span>
+                        <span class="badge badge-secondary" style="font-size: 0.6rem;">@enabledOutputCount out</span>
+                        @if (!isDiscovered)
+                        {
+                            <button class="btn btn-sm btn-outline-danger ml-2"
+                                    @onclick="@(() => RemoveTool(currentTool))" @onclick:stopPropagation="true"
+                                    title="Remove tool">×</button>
+                        }
+                    </div>
+
+                    <!-- Expanded Content -->
+                    @if (currentTool.IsExpanded)
+                    {
+                        <div class="tool-body p-2">
+                            <div class="mb-2">
+                                <input type="text" value="@currentTool.Description"
+                                       @onchange="@(async e => { currentTool.Description = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                       class="form-control form-control-sm" placeholder="Description for the AI" />
+                            </div>
+
+                            @if (currentTool.EntryNodeId != Guid.Empty)
+                            {
+                                var nodeName = GetNodeName(currentTool.EntryNodeId);
+                                <small class="text-muted d-block mb-2">→ @nodeName</small>
+                            }
+
+                            <!-- Input Fields -->
+                            @if (currentTool.Parameters.Any())
+                            {
+                                <div class="fields-section mb-2">
+                                    <div class="section-label d-flex align-items-center mb-1">
+                                        <span style="font-size: 0.75rem; color: var(--teal-light);">📥 Input Fields</span>
+                                    </div>
+                                    <div class="fields-list">
+                                        @foreach (var param in currentTool.Parameters)
+                                        {
+                                            var paramKey = param.Key;
+                                            var paramValue = param.Value;
+                                            <div class="field-row d-flex align-items-center mb-1 p-1 rounded"
+                                                 style="background: rgba(0,0,0,0.2); font-size: 0.8rem;">
+                                                <input type="checkbox" checked="@paramValue.IsEnabled"
+                                                       @onchange="@(async e => { paramValue.IsEnabled = (bool)(e.Value ?? false); await NotifyChanged(); })"
+                                                       class="mr-2" style="width: 14px; height: 14px;" />
+                                                <span class="field-name mr-2" style="min-width: 80px; color: @(paramValue.IsEnabled ? "var(--teal-light)" : "#666");">
+                                                    @paramKey
+                                                </span>
+                                                <span class="field-config mr-2" style="font-size: 0.7rem; color: #888;">
+                                                    → @paramValue.NodeConfigField
+                                                </span>
+                                                <span class="badge mr-2" style="font-size: 0.6rem; background: rgba(100,100,100,0.3);">
+                                                    @paramValue.Type
+                                                </span>
+                                                <input type="text" value="@paramValue.Description"
+                                                       @onchange="@(async e => { paramValue.Description = e.Value?.ToString() ?? ""; await NotifyChanged(); })"
+                                                       class="form-control form-control-sm" style="flex: 1; font-size: 0.75rem;"
+                                                       placeholder="Description for AI..." />
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            <!-- Output Values -->
+                            @if (currentTool.Outputs.Any())
+                            {
+                                <div class="outputs-section">
+                                    <div class="section-label d-flex align-items-center mb-1">
+                                        <span style="font-size: 0.75rem; color: var(--teal-light);">📤 Output Values</span>
+                                    </div>
+                                    <div class="outputs-list d-flex flex-wrap gap-1">
+                                        @foreach (var output in currentTool.Outputs)
+                                        {
+                                            var currentOutput = output;
+                                            <div class="output-chip d-flex align-items-center p-1 rounded"
+                                                 style="background: @(currentOutput.IsEnabled ? "rgba(0, 168, 168, 0.2)" : "rgba(100,100,100,0.2)"); font-size: 0.7rem; cursor: pointer;"
+                                                 @onclick="@(async () => { currentOutput.IsEnabled = !currentOutput.IsEnabled; await NotifyChanged(); })"
+                                                 title="@currentOutput.Description">
+                                                <input type="checkbox" checked="@currentOutput.IsEnabled"
+                                                       class="mr-1" style="width: 12px; height: 12px;"
+                                                       @onclick:stopPropagation="true"
+                                                       @onchange="@(async e => { currentOutput.IsEnabled = (bool)(e.Value ?? false); await NotifyChanged(); })" />
+                                                <span style="color: @(currentOutput.IsEnabled ? "var(--teal-light)" : "#666");">
+                                                    @currentOutput.Placeholder
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+        <small class="form-text text-muted">Draw connections with "tool:sql", "tool:storage", etc. labels to auto-discover tools.</small>
+    </div>
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))"
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or instructions for tool use..."></textarea>
+        <small class="form-text text-muted">Instruct the AI on how and when to use tools.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))"
+                  class="form-control" rows="4" placeholder="Enter the task for the AI agent..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds"
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))"
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s)</small>
+    </div>
+
+    <!-- Test & Diagnostics Panel -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center" @onclick="() => showDiagnostics = !showDiagnostics"
+             style="background: rgba(77, 170, 255, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px; cursor: pointer;">
+            <span style="margin-right: 8px;">🧪</span>
+            <strong>Test & Diagnostics</strong>
+            <span class="ml-auto" style="font-size: 0.7rem; color: var(--text-secondary);">@(showDiagnostics ? "▼" : "▶")</span>
+        </div>
+
+        @if (showDiagnostics)
+        {
+            <div class="diagnostics-panel p-2 border rounded" style="background: var(--background-dark); border-color: var(--border-color) !important;">
+                <!-- Test Connection -->
+                <div class="mb-2">
+                    <button class="btn btn-sm btn-outline-info" @onclick="TestConnection" disabled="@isTesting">
+                        @(isTesting ? "⏳ Testing..." : "🔌 Test Connection")
+                    </button>
+                    @if (connectionResult != null)
+                    {
+                        <span class="ml-2 small" style="color: @(connectionSuccess ? "#28a745" : "#dc3545");">
+                            @connectionResult
+                        </span>
+                    }
+                </div>
+
+                <!-- List Models -->
+                <div class="mb-2">
+                    <button class="btn btn-sm btn-outline-info" @onclick="ListModels" disabled="@isListingModels">
+                        @(isListingModels ? "⏳ Loading..." : "📋 List Models")
+                    </button>
+                    @if (discoveredModels.Count > 0)
+                    {
+                        <div class="mt-1">
+                            <small class="text-muted d-block mb-1">Click a model to select it:</small>
+                            <div class="d-flex flex-wrap gap-1">
+                                @foreach (var model in discoveredModels)
+                                {
+                                    var m = model;
+                                    <span class="chip model-chip @(config.Model == m.Id ? "active" : "")"
+                                          @onclick="@(() => SelectModel(m.Id))"
+                                          title="@m.Details">
+                                        @m.Id
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (modelListError != null)
+                    {
+                        <small class="d-block mt-1" style="color: #dc3545;">@modelListError</small>
+                    }
+                </div>
+
+                <!-- Test Prompt -->
+                <div class="mb-1">
+                    <label class="small text-muted mb-1">Quick Test Prompt:</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" @bind="testPrompt" class="form-control" placeholder="Say hello in one sentence" />
+                        <div class="input-group-append">
+                            <button class="btn btn-outline-success" @onclick="SendTestPrompt" disabled="@isSendingTest">
+                                @(isSendingTest ? "⏳" : "▶")
+                            </button>
+                        </div>
+                    </div>
+                    @if (testResponse != null)
+                    {
+                        <div class="mt-1 p-2 rounded" style="background: rgba(0,0,0,0.3); font-size: 0.8rem; max-height: 200px; overflow-y: auto;">
+                            <div style="white-space: pre-wrap; word-break: break-word;">@testResponse</div>
+                            @if (testTokenInfo != null)
+                            {
+                                <small class="d-block mt-1 text-muted">@testTokenInfo</small>
+                            }
+                        </div>
+                    }
+                    @if (testError != null)
+                    {
+                        <small class="d-block mt-1" style="color: #dc3545;">@testError</small>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .model-chip.active {
+        background: var(--teal-dark);
+        border-color: var(--teal-light);
+        color: white;
+    }
+
+    .tool-card {
+        border-color: var(--border-color) !important;
+    }
+
+    .diagnostics-panel .btn {
+        font-size: 0.75rem;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+    [Parameter] public Guid NodeId { get; set; }
+
+    // Canvas data for tool discovery
+    [Parameter] public List<CanvasNodeInfo>? CanvasNodes { get; set; }
+    [Parameter] public List<CanvasConnectionInfo>? CanvasConnections { get; set; }
+
+    [Inject] IHttpClientFactory HttpClientFactory { get; set; } = default!;
+    [Inject] CustomNodeService CustomNodeService { get; set; } = default!;
+
+    private LocalLlmAgentConfig config = new();
+    private HashSet<Guid> discoveredToolIds = new();
+    private bool isDiscovering = false;
+
+    // Diagnostics state
+    private bool showDiagnostics = false;
+    private bool isTesting = false;
+    private string? connectionResult;
+    private bool connectionSuccess;
+    private bool isListingModels = false;
+    private List<ModelInfo> discoveredModels = new();
+    private string? modelListError;
+    private string testPrompt = "Say hello in one sentence.";
+    private bool isSendingTest = false;
+    private string? testResponse;
+    private string? testTokenInfo;
+    private string? testError;
+
+    protected override void OnParametersSet()
+    {
+        if (isDiscovering) return;
+
+        try
+        {
+            config = JsonSerializer.Deserialize<LocalLlmAgentConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+
+        // Discover tools from connections
+        _ = InvokeAsync(async () =>
+        {
+            if (isDiscovering) return;
+            isDiscovering = true;
+            try
+            {
+                await DiscoverToolsFromConnectionsAsync();
+                StateHasChanged();
+            }
+            finally
+            {
+                isDiscovering = false;
+            }
+        });
+    }
+
+    private async Task DiscoverToolsFromConnectionsAsync()
+    {
+        if (CanvasConnections == null || CanvasNodes == null || NodeId == Guid.Empty)
+            return;
+
+        var needsConfigUpdate = false;
+        discoveredToolIds.Clear();
+
+        var toolConnections = CanvasConnections
+            .Where(c => c.Label?.StartsWith("tool:", StringComparison.OrdinalIgnoreCase) == true &&
+                       (c.SourceId == NodeId || c.TargetId == NodeId))
+            .ToList();
+
+        foreach (var conn in toolConnections)
+        {
+            var toolNodeId = conn.SourceId == NodeId ? conn.TargetId : conn.SourceId;
+            var toolNode = CanvasNodes.FirstOrDefault(n => n.Id == toolNodeId);
+            var toolTag = conn.Label ?? "tool:unknown";
+            var toolName = toolTag.Replace(":", "_");
+
+            discoveredToolIds.Add(toolNodeId);
+
+            var existingTool = config.Tools.FirstOrDefault(t => t.EntryNodeId == toolNodeId);
+            if (existingTool == null)
+            {
+                var nodeTypeStr = toolNode?.NodeType ?? "";
+                var nodeNameStr = toolNode?.Name ?? "Unknown";
+
+                Dictionary<string, DeepSeekAgentToolParameter> defaultParams;
+                List<string> requiredParams;
+                List<DeepSeekAgentToolOutput> defaultOutputs;
+
+                if (nodeTypeStr.StartsWith("Custom_"))
+                {
+                    (defaultParams, requiredParams, defaultOutputs) = await DetectCustomNodeFieldsAsync(nodeTypeStr, nodeNameStr);
+                }
+                else
+                {
+                    (defaultParams, requiredParams, defaultOutputs) = GetDefaultParametersForNodeType(nodeTypeStr, nodeNameStr);
+                }
+
+                config.Tools.Add(new DeepSeekAgentToolDefinition
+                {
+                    Name = toolName,
+                    Description = $"Execute {nodeTypeStr} operation: {nodeNameStr}",
+                    EntryNodeId = toolNodeId,
+                    Parameters = defaultParams,
+                    Required = requiredParams,
+                    Outputs = defaultOutputs
+                });
+
+                var toolInstructionLine = $"Use tool - {toolName} ({nodeNameStr}) - to: [describe what to do with this tool]";
+                if (string.IsNullOrWhiteSpace(config.Prompt))
+                {
+                    config.Prompt = toolInstructionLine;
+                }
+                else if (!config.Prompt.Contains(toolName))
+                {
+                    config.Prompt = config.Prompt.TrimEnd() + "\n" + toolInstructionLine;
+                }
+
+                needsConfigUpdate = true;
+            }
+        }
+
+        // Remove disconnected auto-discovered tools
+        var toolsToRemove = config.Tools.Where(t => t.EntryNodeId != Guid.Empty && !discoveredToolIds.Contains(t.EntryNodeId)).ToList();
+        foreach (var tool in toolsToRemove)
+        {
+            if (!string.IsNullOrEmpty(config.Prompt))
+            {
+                var lines = config.Prompt.Split('\n')
+                    .Where(line => !line.Contains($"Use tool - {tool.Name}"))
+                    .ToArray();
+                config.Prompt = string.Join("\n", lines).Trim();
+            }
+
+            config.Tools.Remove(tool);
+            needsConfigUpdate = true;
+        }
+
+        if (needsConfigUpdate)
+        {
+            await NotifyChanged();
+        }
+    }
+
+    private string GetNodeName(Guid nodeId)
+    {
+        var node = CanvasNodes?.FirstOrDefault(n => n.Id == nodeId);
+        return node != null ? $"{node.Name} ({node.NodeType})" : nodeId.ToString()[..8] + "...";
+    }
+
+    private async Task UpdateConfig(Action<LocalLlmAgentConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task ResetStats()
+    {
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    private async Task AddTool()
+    {
+        config.Tools.Add(new DeepSeekAgentToolDefinition
+        {
+            Name = $"tool_{config.Tools.Count + 1}",
+            Description = "Describe what this tool does"
+        });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveTool(DeepSeekAgentToolDefinition tool)
+    {
+        config.Tools.Remove(tool);
+        await NotifyChanged();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TOOL DISCOVERY HELPERS (same as DeepSeekAgentEditor)
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<(Dictionary<string, DeepSeekAgentToolParameter> Parameters, List<string> Required, List<DeepSeekAgentToolOutput> Outputs)>
+        DetectCustomNodeFieldsAsync(string nodeType, string nodeName)
+    {
+        var parameters = new Dictionary<string, DeepSeekAgentToolParameter>();
+        var required = new List<string>();
+        var outputs = new List<DeepSeekAgentToolOutput>();
+
+        var definition = await CustomNodeService.GetDefinitionByKeyAsync(nodeType);
+        if (definition == null)
+        {
+            parameters["data"] = new DeepSeekAgentToolParameter
+            {
+                Type = "string",
+                Description = "Data to pass to the custom node",
+                NodeConfigField = "Data",
+                IsEnabled = true
+            };
+            return (parameters, required, outputs);
+        }
+
+        foreach (var field in definition.InputFields.OrderBy(f => f.DisplayOrder))
+        {
+            var paramName = field.FieldName.ToLowerInvariant();
+            parameters[paramName] = new DeepSeekAgentToolParameter
+            {
+                Type = MapFieldTypeToJsonType(field.FieldType, field.ExpectedDataType),
+                Description = field.HelpText ?? field.DisplayLabel ?? field.FieldName,
+                NodeConfigField = field.FieldName,
+                IsEnabled = true
+            };
+
+            if (field.IsRequired)
+            {
+                required.Add(paramName);
+            }
+        }
+
+        foreach (var param in definition.OutputParameters)
+        {
+            outputs.Add(new DeepSeekAgentToolOutput
+            {
+                Placeholder = $"{{{{{nodeName}.{param.ParameterName}}}}}",
+                DataType = param.DataType ?? "string",
+                Description = param.Description ?? param.ParameterName,
+                IsEnabled = true
+            });
+        }
+
+        return (parameters, required, outputs);
+    }
+
+    private string MapFieldTypeToJsonType(Data.CustomFieldType fieldType, string? expectedDataType)
+    {
+        if (!string.IsNullOrEmpty(expectedDataType))
+        {
+            return expectedDataType.ToLowerInvariant() switch
+            {
+                "int" or "integer" => "integer",
+                "number" or "decimal" or "float" or "double" => "number",
+                "bool" or "boolean" => "boolean",
+                "json" or "object" => "object",
+                "array" => "array",
+                _ => "string"
+            };
+        }
+
+        return fieldType switch
+        {
+            Data.CustomFieldType.Number => "number",
+            Data.CustomFieldType.Boolean => "boolean",
+            Data.CustomFieldType.Json => "object",
+            _ => "string"
+        };
+    }
+
+    private (Dictionary<string, DeepSeekAgentToolParameter> Parameters, List<string> Required, List<DeepSeekAgentToolOutput> Outputs)
+        GetDefaultParametersForNodeType(string nodeType, string nodeName)
+    {
+        var parameters = new Dictionary<string, DeepSeekAgentToolParameter>();
+        var required = new List<string>();
+        var outputs = new List<DeepSeekAgentToolOutput>();
+
+        switch (nodeType)
+        {
+            case "S2GStorage":
+                parameters["operation"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Operation: write, read, delete, list, or create_folder", NodeConfigField = "Operation", IsEnabled = true };
+                parameters["path"] = new DeepSeekAgentToolParameter { Type = "string", Description = "File path for write/read/delete operations", NodeConfigField = "FilePath", IsEnabled = true };
+                parameters["content"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Content to write (for write operation)", NodeConfigField = "Content", IsEnabled = true };
+                parameters["folder"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Folder path for list or create_folder operations", NodeConfigField = "FolderPath", IsEnabled = false };
+                required.Add("operation");
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Content}}}}", DataType = "string", Description = "File content (for read operation)", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Files}}}}", DataType = "array", Description = "File list (for list operation)", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Success}}}}", DataType = "bool", Description = "Operation success status", IsEnabled = true });
+                break;
+
+            case "AzureBlob":
+                parameters["operation"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Operation: upload, download, delete, or list", NodeConfigField = "Operation", IsEnabled = true };
+                parameters["path"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Blob path", NodeConfigField = "BlobPath", IsEnabled = true };
+                parameters["content"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Content to upload", NodeConfigField = "Content", IsEnabled = true };
+                required.Add("operation");
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Content}}}}", DataType = "string", Description = "Downloaded content", IsEnabled = true });
+                break;
+
+            case "SqlServer":
+            case "Postgresql":
+                parameters["query"] = new DeepSeekAgentToolParameter { Type = "string", Description = "SQL query to execute", NodeConfigField = "Query", IsEnabled = true };
+                required.Add("query");
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Results}}}}", DataType = "json", Description = "Query results as JSON array", IsEnabled = true });
+                break;
+
+            case "HttpRequest":
+                parameters["url"] = new DeepSeekAgentToolParameter { Type = "string", Description = "URL to request", NodeConfigField = "Url", IsEnabled = true };
+                parameters["method"] = new DeepSeekAgentToolParameter { Type = "string", Description = "HTTP method: GET, POST, PUT, DELETE", NodeConfigField = "Method", IsEnabled = true };
+                parameters["body"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Request body (for POST/PUT)", NodeConfigField = "Body", IsEnabled = true };
+                required.Add("url");
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Body}}}}", DataType = "string", Description = "Response body", IsEnabled = true });
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.StatusCode}}}}", DataType = "int", Description = "HTTP status code", IsEnabled = true });
+                break;
+
+            case "OpenAI":
+            case "DeepSeek":
+            case "Anthropic":
+            case "Gemini":
+            case "Mistral":
+            case "Groq":
+            case "LocalLlm":
+                parameters["prompt"] = new DeepSeekAgentToolParameter { Type = "string", Description = "The prompt to send to the AI", NodeConfigField = "Prompt", IsEnabled = true };
+                required.Add("prompt");
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Response}}}}", DataType = "string", Description = "AI response text", IsEnabled = true });
+                break;
+
+            case "Condition":
+                parameters["value"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Value to evaluate", NodeConfigField = "ConditionExpression", IsEnabled = true };
+                outputs.Add(new DeepSeekAgentToolOutput { Placeholder = $"{{{{{nodeName}.Result}}}}", DataType = "bool", Description = "Condition result", IsEnabled = true });
+                break;
+
+            default:
+                if (!nodeType.StartsWith("Custom_"))
+                {
+                    parameters["data"] = new DeepSeekAgentToolParameter { Type = "string", Description = "Data to pass to the tool", NodeConfigField = "Data", IsEnabled = true };
+                }
+                break;
+        }
+
+        return (parameters, required, outputs);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // DIAGNOSTICS
+    // ═══════════════════════════════════════════════════════════════
+
+    private string GetModelsUrl()
+    {
+        var baseUrl = (config.BaseUrl ?? "").TrimEnd('/');
+        return baseUrl.EndsWith("/v1") ? $"{baseUrl}/models" : $"{baseUrl}/v1/models";
+    }
+
+    private string GetCompletionsUrl()
+    {
+        var baseUrl = (config.BaseUrl ?? "").TrimEnd('/');
+        return baseUrl.EndsWith("/v1") ? $"{baseUrl}/chat/completions" : $"{baseUrl}/v1/chat/completions";
+    }
+
+    private async Task TestConnection()
+    {
+        if (string.IsNullOrWhiteSpace(config.BaseUrl)) { connectionResult = "❌ Base URL is empty"; connectionSuccess = false; return; }
+
+        isTesting = true;
+        connectionResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, GetModelsUrl());
+            if (!string.IsNullOrEmpty(config.ApiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var response = await client.SendAsync(request);
+            sw.Stop();
+
+            connectionResult = response.IsSuccessStatusCode
+                ? $"✅ Connected ({sw.ElapsedMilliseconds}ms)"
+                : $"❌ HTTP {(int)response.StatusCode} ({sw.ElapsedMilliseconds}ms)";
+            connectionSuccess = response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            connectionResult = $"❌ {ex.Message}";
+            connectionSuccess = false;
+        }
+        finally
+        {
+            isTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ListModels()
+    {
+        if (string.IsNullOrWhiteSpace(config.BaseUrl)) { modelListError = "Base URL is empty"; return; }
+
+        isListingModels = true;
+        discoveredModels.Clear();
+        modelListError = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, GetModelsUrl());
+            if (!string.IsNullOrEmpty(config.ApiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+            var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(content);
+                if (json.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var model in data.EnumerateArray())
+                    {
+                        var id = model.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                        var ownedBy = model.TryGetProperty("owned_by", out var owEl) ? owEl.GetString() ?? "" : "";
+                        discoveredModels.Add(new ModelInfo { Id = id, Details = $"Owner: {ownedBy}" });
+                    }
+                }
+
+                if (discoveredModels.Count == 0)
+                    modelListError = "No models found.";
+            }
+            else
+            {
+                modelListError = $"HTTP {(int)response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            modelListError = ex.Message;
+        }
+        finally
+        {
+            isListingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectModel(string modelId)
+    {
+        config.Model = modelId;
+        await NotifyChanged();
+        StateHasChanged();
+    }
+
+    private async Task SendTestPrompt()
+    {
+        if (string.IsNullOrWhiteSpace(config.BaseUrl) || string.IsNullOrWhiteSpace(config.Model))
+        {
+            testError = "Base URL and Model are required.";
+            return;
+        }
+
+        isSendingTest = true;
+        testResponse = null;
+        testTokenInfo = null;
+        testError = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(60);
+
+            var requestBody = new Dictionary<string, object?>
+            {
+                { "model", config.Model },
+                { "messages", new[] { new { role = "user", content = testPrompt } } },
+                { "max_tokens", 512 },
+                { "temperature", config.Temperature },
+                { "stream", false }
+            };
+
+            if (config.EnableThinking)
+                requestBody["chat_template_kwargs"] = new { enable_thinking = true };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, GetCompletionsUrl())
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+            if (!string.IsNullOrEmpty(config.ApiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var response = await client.SendAsync(request);
+            sw.Stop();
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(content);
+                var rawText = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+
+                if (rawText.Contains("<think>"))
+                {
+                    var thinkMatch = System.Text.RegularExpressions.Regex.Match(rawText, @"<think>(.*?)</think>", System.Text.RegularExpressions.RegexOptions.Singleline);
+                    if (thinkMatch.Success)
+                    {
+                        var thinking = thinkMatch.Groups[1].Value.Trim();
+                        var answer = System.Text.RegularExpressions.Regex.Replace(rawText, @"<think>.*?</think>", "", System.Text.RegularExpressions.RegexOptions.Singleline).Trim();
+                        testResponse = $"💭 Thinking:\n{thinking}\n\n💬 Response:\n{answer}";
+                    }
+                    else testResponse = rawText;
+                }
+                else testResponse = rawText;
+
+                if (json.TryGetProperty("usage", out var usage))
+                {
+                    var pt = usage.TryGetProperty("prompt_tokens", out var ptEl) ? ptEl.GetInt64() : 0;
+                    var ct = usage.TryGetProperty("completion_tokens", out var ctEl) ? ctEl.GetInt64() : 0;
+                    testTokenInfo = $"⏱ {sw.ElapsedMilliseconds}ms | Tokens: {pt} in / {ct} out";
+                }
+            }
+            else
+            {
+                testError = $"HTTP {(int)response.StatusCode}: {content.Substring(0, Math.Min(300, content.Length))}";
+            }
+        }
+        catch (Exception ex)
+        {
+            testError = ex.Message;
+        }
+        finally
+        {
+            isSendingTest = false;
+            StateHasChanged();
+        }
+    }
+
+    private class ModelInfo
+    {
+        public string Id { get; set; } = "";
+        public string Details { get; set; } = "";
+    }
+
+    // DTOs for canvas data (shared with DeepSeekAgentEditor)
+    public class CanvasNodeInfo
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string NodeType { get; set; } = "";
+    }
+
+    public class CanvasConnectionInfo
+    {
+        public Guid SourceId { get; set; }
+        public Guid TargetId { get; set; }
+        public string? Label { get; set; }
+    }
+}

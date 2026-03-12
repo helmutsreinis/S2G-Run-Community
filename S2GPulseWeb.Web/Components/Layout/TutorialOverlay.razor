@@ -1,0 +1,372 @@
+@using S2GPulseWeb.Web.Logic
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+@if (IsActive && currentStep != null)
+{
+    <div class="tutorial-overlay" @onclick="HandleOverlayClick" @onkeydown="HandleKeyDown" tabindex="0">
+        @* Spotlight cutout — 4 dark rectangles around the target *@
+        @if (spotlightRect != null)
+        {
+            <div class="tutorial-dim tutorial-dim-top"
+                 style="top:0;left:0;right:0;height:@(spotlightRect.ViewportY - SpotlightPadding)px;"></div>
+            <div class="tutorial-dim tutorial-dim-bottom"
+                 style="top:@(spotlightRect.ViewportY + spotlightRect.Height + SpotlightPadding)px;left:0;right:0;bottom:0;"></div>
+            <div class="tutorial-dim tutorial-dim-left"
+                 style="top:@(spotlightRect.ViewportY - SpotlightPadding)px;left:0;width:@(spotlightRect.ViewportX - SpotlightPadding)px;height:@(spotlightRect.Height + SpotlightPadding * 2)px;"></div>
+            <div class="tutorial-dim tutorial-dim-right"
+                 style="top:@(spotlightRect.ViewportY - SpotlightPadding)px;right:0;left:@(spotlightRect.ViewportX + spotlightRect.Width + SpotlightPadding)px;height:@(spotlightRect.Height + SpotlightPadding * 2)px;"></div>
+
+            @* Spotlight ring (highlight border) *@
+            <div class="tutorial-spotlight-ring"
+                 style="top:@(spotlightRect.ViewportY - SpotlightPadding)px;left:@(spotlightRect.ViewportX - SpotlightPadding)px;width:@(spotlightRect.Width + SpotlightPadding * 2)px;height:@(spotlightRect.Height + SpotlightPadding * 2)px;">
+            </div>
+        }
+        else
+        {
+            @* Full-screen dim for welcome step (no target) *@
+            <div class="tutorial-dim" style="top:0;left:0;right:0;bottom:0;"></div>
+        }
+
+        @* Tooltip card *@
+        <div class="tutorial-tooltip @GetTooltipPlacementClass()"
+             style="@GetTooltipPosition()">
+            <div class="tutorial-tooltip-header">
+                <span class="tutorial-step-badge">@(currentStepIndex + 1) / @TutorialStepDefinition.TotalSteps</span>
+                <button class="tutorial-skip-btn" @onclick="SkipTutorial" @onclick:stopPropagation="true">Skip Tutorial ✕</button>
+            </div>
+            <h3 class="tutorial-tooltip-title">@currentStep.Title</h3>
+            <p class="tutorial-tooltip-desc">@currentStep.Description</p>
+
+            @if (currentStep.RequiresInteraction && !string.IsNullOrEmpty(currentStep.ActionHint))
+            {
+                <p class="tutorial-action-hint">@currentStep.ActionHint</p>
+            }
+
+            <div class="tutorial-tooltip-footer">
+                <div class="tutorial-progress">
+                    @for (int i = 0; i < TutorialStepDefinition.TotalSteps; i++)
+                    {
+                        var idx = i;
+                        <span class="tutorial-dot @(idx == currentStepIndex ? "active" : idx < currentStepIndex ? "completed" : "")"></span>
+                    }
+                </div>
+                <div class="tutorial-nav-buttons">
+                    @if (currentStepIndex > 0)
+                    {
+                        <button class="tutorial-btn tutorial-btn-back" @onclick="PreviousStep" @onclick:stopPropagation="true">← Back</button>
+                    }
+                    @if (!currentStep.RequiresInteraction)
+                    {
+                        @if (currentStepIndex < TutorialStepDefinition.TotalSteps - 1)
+                        {
+                            <button class="tutorial-btn tutorial-btn-next" @onclick="NextStep" @onclick:stopPropagation="true">Next →</button>
+                        }
+                        else
+                        {
+                            <button class="tutorial-btn tutorial-btn-finish" @onclick="FinishTutorial" @onclick:stopPropagation="true">🎉 Finish</button>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public int StartAtStep { get; set; } = 0;
+    [Parameter] public EventCallback OnTutorialCompleted { get; set; }
+    [Parameter] public EventCallback OnTutorialSkipped { get; set; }
+    [Parameter] public EventCallback<int> OnStepChanged { get; set; }
+
+    private const int SpotlightPadding = 8;
+
+    private int currentStepIndex;
+    private TutorialStep? currentStep;
+    private ElementRect? spotlightRect;
+    private int? clickListenerId;
+    private int listenerForStepIndex = -1;
+    private DotNetObjectReference<TutorialOverlay>? dotNetRef;
+    private bool wasActive;
+    private bool _isAdvancing;   // re-entrance guard — prevents concurrent step transitions
+    private int _stepVersion;    // monotonic counter — incremented on every step change
+
+    private record ElementRect(double X, double Y, double Width, double Height, double ViewportX, double ViewportY);
+
+    protected override void OnParametersSet()
+    {
+        if (IsActive && !wasActive)
+        {
+            currentStepIndex = StartAtStep;
+            currentStep = GetStep(currentStepIndex);
+            wasActive = true;
+        }
+        else if (!IsActive && wasActive)
+        {
+            wasActive = false;
+            currentStep = null;
+            spotlightRect = null;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsActive && currentStep != null)
+        {
+            dotNetRef ??= DotNetObjectReference.Create(this);
+            var version = _stepVersion;
+            await UpdateSpotlightAsync();
+            if (_stepVersion != version) return; // step changed during spotlight update
+            await SetupInteractionListenerAsync();
+        }
+    }
+
+    private TutorialStep? GetStep(int index)
+    {
+        if (index >= 0 && index < TutorialStepDefinition.Steps.Length)
+            return TutorialStepDefinition.Steps[index];
+        return null;
+    }
+
+    private async Task UpdateSpotlightAsync()
+    {
+        var step = currentStep;
+        if (step == null || string.IsNullOrEmpty(step.TargetSelector))
+        {
+            spotlightRect = null;
+            return;
+        }
+
+        var version = _stepVersion;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("tutorialInterop.scrollToElement", step.TargetSelector);
+            if (_stepVersion != version) return;
+            await Task.Delay(100);
+            if (_stepVersion != version) return;
+            var rect = await JSRuntime.InvokeAsync<ElementRect?>("tutorialInterop.getElementRect", step.TargetSelector);
+            if (_stepVersion != version) return;
+            if (rect != null)
+            {
+                spotlightRect = rect;
+                StateHasChanged();
+            }
+            else
+            {
+                spotlightRect = null;
+            }
+        }
+        catch
+        {
+            spotlightRect = null;
+        }
+    }
+
+    private async Task SetupInteractionListenerAsync()
+    {
+        // Clean up any previous listener
+        await CleanupListenerAsync();
+
+        var step = currentStep;
+        if (step is { RequiresInteraction: true } && !string.IsNullOrEmpty(step.TargetSelector))
+        {
+            if (!IsActive || currentStep == null) return;
+            var version = _stepVersion;
+            try
+            {
+                listenerForStepIndex = currentStepIndex;
+                var id = await JSRuntime.InvokeAsync<int>(
+                    "tutorialInterop.listenForClick",
+                    step.TargetSelector,
+                    dotNetRef,
+                    nameof(OnInteractionDetected));
+                if (_stepVersion != version)
+                {
+                    // Step changed during JS call — clean up the stale listener
+                    try { await JSRuntime.InvokeVoidAsync("tutorialInterop.stopListening", id); } catch { }
+                    return;
+                }
+                clickListenerId = id;
+            }
+            catch
+            {
+                // JS interop failure — allow manual advancement
+            }
+        }
+    }
+
+    private async Task CleanupListenerAsync()
+    {
+        if (clickListenerId.HasValue)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("tutorialInterop.stopListening", clickListenerId.Value);
+            }
+            catch { }
+            clickListenerId = null;
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnInteractionDetected()
+    {
+        // Only advance if we're still on the step this listener was created for
+        // AND no other transition is already in progress
+        if (_isAdvancing) return;
+        if (listenerForStepIndex != currentStepIndex) return;
+        var version = _stepVersion;
+        await CleanupListenerAsync();
+        if (_stepVersion != version) return; // step changed during cleanup
+        await NextStep();
+    }
+
+    /// <summary>
+    /// Called by the parent component when an interactive action occurs (e.g., ClearCanvas).
+    /// </summary>
+    public async Task AdvanceIfWaiting(string targetSelector)
+    {
+        if (_isAdvancing) return;
+        if (IsActive && currentStep?.RequiresInteraction == true &&
+            currentStep.TargetSelector == $"[data-tutorial='{targetSelector}']")
+        {
+            var version = _stepVersion;
+            await CleanupListenerAsync();
+            if (_stepVersion != version) return;
+            await NextStep();
+        }
+    }
+
+    private async Task NextStep()
+    {
+        if (_isAdvancing) return;
+        _isAdvancing = true;
+        try
+        {
+            if (currentStepIndex < TutorialStepDefinition.TotalSteps - 1)
+            {
+                currentStepIndex++;
+                _stepVersion++;
+                currentStep = GetStep(currentStepIndex);
+                await OnStepChanged.InvokeAsync(currentStepIndex);
+                spotlightRect = null;
+                StateHasChanged();
+            }
+        }
+        finally
+        {
+            _isAdvancing = false;
+        }
+    }
+
+    private async Task PreviousStep()
+    {
+        if (_isAdvancing) return;
+        _isAdvancing = true;
+        try
+        {
+            if (currentStepIndex > 0)
+            {
+                await CleanupListenerAsync();
+                currentStepIndex--;
+                _stepVersion++;
+                currentStep = GetStep(currentStepIndex);
+                await OnStepChanged.InvokeAsync(currentStepIndex);
+                spotlightRect = null;
+                StateHasChanged();
+            }
+        }
+        finally
+        {
+            _isAdvancing = false;
+        }
+    }
+
+    private async Task SkipTutorial()
+    {
+        currentStep = null;
+        await CleanupListenerAsync();
+        await OnTutorialSkipped.InvokeAsync();
+    }
+
+    private async Task FinishTutorial()
+    {
+        currentStep = null;
+        await CleanupListenerAsync();
+        await OnTutorialCompleted.InvokeAsync();
+    }
+
+    private void HandleOverlayClick()
+    {
+        // Don't auto-advance on overlay click — user must use buttons or interact with target
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await SkipTutorial();
+        }
+        else if (e.Key == "ArrowRight" && currentStep?.RequiresInteraction != true)
+        {
+            if (currentStepIndex < TutorialStepDefinition.TotalSteps - 1)
+                await NextStep();
+            else
+                await FinishTutorial();
+        }
+        else if (e.Key == "ArrowLeft")
+        {
+            await PreviousStep();
+        }
+    }
+
+    private string GetTooltipPlacementClass()
+    {
+        if (currentStep == null || spotlightRect == null) return "tutorial-placement-center";
+        return currentStep.Placement switch
+        {
+            TutorialPlacement.Top => "tutorial-placement-top",
+            TutorialPlacement.Bottom => "tutorial-placement-bottom",
+            TutorialPlacement.Left => "tutorial-placement-left",
+            TutorialPlacement.Right => "tutorial-placement-right",
+            _ => "tutorial-placement-bottom"
+        };
+    }
+
+    private string GetTooltipPosition()
+    {
+        if (spotlightRect == null)
+        {
+            // Center on screen (welcome step)
+            return "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);";
+        }
+
+        var padding = SpotlightPadding + 12;
+
+        return currentStep?.Placement switch
+        {
+            TutorialPlacement.Bottom =>
+                $"position:fixed;top:{spotlightRect.ViewportY + spotlightRect.Height + padding}px;left:{spotlightRect.ViewportX + spotlightRect.Width / 2}px;transform:translateX(-50%);",
+            TutorialPlacement.Top =>
+                $"position:fixed;bottom:{Math.Max(10, GetViewportHeight() - spotlightRect.ViewportY + padding)}px;left:{spotlightRect.ViewportX + spotlightRect.Width / 2}px;transform:translateX(-50%);",
+            TutorialPlacement.Left =>
+                $"position:fixed;top:{spotlightRect.ViewportY + spotlightRect.Height / 2}px;right:{Math.Max(10, GetViewportWidth() - spotlightRect.ViewportX + padding)}px;transform:translateY(-50%);",
+            TutorialPlacement.Right =>
+                $"position:fixed;top:{spotlightRect.ViewportY + spotlightRect.Height / 2}px;left:{spotlightRect.ViewportX + spotlightRect.Width + padding}px;transform:translateY(-50%);",
+            _ =>
+                $"position:fixed;top:{spotlightRect.ViewportY + spotlightRect.Height + padding}px;left:{spotlightRect.ViewportX + spotlightRect.Width / 2}px;transform:translateX(-50%);"
+        };
+    }
+
+    // Fallback viewport helpers — these are rough estimates; updated from JS for precision
+    private double GetViewportWidth() => 1920;
+    private double GetViewportHeight() => 1080;
+
+    public async ValueTask DisposeAsync()
+    {
+        await CleanupListenerAsync();
+        dotNetRef?.Dispose();
+    }
+}

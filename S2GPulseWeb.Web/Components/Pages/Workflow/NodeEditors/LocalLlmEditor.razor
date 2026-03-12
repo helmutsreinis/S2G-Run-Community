@@ -1,0 +1,529 @@
+@using System.Text.Json
+@using System.Net.Http
+@using S2GPulseWeb.Web.Logic.Nodes
+
+<div class="node-editor-fields">
+    <div class="form-group">
+        <label>Base URL</label>
+        <input type="text" value="@config.BaseUrl"
+               @onchange="@(e => UpdateConfig(c => c.BaseUrl = e.Value?.ToString() ?? ""))"
+               class="form-control" placeholder="http://192.168.1.89:8000/v1" />
+        <small class="form-text text-muted">OpenAI-compatible API endpoint (vLLM, Ollama, LM Studio, etc.)</small>
+    </div>
+
+    <div class="form-group">
+        <label>API Key</label>
+        <input type="password" value="@config.ApiKey"
+               @onchange="@(e => UpdateConfig(c => c.ApiKey = e.Value?.ToString()))"
+               class="form-control" placeholder="Optional — leave empty if not required"
+               autocomplete="new-password" />
+        <small class="form-text text-muted">Only needed if your server requires authentication.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Model</label>
+        <input type="text" value="@config.Model"
+               @onchange="@(e => UpdateConfig(c => c.Model = e.Value?.ToString() ?? ""))"
+               class="form-control" placeholder="e.g. huihui, llama-3, qwen3" />
+        <small class="form-text text-muted">Use the diagnostics panel below to discover available models.</small>
+    </div>
+
+    @if (config.InputTokens > 0)
+    {
+        <div class="cost-stat-card mt-2 mb-3 p-2 border rounded" style="background-color: rgba(0, 168, 168, 0.1); border-color: var(--teal-medium) !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="font-weight-bold" style="color: var(--teal-dark);">Token Usage:</span>
+                <span class="badge badge-success" style="background-color: var(--teal-dark);">@((config.InputTokens + config.OutputTokens).ToString("N0")) total</span>
+            </div>
+            <div class="small text-muted mt-1">
+                Tokens: @config.InputTokens.ToString("N0") in / @config.OutputTokens.ToString("N0") out
+            </div>
+            <div class="text-right mt-1">
+                <button class="btn btn-sm btn-outline-danger py-0" @onclick="ResetStats" style="font-size: 0.7rem;">Reset Stats</button>
+            </div>
+        </div>
+    }
+
+    <div class="form-group">
+        <label>System Prompt</label>
+        <textarea value="@config.SystemPrompt" @onchange="@(e => UpdateConfig(c => c.SystemPrompt = e.Value?.ToString() ?? ""))"
+                  class="form-control" rows="3" placeholder="Define the AI's behavior, role, or output format..."></textarea>
+        <small class="form-text text-muted">Optional. Used to set custom instructions or define the AI's role.</small>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddSystemPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Prompt</label>
+        <textarea value="@config.Prompt" @onchange="@(e => UpdateConfig(c => c.Prompt = e.Value?.ToString() ?? ""))"
+                  class="form-control" rows="4" placeholder="Enter your prompt here..."></textarea>
+        @if (AvailablePlaceholders.Any())
+        {
+            <div class="placeholder-chips">
+                @foreach (var p in AvailablePlaceholders)
+                {
+                    <span class="chip" @onclick="@(() => AddPlaceholder(p))">@p</span>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Advanced: Raw Messages JSON -->
+    <div class="form-group">
+        <div class="d-flex align-items-center" @onclick="() => showMessagesJson = !showMessagesJson" style="cursor: pointer;">
+            <small class="text-muted">@(showMessagesJson ? "▼" : "▶") Advanced: Raw Messages JSON</small>
+        </div>
+        @if (showMessagesJson)
+        {
+            <textarea value="@config.Messages" @onchange="@(e => UpdateConfig(c => c.Messages = e.Value?.ToString()))"
+                      class="form-control mt-1" rows="4" placeholder='[{"role":"user","content":"Hello"}]'></textarea>
+            <small class="form-text text-muted">If set, overrides System Prompt + Prompt. Must be a valid JSON array of message objects.</small>
+        }
+    </div>
+
+    <div class="form-group">
+        <label>Max Tokens</label>
+        <input type="number" value="@config.MaxTokens"
+               @onchange="@(e => UpdateConfig(c => c.MaxTokens = int.TryParse(e.Value?.ToString(), out var v) ? v : 2048))"
+               class="form-control" min="1" max="131072" />
+    </div>
+
+    <div class="form-group">
+        <label>Temperature</label>
+        <input type="number" value="@config.Temperature"
+               @onchange="@(e => UpdateConfig(c => c.Temperature = double.TryParse(e.Value?.ToString(), out var v) ? v : 0.7))"
+               class="form-control" min="0" max="2" step="0.1" />
+    </div>
+
+    <div class="form-group">
+        <div class="custom-control custom-switch">
+            <input type="checkbox" class="custom-control-input" id="thinkingSwitch"
+                   checked="@config.EnableThinking"
+                   @onchange="@(e => UpdateConfig(c => c.EnableThinking = (bool)(e.Value ?? false)))" />
+            <label class="custom-control-label" for="thinkingSwitch">Enable Thinking Mode</label>
+        </div>
+        <small class="form-text text-muted">For Qwen3/reasoning models. Separates &lt;think&gt; chain from final response into separate outputs.</small>
+    </div>
+
+    <div class="form-group">
+        <label>Request Timeout (seconds)</label>
+        <input type="number" value="@config.TimeoutSeconds"
+               @onchange="@(e => UpdateConfig(c => c.TimeoutSeconds = int.TryParse(e.Value?.ToString(), out var v) ? v : 300))"
+               class="form-control" min="30" max="3600" />
+        <small class="form-text text-muted">Maximum time to wait for AI response (default: 300s = 5 minutes)</small>
+    </div>
+
+    <!-- Test & Diagnostics Panel -->
+    <div class="form-group mt-3">
+        <div class="section-header d-flex align-items-center" @onclick="() => showDiagnostics = !showDiagnostics"
+             style="background: rgba(77, 170, 255, 0.1); padding: 8px; border-radius: 4px; margin-bottom: 8px; cursor: pointer;">
+            <span style="margin-right: 8px;">🧪</span>
+            <strong>Test & Diagnostics</strong>
+            <span class="ml-auto" style="font-size: 0.7rem; color: var(--text-secondary);">@(showDiagnostics ? "▼" : "▶")</span>
+        </div>
+
+        @if (showDiagnostics)
+        {
+            <div class="diagnostics-panel p-2 border rounded" style="background: var(--background-dark); border-color: var(--border-color) !important;">
+                <!-- Test Connection -->
+                <div class="mb-2">
+                    <button class="btn btn-sm btn-outline-info" @onclick="TestConnection" disabled="@isTesting">
+                        @(isTesting ? "⏳ Testing..." : "🔌 Test Connection")
+                    </button>
+                    @if (connectionResult != null)
+                    {
+                        <span class="ml-2 small" style="color: @(connectionSuccess ? "#28a745" : "#dc3545");">
+                            @connectionResult
+                        </span>
+                    }
+                </div>
+
+                <!-- List Models -->
+                <div class="mb-2">
+                    <button class="btn btn-sm btn-outline-info" @onclick="ListModels" disabled="@isListingModels">
+                        @(isListingModels ? "⏳ Loading..." : "📋 List Models")
+                    </button>
+                    @if (discoveredModels.Count > 0)
+                    {
+                        <div class="mt-1">
+                            <small class="text-muted d-block mb-1">Click a model to select it:</small>
+                            <div class="d-flex flex-wrap gap-1">
+                                @foreach (var model in discoveredModels)
+                                {
+                                    var m = model;
+                                    <span class="chip model-chip @(config.Model == m.Id ? "active" : "")"
+                                          @onclick="@(() => SelectModel(m.Id))"
+                                          title="@m.Details">
+                                        @m.Id
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (modelListError != null)
+                    {
+                        <small class="d-block mt-1" style="color: #dc3545;">@modelListError</small>
+                    }
+                </div>
+
+                <!-- Test Prompt -->
+                <div class="mb-1">
+                    <label class="small text-muted mb-1">Quick Test Prompt:</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" @bind="testPrompt" class="form-control" placeholder="Say hello in one sentence" />
+                        <div class="input-group-append">
+                            <button class="btn btn-outline-success" @onclick="SendTestPrompt" disabled="@isSendingTest">
+                                @(isSendingTest ? "⏳" : "▶")
+                            </button>
+                        </div>
+                    </div>
+                    @if (testResponse != null)
+                    {
+                        <div class="mt-1 p-2 rounded" style="background: rgba(0,0,0,0.3); font-size: 0.8rem; max-height: 200px; overflow-y: auto;">
+                            <div style="white-space: pre-wrap; word-break: break-word;">@testResponse</div>
+                            @if (testTokenInfo != null)
+                            {
+                                <small class="d-block mt-1 text-muted">@testTokenInfo</small>
+                            }
+                        </div>
+                    }
+                    @if (testError != null)
+                    {
+                        <small class="d-block mt-1" style="color: #dc3545;">@testError</small>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .placeholder-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .chip {
+        background: var(--background-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .chip:hover {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .model-chip.active {
+        background: var(--teal-dark);
+        border-color: var(--teal-light);
+        color: white;
+    }
+
+    .diagnostics-panel .btn {
+        font-size: 0.75rem;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Configuration { get; set; }
+    [Parameter] public EventCallback<string> OnConfigurationChanged { get; set; }
+    [Parameter] public List<string> AvailablePlaceholders { get; set; } = new();
+
+    [Inject] IHttpClientFactory HttpClientFactory { get; set; } = default!;
+
+    private LocalLlmConfig config = new();
+    private bool showMessagesJson = false;
+
+    // Diagnostics state
+    private bool showDiagnostics = false;
+    private bool isTesting = false;
+    private string? connectionResult;
+    private bool connectionSuccess;
+    private bool isListingModels = false;
+    private List<ModelInfo> discoveredModels = new();
+    private string? modelListError;
+    private string testPrompt = "Say hello in one sentence.";
+    private bool isSendingTest = false;
+    private string? testResponse;
+    private string? testTokenInfo;
+    private string? testError;
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            config = JsonSerializer.Deserialize<LocalLlmConfig>(Configuration ?? "{}") ?? new();
+        }
+        catch { config = new(); }
+    }
+
+    private async Task UpdateConfig(Action<LocalLlmConfig> action)
+    {
+        action(config);
+        await NotifyChanged();
+    }
+
+    private async Task AddPlaceholder(string placeholder)
+    {
+        config.Prompt += placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task AddSystemPlaceholder(string placeholder)
+    {
+        config.SystemPrompt = (config.SystemPrompt ?? "") + placeholder;
+        await NotifyChanged();
+    }
+
+    private async Task NotifyChanged()
+    {
+        await OnConfigurationChanged.InvokeAsync(JsonSerializer.Serialize(config));
+    }
+
+    private async Task ResetStats()
+    {
+        config.InputTokens = 0;
+        config.OutputTokens = 0;
+        await NotifyChanged();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // DIAGNOSTICS
+    // ═══════════════════════════════════════════════════════════════
+
+    private string GetModelsUrl()
+    {
+        var baseUrl = (config.BaseUrl ?? "").TrimEnd('/');
+        return baseUrl.EndsWith("/v1") ? $"{baseUrl}/models" : $"{baseUrl}/v1/models";
+    }
+
+    private string GetCompletionsUrl()
+    {
+        var baseUrl = (config.BaseUrl ?? "").TrimEnd('/');
+        return baseUrl.EndsWith("/v1")
+            ? $"{baseUrl}/chat/completions"
+            : $"{baseUrl}/v1/chat/completions";
+    }
+
+    private async Task TestConnection()
+    {
+        if (string.IsNullOrWhiteSpace(config.BaseUrl)) { connectionResult = "❌ Base URL is empty"; connectionSuccess = false; return; }
+
+        isTesting = true;
+        connectionResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, GetModelsUrl());
+            if (!string.IsNullOrEmpty(config.ApiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var response = await client.SendAsync(request);
+            sw.Stop();
+
+            if (response.IsSuccessStatusCode)
+            {
+                connectionResult = $"✅ Connected ({sw.ElapsedMilliseconds}ms)";
+                connectionSuccess = true;
+            }
+            else
+            {
+                connectionResult = $"❌ HTTP {(int)response.StatusCode} ({sw.ElapsedMilliseconds}ms)";
+                connectionSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            connectionResult = $"❌ {ex.Message}";
+            connectionSuccess = false;
+        }
+        finally
+        {
+            isTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ListModels()
+    {
+        if (string.IsNullOrWhiteSpace(config.BaseUrl)) { modelListError = "Base URL is empty"; return; }
+
+        isListingModels = true;
+        discoveredModels.Clear();
+        modelListError = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, GetModelsUrl());
+            if (!string.IsNullOrEmpty(config.ApiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+            var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(content);
+                if (json.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var model in data.EnumerateArray())
+                    {
+                        var id = model.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                        var ownedBy = model.TryGetProperty("owned_by", out var owEl) ? owEl.GetString() ?? "" : "";
+                        var maxLen = model.TryGetProperty("max_model_len", out var mlEl) ? mlEl.ToString() : "";
+                        var details = $"Owner: {ownedBy}";
+                        if (!string.IsNullOrEmpty(maxLen)) details += $", Max length: {maxLen}";
+
+                        discoveredModels.Add(new ModelInfo { Id = id, Details = details });
+                    }
+                }
+
+                if (discoveredModels.Count == 0)
+                    modelListError = "No models found in response.";
+            }
+            else
+            {
+                modelListError = $"HTTP {(int)response.StatusCode}: {content.Substring(0, Math.Min(200, content.Length))}";
+            }
+        }
+        catch (Exception ex)
+        {
+            modelListError = ex.Message;
+        }
+        finally
+        {
+            isListingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectModel(string modelId)
+    {
+        config.Model = modelId;
+        await NotifyChanged();
+        StateHasChanged();
+    }
+
+    private async Task SendTestPrompt()
+    {
+        if (string.IsNullOrWhiteSpace(config.BaseUrl) || string.IsNullOrWhiteSpace(config.Model))
+        {
+            testError = "Base URL and Model are required.";
+            return;
+        }
+
+        isSendingTest = true;
+        testResponse = null;
+        testTokenInfo = null;
+        testError = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(60);
+
+            var requestBody = new Dictionary<string, object?>
+            {
+                { "model", config.Model },
+                { "messages", new[] { new { role = "user", content = testPrompt } } },
+                { "max_tokens", config.MaxTokens },
+                { "temperature", config.Temperature },
+                { "stream", false }
+            };
+
+            if (config.EnableThinking)
+            {
+                requestBody["chat_template_kwargs"] = new { enable_thinking = true };
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Post, GetCompletionsUrl())
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+            if (!string.IsNullOrEmpty(config.ApiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var response = await client.SendAsync(request);
+            sw.Stop();
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(content);
+                var rawText = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+
+                // Parse thinking tags for display
+                if (rawText.Contains("<think>"))
+                {
+                    var thinkMatch = System.Text.RegularExpressions.Regex.Match(rawText, @"<think>(.*?)</think>", System.Text.RegularExpressions.RegexOptions.Singleline);
+                    if (thinkMatch.Success)
+                    {
+                        var thinking = thinkMatch.Groups[1].Value.Trim();
+                        var answer = System.Text.RegularExpressions.Regex.Replace(rawText, @"<think>.*?</think>", "", System.Text.RegularExpressions.RegexOptions.Singleline).Trim();
+                        testResponse = $"💭 Thinking:\n{thinking}\n\n💬 Response:\n{answer}";
+                    }
+                    else
+                    {
+                        testResponse = rawText;
+                    }
+                }
+                else
+                {
+                    testResponse = rawText;
+                }
+
+                // Token info
+                if (json.TryGetProperty("usage", out var usage))
+                {
+                    var pt = usage.TryGetProperty("prompt_tokens", out var ptEl) ? ptEl.GetInt64() : 0;
+                    var ct = usage.TryGetProperty("completion_tokens", out var ctEl) ? ctEl.GetInt64() : 0;
+                    testTokenInfo = $"⏱ {sw.ElapsedMilliseconds}ms | Tokens: {pt} in / {ct} out";
+                }
+            }
+            else
+            {
+                testError = $"HTTP {(int)response.StatusCode}: {content.Substring(0, Math.Min(300, content.Length))}";
+            }
+        }
+        catch (Exception ex)
+        {
+            testError = ex.Message;
+        }
+        finally
+        {
+            isSendingTest = false;
+            StateHasChanged();
+        }
+    }
+
+    private class ModelInfo
+    {
+        public string Id { get; set; } = "";
+        public string Details { get; set; } = "";
+    }
+}

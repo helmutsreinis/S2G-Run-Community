@@ -20,8 +20,19 @@
 
 <PageTitle>Workflow Designer - @PlatformSettings.SiteName</PageTitle>
 
-@* Newsletter popup for targeted announcements *@
-<S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@currentUserId" CurrentPage="Workflow" />
+@* Newsletter popup for targeted announcements (suppressed during tutorial) *@
+@if (!showTutorial)
+{
+    <S2GPulseWeb.Web.Components.Layout.NewsletterPopup UserId="@currentUserId" CurrentPage="Workflow" />
+}
+
+@* Onboarding tutorial overlay *@
+<S2GPulseWeb.Web.Components.Layout.TutorialOverlay @ref="tutorialOverlayRef"
+    IsActive="showTutorial"
+    StartAtStep="tutorialStartStep"
+    OnTutorialCompleted="HandleTutorialCompleted"
+    OnTutorialSkipped="HandleTutorialSkipped"
+    OnStepChanged="HandleTutorialStepChanged" />
 
 @* Loading overlay for workflow node pre-loading *@
 @if (isLoadingWorkflowNodes)
@@ -48,7 +59,7 @@
     <div class="workflow-header d-flex justify-content-between align-items-center mb-3">
         <div class="d-flex align-items-center gap-3">
             <h1 class="m-0">Workflow Designer</h1>
-            <select class="workflow-selector" @onchange="OnWorkflowSelected">
+            <select class="workflow-selector" data-tutorial="workflow-selector" @onchange="OnWorkflowSelected">
                 <option value="">-- Select Workflow --</option>
                 @foreach (var wf in userWorkflows)
                 {
@@ -58,7 +69,7 @@
                     </option>
                 }
             </select>
-            <input type="text" @bind="currentWorkflowName" @bind:after="MarkAsChanged" class="workflow-name-input" placeholder="Workflow Name..." />
+            <input type="text" @bind="currentWorkflowName" @bind:after="MarkAsChanged" class="workflow-name-input" data-tutorial="workflow-name" placeholder="Workflow Name..." />
         </div>
         
         <!-- Zoom Controls in Header -->
@@ -84,10 +95,10 @@
             }
             else
             {
-                <button class="btn btn-sm btn-success" @onclick="StartWorkflow" disabled="@(!canvasNodes.Any(n => n.IsTrigger))">▶️ Start</button>
+                <button class="btn btn-sm btn-success" data-tutorial="start-button" @onclick="StartWorkflow" disabled="@(!canvasNodes.Any(n => n.IsTrigger))">▶️ Start</button>
             }
-            <button class="btn btn-sm btn-outline-secondary" @onclick="ClearCanvas">✨ New</button>
-            <button class="btn btn-sm btn-primary" @onclick="SaveWorkflow">💾 Save</button>
+            <button class="btn btn-sm btn-outline-secondary" data-tutorial="new-workflow" @onclick="ClearCanvas">✨ New</button>
+            <button class="btn btn-sm btn-primary" data-tutorial="save-button" @onclick="SaveWorkflow">💾 Save</button>
             @if (currentWorkflowId.HasValue)
             {
                 @if (canDeleteWorkflow)
@@ -128,7 +139,7 @@
     <div class="workflow-container">
 
         <!-- AI Builder Panel (Left Side) - Draggable -->
-        <div class="ai-builder-panel @(isAiPanelCollapsed ? "collapsed" : "")" 
+        <div class="ai-builder-panel @(isAiPanelCollapsed ? "collapsed" : "")" data-tutorial="ai-builder" 
              style="@(!isAiPanelCollapsed ? $"left: {aiPanelX}px; top: {aiPanelY}px;" : "")"
              @onmousemove="HandleAiPanelDragMove"
              @onmouseup="HandleAiPanelDragEnd"
@@ -353,7 +364,7 @@
         </div>
 
         <!-- Catalog Panel (Right Side, Below Minimap) -->
-        <div class="custom-node-panel @(isCustomNodePanelCollapsed ? "collapsed" : "")">
+        <div class="custom-node-panel @(isCustomNodePanelCollapsed ? "collapsed" : "")" data-tutorial="catalog-panel">
             <div class="custom-node-panel-header" @onclick="ToggleCustomNodePanel">
                 @if (isCustomNodePanelCollapsed)
                 {
@@ -501,7 +512,7 @@
              @onmouseup="HandleCanvasMouseUp"
              @onmouseleave="HandleCanvasMouseUp"
              style="cursor: @(resizingNode != null ? "nwse-resize" : isConnecting ? "crosshair" : isPanning ? "grabbing" : "grab");">
-            <div class="workflow-canvas" 
+            <div class="workflow-canvas" data-tutorial="canvas"
                  @ref="canvasRef"
                  @ondrop="HandleDrop"
                  @ondragover="HandleDragOver"
@@ -995,6 +1006,20 @@
                             <span>OpenClaw</span>
                         </div>
                     }
+                    @if (IsNodeVisible("Local LLM", "LocalLlm"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("LocalLlm"))">
+                            <div class="node-icon">🖥️</div>
+                            <span>Local LLM</span>
+                        </div>
+                    }
+                    @if (IsNodeVisible("Local LLM Agent", "LocalLlmAgent"))
+                    {
+                        <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("LocalLlmAgent"))">
+                            <div class="node-icon">🖥️</div>
+                            <span>Local Agent</span>
+                        </div>
+                    }
                 }
                 @if (selectedToolbarCategory == "Database")
                 {
@@ -1261,6 +1286,23 @@
                             {
                                 <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.GroqEditor 
                                     Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "LocalLlm")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.LocalLlmEditor 
+                                    Configuration="@editingNode.Configuration" 
+                                    AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
+                                    OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
+                            }
+                            else if (editingNode.NodeType == "LocalLlmAgent")
+                            {
+                                <S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.LocalLlmAgentEditor 
+                                    Configuration="@editingNode.Configuration"
+                                    NodeId="@editingNode.Id"
+                                    CanvasNodes="@canvasNodes.Select(n => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.LocalLlmAgentEditor.CanvasNodeInfo { Id = n.Id, Name = n.Name, NodeType = n.NodeType }).ToList()"
+                                    CanvasConnections="@connections.Select(c => new S2GPulseWeb.Web.Components.Pages.Workflow.NodeEditors.LocalLlmAgentEditor.CanvasConnectionInfo { SourceId = c.SourceId, TargetId = c.TargetId, Label = c.Label }).ToList()"
                                     AvailablePlaceholders="@GetAvailablePlaceholders(editingNode)"
                                     OnConfigurationChanged="@(json => HandleConfigurationChanged(editingNode, json))" />
                             }

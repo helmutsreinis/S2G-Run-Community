@@ -195,7 +195,7 @@ public partial class Designer
             try
             {
                 // All AI nodes have Cost property - extract it generically
-                var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "PdfOcr";
+                var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "PdfOcr" or "LocalLlm" or "LocalLlmAgent";
                 if (isAiNode)
                 {
                     using var doc = JsonDocument.Parse(node.Configuration);
@@ -222,7 +222,7 @@ public partial class Designer
             
             try
             {
-                var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "PdfOcr";
+                var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "PdfOcr" or "LocalLlm" or "LocalLlmAgent";
                 
                 if (isAiNode)
                 {

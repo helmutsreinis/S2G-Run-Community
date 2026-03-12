@@ -61,7 +61,7 @@ Pre-loaded node library covering common automation tasks:
 | Category | Nodes |
 |----------|-------|
 | 🔄 **Data Transformation** | Base64, CSV↔JSON, XML↔JSON, YAML↔JSON, JSONPath Query, String Template, Hash Generator, Date Math, Cron Parser, Regex, Pivot Table, and more |
-| 🤖 **AI & Machine Learning** | OpenAI, Anthropic Claude, Google Gemini, DeepSeek, Groq, Mistral, GitHub Copilot, OpenClaw Bridge |
+| 🤖 **AI & Machine Learning** | OpenAI, Anthropic Claude, Google Gemini, DeepSeek, Groq, Mistral, GitHub Copilot, Local LLM (self-hosted), OpenClaw Bridge |
 | 🌐 **Web & HTTP** | HTTP Request/Response, Webhook Listeners, File Download |
 | 🔧 **Platform Tools** | Scheduler, Cache, Loop, Condition, Aggregator, Queue, Remote Execution |
 | ☁️ **Azure Services** | Azure Blob Storage, Azure Storage Tables, Azure Queue |

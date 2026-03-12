@@ -6,6 +6,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserSecretService SecretService
+@inject UserPreferenceService PreferenceService
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
 
@@ -184,10 +185,14 @@
         {
             <div class="settings-section">
                 <h2>General Settings</h2>
-                <p class="section-description">Additional settings and preferences will appear here as they become available.</p>
-                <div class="empty-state">
-                    <span>🚧</span>
-                    <p>More settings coming soon...</p>
+                <p class="section-description">Preferences and personalization options.</p>
+                
+                <div class="secret-input-group">
+                    <label>🎓 Onboarding Tutorial</label>
+                    <div class="d-flex align-items-center gap-3">
+                        <p style="margin: 0; color: #b0c8c8; font-size: 0.9rem;">Re-run the interactive tutorial to learn the workflow designer basics.</p>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="RestartTutorial">🎓 Restart Tutorial</button>
+                    </div>
                 </div>
             </div>
         }
@@ -526,5 +531,12 @@
             statusMessage = "";
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private async Task RestartTutorial()
+    {
+        if (userId == null) return;
+        await PreferenceService.SetTutorialCompletedAsync(userId, false);
+        Navigation.NavigateTo("/workflow", forceLoad: true);
     }
 }

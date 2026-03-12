@@ -576,7 +576,7 @@ public class WorkflowApiService
         var targetNode = allNodes.FirstOrDefault(n => n.Id == targetId);
         if (targetNode?.NodeType == "Orchestrator")
         {
-            if (nodeType is "DeepSeekAgent" or "CopilotAgent" or "OpenAI" or "Anthropic" or "Gemini" or "Mistral" or "Groq")
+            if (nodeType is "DeepSeekAgent" or "CopilotAgent" or "OpenAI" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "LocalLlm" or "LocalLlmAgent")
                 return "agent";
             if (nodeType == "DeepSeek" && sourceNode.Name.Contains("Steering", StringComparison.OrdinalIgnoreCase))
                 return "orchestrate";

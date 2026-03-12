@@ -95,7 +95,7 @@ public partial class Designer
         }
         
         // Agent Node ↔ Orchestrator: Always Agent → Orchestrator with "agent" label
-        var agentNodeTypes = new[] { "DeepSeekAgent", "OpenAIAgent", "AnthropicAgent", "GeminiAgent", "MistralAgent", "GroqAgent" };
+        var agentNodeTypes = new[] { "DeepSeekAgent", "OpenAIAgent", "AnthropicAgent", "GeminiAgent", "MistralAgent", "GroqAgent", "LocalLlmAgent" };
         
         if (fromNode.NodeType == "Orchestrator" && agentNodeTypes.Contains(toNode.NodeType))
         {

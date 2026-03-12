@@ -37,6 +37,12 @@ public partial class Designer : IDisposable
     private Guid? activeOrganizationId; // Currently active organization from user preferences
     private List<Data.Workflow> userWorkflows = new();
     private bool showWorkflowList = false;
+    
+    // Tutorial state
+    private bool showTutorial = false;
+    private int tutorialStartStep = 0;
+    private S2GPulseWeb.Web.Components.Layout.TutorialOverlay? tutorialOverlayRef;
+    
     private bool showCacheViewer = false;
     private bool showStorageTableViewer = false;
     private bool showVectorDbViewer = false;
@@ -229,7 +235,35 @@ public partial class Designer : IDisposable
     private void TogglePalette() => isPaletteCollapsed = !isPaletteCollapsed;
     private void ToggleAiPanel() => isAiPanelCollapsed = !isAiPanelCollapsed;
     private void ToggleCostPanel() => isCostPanelCollapsed = !isCostPanelCollapsed;
-    private void ToggleCustomNodePanel() => isCustomNodePanelCollapsed = !isCustomNodePanelCollapsed;
+    private async Task ToggleCustomNodePanel()
+    {
+        isCustomNodePanelCollapsed = !isCustomNodePanelCollapsed;
+        
+        // Advance tutorial if waiting on "catalog-panel" step
+        if (showTutorial && !isCustomNodePanelCollapsed && tutorialOverlayRef != null)
+            await tutorialOverlayRef.AdvanceIfWaiting("catalog-panel");
+    }
+
+    // Tutorial handlers
+    private async Task HandleTutorialCompleted()
+    {
+        showTutorial = false;
+        if (!string.IsNullOrEmpty(currentUserId))
+            await PreferenceService.SetTutorialCompletedAsync(currentUserId, true);
+    }
+
+    private async Task HandleTutorialSkipped()
+    {
+        showTutorial = false;
+        if (!string.IsNullOrEmpty(currentUserId))
+            await PreferenceService.SetTutorialCompletedAsync(currentUserId, true);
+    }
+
+    private async Task HandleTutorialStepChanged(int step)
+    {
+        if (!string.IsNullOrEmpty(currentUserId))
+            await PreferenceService.SetTutorialLastStepAsync(currentUserId, step);
+    }
 
     #endregion
 
@@ -280,6 +314,17 @@ public partial class Designer : IDisposable
         
         // Load AI providers with API key status
         await LoadAiProvidersAsync();
+        
+        // Check if onboarding tutorial should show
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            var tutorialCompleted = await PreferenceService.IsTutorialCompletedAsync(currentUserId);
+            if (!tutorialCompleted)
+            {
+                showTutorial = true;
+                tutorialStartStep = 0;
+            }
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

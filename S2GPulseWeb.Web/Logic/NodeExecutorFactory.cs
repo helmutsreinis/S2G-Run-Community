@@ -91,6 +91,8 @@ public class NodeExecutorFactory
             "Gemini" => new GeminiNode(_httpClientFactory.CreateClient(), _secretService, _executionManager),
             "Mistral" => new MistralNode(_httpClientFactory.CreateClient(), _secretService, _executionManager),
             "Groq" => new GroqNode(_httpClientFactory.CreateClient(), _secretService, _executionManager),
+            "LocalLlm" => new LocalLlmNode(_httpClientFactory.CreateClient(), _executionManager),
+            "LocalLlmAgent" => new LocalLlmAgentNode(_httpClientFactory.CreateClient(), _executionManager),
             "AzureBlob" => new AzureBlobNode(_executionManager),
             "AzureQueueSend" => new AzureQueueSendNode(_executionManager),
             "AzureQueueMonitor" => new AzureQueueMonitorNode(_executionManager),

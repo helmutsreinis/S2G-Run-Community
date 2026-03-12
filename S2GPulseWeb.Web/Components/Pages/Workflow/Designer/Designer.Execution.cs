@@ -126,7 +126,7 @@ public partial class Designer
         if (node != null)
         {
             // For AI nodes, only merge cost/token fields to preserve prompt placeholders
-            var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq";
+            var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "LocalLlm" or "LocalLlmAgent";
             if (isAiNode)
             {
                 node.Configuration = MergeAiCostUpdates(node.Configuration, newConfiguration);
