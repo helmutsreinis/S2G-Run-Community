@@ -175,6 +175,9 @@ public class NodeExecutionManager
                             // Store query param names for config update
                             data["_QueryParamsSample"] = string.Join(",", query.Keys);
 
+                            // Store headers sample for config update (header name detection)
+                            data["_HeadersSample"] = System.Text.Json.JsonSerializer.Serialize(headers);
+
                             onRequestReceived(data);
                             
                             // Notify workflow service to trigger downstream nodes

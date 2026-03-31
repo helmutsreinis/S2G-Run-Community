@@ -71,12 +71,26 @@ public class HttpRequestNode : BaseNodeExecutor
 
         Log(node, NodeLogLevel.Info, $"Received response: {(int)response.StatusCode} {response.StatusCode}", logDetail);
 
+        // Collect response headers
+        var responseHeaders = new Dictionary<string, string>();
+        foreach (var header in response.Headers)
+        {
+            responseHeaders[header.Key] = string.Join(", ", header.Value);
+        }
+        foreach (var header in response.Content.Headers)
+        {
+            responseHeaders[header.Key] = string.Join(", ", header.Value);
+        }
+        var responseHeadersJson = JsonSerializer.Serialize(responseHeaders);
+
         var output = new Dictionary<string, object?>
         {
             { "StatusCode", (int)response.StatusCode },
             { "Body", content },
             { "IsSuccess", response.IsSuccessStatusCode },
-            { "_ResponseSample", content } // For config update with sample
+            { "ResponseHeadersJson", responseHeadersJson },
+            { "_ResponseSample", content }, // For config update with sample
+            { "_ResponseHeadersSample", responseHeadersJson } // For config update with header detection
         };
 
         // Pass through RequestId if available

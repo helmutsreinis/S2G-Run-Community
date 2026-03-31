@@ -233,8 +233,8 @@ public static class NodeHelper
             
         return nodeType switch
         {
-            "HttpListener" => new() { "Body", "Method", "Path", "RequestId", "QueryParamsJson", "HeadersJson", "(queryParamName)" },
-            "HttpRequest" => new() { "StatusCode", "Body", "IsSuccess", "RequestId" },
+            "HttpListener" => new() { "Body", "Method", "Path", "RequestId", "QueryParamsJson", "HeadersJson", "(queryParamName)", "(headerName)" },
+            "HttpRequest" => new() { "StatusCode", "Body", "IsSuccess", "RequestId", "ResponseHeadersJson", "(responseHeaderName)" },
             "HttpResponse" => new(),
             "SqlServer" => new() { "Rows", "RowsJson", "RowsXml", "RowsHtml", "FirstRow", "FirstRowJson", "Count", "Columns", "RowsAffected" },
             "Postgresql" => new() { "Result", "RowsAffected" },

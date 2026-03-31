@@ -238,63 +238,87 @@ public class LocalLlmAgentNode : BaseNodeExecutor
             var choice = jsonResponse.GetProperty("choices")[0];
             var message = choice.GetProperty("message");
 
-            // Check for tool_calls
+            // Check for tool_calls — only process if the array is non-empty.
+            // Some LLMs return "tool_calls": [] (empty array) alongside content;
+            // treating that as "has tool calls" would discard the AI response and burn iterations.
             if (message.TryGetProperty("tool_calls", out var toolCallsElement) && toolCallsElement.ValueKind == JsonValueKind.Array)
             {
                 var toolCallsList = toolCallsElement.EnumerateArray().ToList();
                 Log(node, NodeLogLevel.Info, $"AI requested {toolCallsList.Count} tool call(s)");
 
-                // Add assistant message to history
-                messages.Add(JsonSerializer.Deserialize<Dictionary<string, object?>>(message.GetRawText()) ?? new());
-
-                foreach (var toolCall in toolCallsList)
+                if (toolCallsList.Count > 0)
                 {
-                    toolCallsUsed++;
-                    var toolCallId = toolCall.GetProperty("id").GetString() ?? "";
-                    var function = toolCall.GetProperty("function");
-                    var functionName = function.GetProperty("name").GetString() ?? "";
-                    var functionArgs = function.TryGetProperty("arguments", out var args) ? args.GetString() ?? "{}" : "{}";
+                    // Add assistant message to history
+                    messages.Add(JsonSerializer.Deserialize<Dictionary<string, object?>>(message.GetRawText()) ?? new());
 
-                    Log(node, NodeLogLevel.Info, $"Executing tool: {functionName}", functionArgs);
-
-                    var toolDef = config.Tools.FirstOrDefault(t => t.Name == functionName);
-                    var toolResult = toolDef == null
-                        ? JsonSerializer.Serialize(new { error = $"Tool '{functionName}' not found" })
-                        : await ExecuteToolNodeAsync(node, inputData, toolDef, functionArgs);
-
-                    Log(node, NodeLogLevel.Info, $"Tool result", toolResult.Length > 500 ? toolResult[..500] + "..." : toolResult);
-
-                    messages.Add(new Dictionary<string, object?>
+                    foreach (var toolCall in toolCallsList)
                     {
-                        { "role", "tool" },
-                        { "tool_call_id", toolCallId },
-                        { "content", toolResult }
-                    });
+                        toolCallsUsed++;
+                        var toolCallId = toolCall.GetProperty("id").GetString() ?? "";
+                        var function = toolCall.GetProperty("function");
+                        var functionName = function.GetProperty("name").GetString() ?? "";
+                        var functionArgs = function.TryGetProperty("arguments", out var args) ? args.GetString() ?? "{}" : "{}";
 
-                    allToolResults.Add(new { tool = functionName, result = toolResult });
+                        Log(node, NodeLogLevel.Info, $"Executing tool: {functionName}", functionArgs);
+
+                        var toolDef = config.Tools.FirstOrDefault(t => t.Name == functionName);
+                        var toolResult = toolDef == null
+                            ? JsonSerializer.Serialize(new { error = $"Tool '{functionName}' not found" })
+                            : await ExecuteToolNodeAsync(node, inputData, toolDef, functionArgs);
+
+                        Log(node, NodeLogLevel.Info, $"Tool result", toolResult.Length > 500 ? toolResult[..500] + "..." : toolResult);
+
+                        messages.Add(new Dictionary<string, object?>
+                        {
+                            { "role", "tool" },
+                            { "tool_call_id", toolCallId },
+                            { "content", toolResult }
+                        });
+
+                        allToolResults.Add(new { tool = functionName, result = toolResult });
+                    }
+                    continue;
                 }
-                continue;
+                // Empty tool_calls array — fall through to extract AI response content
             }
 
             // No tool calls — AI is done
             var rawContent = message.TryGetProperty("content", out var content) ? content.GetString() ?? "" : "";
 
-            // Parse thinking tags
+            // Parse thinking tags — handles multiple model formats:
+            // 1. Standard: <think>content</think>response
+            // 2. No opening tag: thinking content</think>response (common with vLLM/Qwen)
+            // 3. Stray </think> tags in response
             string aiResponse;
             string thinkingContent = "";
 
-            if (config.EnableThinking || rawContent.Contains("<think>"))
+            if (config.EnableThinking || rawContent.Contains("<think>") || rawContent.Contains("</think>"))
             {
                 var thinkMatch = Regex.Match(rawContent, @"<think>(.*?)</think>", RegexOptions.Singleline);
                 if (thinkMatch.Success)
                 {
+                    // Standard <think>...</think> pair
                     thinkingContent = thinkMatch.Groups[1].Value.Trim();
                     aiResponse = Regex.Replace(rawContent, @"<think>.*?</think>", "", RegexOptions.Singleline).Trim();
-                    Log(node, NodeLogLevel.Info, $"Extracted thinking content ({thinkingContent.Length} chars)");
+                }
+                else if (rawContent.Contains("</think>"))
+                {
+                    // No opening <think> tag — everything before </think> is thinking
+                    var closeIndex = rawContent.IndexOf("</think>");
+                    thinkingContent = rawContent.Substring(0, closeIndex).Trim();
+                    aiResponse = rawContent.Substring(closeIndex + "</think>".Length).Trim();
                 }
                 else
                 {
                     aiResponse = rawContent;
+                }
+
+                // Clean up any remaining stray </think> tags
+                aiResponse = aiResponse.Replace("</think>", "").Trim();
+
+                if (!string.IsNullOrEmpty(thinkingContent))
+                {
+                    Log(node, NodeLogLevel.Info, $"Extracted thinking content ({thinkingContent.Length} chars)");
                 }
             }
             else

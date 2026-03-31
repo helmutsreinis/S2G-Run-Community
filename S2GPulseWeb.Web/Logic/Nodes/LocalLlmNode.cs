@@ -231,22 +231,40 @@ public class LocalLlmNode : BaseNodeExecutor
         var finishReason = choice.TryGetProperty("finish_reason", out var frEl) ? frEl.GetString() ?? "" : "";
         var modelUsed = jsonResponse.TryGetProperty("model", out var modelEl) ? modelEl.GetString() ?? config.Model : config.Model;
 
-        // Parse thinking tags if present
+        // Parse thinking tags — handles multiple model formats:
+        // 1. Standard: <think>content</think>response
+        // 2. No opening tag: thinking content</think>response (common with vLLM/Qwen)
+        // 3. Stray </think> tags in response
         string aiResponse;
         string thinkingContent = "";
 
-        if (config.EnableThinking || rawContent.Contains("<think>"))
+        if (config.EnableThinking || rawContent.Contains("<think>") || rawContent.Contains("</think>"))
         {
             var thinkMatch = Regex.Match(rawContent, @"<think>(.*?)</think>", RegexOptions.Singleline);
             if (thinkMatch.Success)
             {
+                // Standard <think>...</think> pair
                 thinkingContent = thinkMatch.Groups[1].Value.Trim();
                 aiResponse = Regex.Replace(rawContent, @"<think>.*?</think>", "", RegexOptions.Singleline).Trim();
-                Log(node, NodeLogLevel.Info, $"Extracted thinking content ({thinkingContent.Length} chars)");
+            }
+            else if (rawContent.Contains("</think>"))
+            {
+                // No opening <think> tag — everything before </think> is thinking
+                var closeIndex = rawContent.IndexOf("</think>");
+                thinkingContent = rawContent.Substring(0, closeIndex).Trim();
+                aiResponse = rawContent.Substring(closeIndex + "</think>".Length).Trim();
             }
             else
             {
                 aiResponse = rawContent;
+            }
+
+            // Clean up any remaining stray </think> tags
+            aiResponse = aiResponse.Replace("</think>", "").Trim();
+
+            if (!string.IsNullOrEmpty(thinkingContent))
+            {
+                Log(node, NodeLogLevel.Info, $"Extracted thinking content ({thinkingContent.Length} chars)");
             }
         }
         else

@@ -212,6 +212,18 @@ public class WorkflowExecutionService : IDisposable
                 updated = true;
             }
 
+            // HTTP Listener: _HeadersSample -> LastHeadersSample
+            if (outputData.TryGetValue("_HeadersSample", out var headersSample) && headersSample != null)
+            {
+                var headersSampleStr = headersSample.ToString() ?? "";
+                if (headersSampleStr.Length > 10240)
+                {
+                    headersSampleStr = headersSampleStr.Substring(0, 10240);
+                }
+                config["LastHeadersSample"] = headersSampleStr;
+                updated = true;
+            }
+
             // HTTP Request: _ResponseSample -> LastResponseSample
             if (outputData.TryGetValue("_ResponseSample", out var responseSample) && responseSample != null)
             {
@@ -221,6 +233,18 @@ public class WorkflowExecutionService : IDisposable
                     responseSampleStr = responseSampleStr.Substring(0, 10240);
                 }
                 config["LastResponseSample"] = responseSampleStr;
+                updated = true;
+            }
+
+            // HTTP Request: _ResponseHeadersSample -> LastResponseHeadersSample
+            if (outputData.TryGetValue("_ResponseHeadersSample", out var responseHeadersSample) && responseHeadersSample != null)
+            {
+                var responseHeadersStr = responseHeadersSample.ToString() ?? "";
+                if (responseHeadersStr.Length > 10240)
+                {
+                    responseHeadersStr = responseHeadersStr.Substring(0, 10240);
+                }
+                config["LastResponseHeadersSample"] = responseHeadersStr;
                 updated = true;
             }
 
@@ -899,7 +923,7 @@ public class WorkflowExecutionService : IDisposable
             
             // Persist AI node configuration updates (costs, tokens) to database
             // IMPORTANT: Only merge cost/token fields, preserve original prompts with placeholders
-            var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq";
+            var isAiNode = node.NodeType is "OpenAI" or "DeepSeek" or "DeepSeekAgent" or "Anthropic" or "Gemini" or "Mistral" or "Groq" or "LocalLlm" or "LocalLlmAgent";
             if (isAiNode && workflowNode.Configuration != resolvedConfig)
             {
                 // Merge cost updates from workflowNode into the original node.Configuration (preserving prompts)

@@ -275,6 +275,27 @@ public class PlaceholderHelper
             placeholders.AddRange(bodyPlaceholders);
         }
         
+        // Add header property placeholders from LastHeadersSample
+        if (config.TryGetValue("LastHeadersSample", out var headersSample) && headersSample != null)
+        {
+            var headersJson = headersSample.ToString();
+            if (!string.IsNullOrWhiteSpace(headersJson))
+            {
+                try
+                {
+                    var headers = JsonSerializer.Deserialize<Dictionary<string, string>>(headersJson);
+                    if (headers != null)
+                    {
+                        foreach (var key in headers.Keys)
+                        {
+                            placeholders.Add($"{{{{{nodeName}.HeadersJson.{key}}}}}");
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
         // Add query param placeholders from LastQueryParams
         if (config.TryGetValue("LastQueryParams", out var queryParams) && queryParams != null)
         {
@@ -299,6 +320,27 @@ public class PlaceholderHelper
             var properties = JsonPropertyExtractor.ExtractPropertyPaths(responseJson);
             var responsePlaceholders = JsonPropertyExtractor.ToPlaceholders(properties, nodeName, "Body");
             placeholders.AddRange(responsePlaceholders);
+        }
+
+        // Add response header property placeholders from LastResponseHeadersSample
+        if (config.TryGetValue("LastResponseHeadersSample", out var responseHeadersSample) && responseHeadersSample != null)
+        {
+            var headersJson = responseHeadersSample.ToString();
+            if (!string.IsNullOrWhiteSpace(headersJson))
+            {
+                try
+                {
+                    var headers = JsonSerializer.Deserialize<Dictionary<string, string>>(headersJson);
+                    if (headers != null)
+                    {
+                        foreach (var key in headers.Keys)
+                        {
+                            placeholders.Add($"{{{{{nodeName}.ResponseHeadersJson.{key}}}}}");
+                        }
+                    }
+                }
+                catch { }
+            }
         }
     }
 
@@ -592,6 +634,18 @@ public class PlaceholderHelper
                 updated = true;
             }
 
+            // HTTP Listener: _HeadersSample -> LastHeadersSample
+            if (outputData.TryGetValue("_HeadersSample", out var headersSample) && headersSample != null)
+            {
+                var headersSampleStr = headersSample.ToString() ?? "";
+                if (headersSampleStr.Length > 10240)
+                {
+                    headersSampleStr = headersSampleStr.Substring(0, 10240);
+                }
+                config["LastHeadersSample"] = headersSampleStr;
+                updated = true;
+            }
+
             // HTTP Request: _ResponseSample -> LastResponseSample
             if (outputData.TryGetValue("_ResponseSample", out var responseSample) && responseSample != null)
             {
@@ -602,6 +656,18 @@ public class PlaceholderHelper
                     responseSampleStr = responseSampleStr.Substring(0, 10240);
                 }
                 config["LastResponseSample"] = responseSampleStr;
+                updated = true;
+            }
+
+            // HTTP Request: _ResponseHeadersSample -> LastResponseHeadersSample
+            if (outputData.TryGetValue("_ResponseHeadersSample", out var responseHeadersSample) && responseHeadersSample != null)
+            {
+                var responseHeadersStr = responseHeadersSample.ToString() ?? "";
+                if (responseHeadersStr.Length > 10240)
+                {
+                    responseHeadersStr = responseHeadersStr.Substring(0, 10240);
+                }
+                config["LastResponseHeadersSample"] = responseHeadersStr;
                 updated = true;
             }
 

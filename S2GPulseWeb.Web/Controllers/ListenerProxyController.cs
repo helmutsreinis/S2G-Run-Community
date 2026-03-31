@@ -94,6 +94,9 @@ public class ListenerProxyController : ControllerBase
             }
             requestData["_QueryParamsSample"] = string.Join(",", queryParams.Keys);
 
+            // Store headers sample for config update (header name detection)
+            requestData["_HeadersSample"] = JsonSerializer.Serialize(request.Headers);
+
             // Create TaskCompletionSource to wait for response
             var tcs = new TaskCompletionSource<HttpResponseData>();
             var config = JsonSerializer.Deserialize<HttpListenerProxyConfig>(node.Configuration ?? "{}") 
