@@ -1,4 +1,4 @@
-@page "/workflow"
+﻿@page "/workflow"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Microsoft.AspNetCore.Identity
 @using S2GPulseWeb.Web.Data
@@ -65,7 +65,7 @@
                 {
                     var running = WorkflowExecutionService.IsRunning(wf.Id);
                     <option value="@wf.Id" selected="@(currentWorkflowId == wf.Id)">
-                        @(running ? "⚡ " : "")@wf.Name
+                        @(running ? "âš¡ " : "")@wf.Name
                     </option>
                 }
             </select>
@@ -74,7 +74,7 @@
         
         <!-- Zoom Controls in Header -->
         <div class="zoom-slider-group">
-            <button class="zoom-slider-btn" @onclick="ZoomOut" title="Zoom Out (10%)">−</button>
+            <button class="zoom-slider-btn" @onclick="ZoomOut" title="Zoom Out (10%)">âˆ’</button>
             <input type="range" 
                    class="zoom-slider" 
                    min="25" 
@@ -84,36 +84,36 @@
                    @onchange="OnZoomSliderChange" />
             <span class="zoom-slider-value">@((int)(zoomLevel * 100))%</span>
             <button class="zoom-slider-btn" @onclick="ZoomIn" title="Zoom In (10%)">+</button>
-            <button class="zoom-slider-btn reset" @onclick="ResetZoom" title="Reset View">⟳</button>
+            <button class="zoom-slider-btn reset" @onclick="ResetZoom" title="Reset View">âŸ³</button>
         </div>
 
         
         <div class="workflow-actions d-flex gap-1 align-items-center">
             @if (isWorkflowRunning)
             {
-                <button class="btn btn-sm btn-danger" @onclick="StopWorkflow">⏹️ Stop</button>
+                <button class="btn btn-sm btn-danger" @onclick="StopWorkflow">â¹ï¸ Stop</button>
             }
             else
             {
-                <button class="btn btn-sm btn-success" data-tutorial="start-button" @onclick="StartWorkflow" disabled="@(!canvasNodes.Any(n => n.IsTrigger))">▶️ Start</button>
+                <button class="btn btn-sm btn-success" data-tutorial="start-button" @onclick="StartWorkflow" disabled="@(!canvasNodes.Any(n => n.IsTrigger))">â–¶ï¸ Start</button>
             }
-            <button class="btn btn-sm btn-outline-secondary" data-tutorial="new-workflow" @onclick="ClearCanvas">✨ New</button>
-            <button class="btn btn-sm btn-primary" data-tutorial="save-button" @onclick="SaveWorkflow">💾 Save</button>
+            <button class="btn btn-sm btn-outline-secondary" data-tutorial="new-workflow" @onclick="ClearCanvas">âœ¨ New</button>
+            <button class="btn btn-sm btn-primary" data-tutorial="save-button" @onclick="SaveWorkflow">ðŸ’¾ Save</button>
             @if (currentWorkflowId.HasValue)
             {
                 @if (canDeleteWorkflow)
                 {
-                    <button class="btn btn-sm btn-outline-danger" @onclick="ShowDeleteConfirmation" title="Delete this workflow">🗑️</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="ShowDeleteConfirmation" title="Delete this workflow">ðŸ—‘ï¸</button>
                 }
                 <label class="auto-start-label" title="Auto-Start resumes this workflow automatically after service interruptions or deployments">
                     <input type="checkbox" @bind="currentWorkflowIsActive" @bind:after="MarkAsChanged" />
-                    <span>🚀</span>
+                    <span>ðŸš€</span>
                 </label>
             }
             @if (currentTierLimits == null || currentTierLimits.CanImportExport)
             {
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ExportWorkflow" title="Export workflow to JSON">📤</button>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="TriggerImportDialog" title="Import workflow from JSON">📥</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ExportWorkflow" title="Export workflow to JSON">ðŸ“¤</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="TriggerImportDialog" title="Import workflow from JSON">ðŸ“¥</button>
                 <input type="file" @ref="importFileInput" style="display: none;" accept=".json" @onchange="ImportWorkflow" />
             }
         </div>
@@ -132,7 +132,7 @@
     @if (hasUnsavedChanges)
     {
         <div class="unsaved-indicator mx-3 mb-2 small text-warning">
-            ⚠️ You have unsaved changes
+            âš ï¸ You have unsaved changes
         </div>
     }
 
@@ -149,14 +149,14 @@
                  @onmousedown:stopPropagation>
                 @if (isAiPanelCollapsed)
                 {
-                    <span class="panel-icon" @onclick="ToggleAiPanel">🤖</span>
+                    <span class="panel-icon" @onclick="ToggleAiPanel">ðŸ¤–</span>
                     <span class="panel-title-vertical" @onclick="ToggleAiPanel">AI Builder</span>
                 }
                 else
                 {
-                    <span class="drag-handle" title="Drag to move">⋮⋮</span>
+                    <span class="drag-handle" title="Drag to move">â‹®â‹®</span>
                     <span class="panel-title">AI Builder</span>
-                    <button class="panel-toggle-btn" @onclick="ToggleAiPanel">×</button>
+                    <button class="panel-toggle-btn" @onclick="ToggleAiPanel">Ã—</button>
                 }
             </div>
 
@@ -169,7 +169,7 @@
                             @foreach (var provider in aiProviders)
                             {
                                 <option value="@provider.Name">
-                                    @provider.Name @(provider.HasKey ? "" : "⚠️")
+                                    @provider.Name @(provider.HasKey ? "" : "âš ï¸")
                                 </option>
                             }
                         </select>
@@ -180,20 +180,20 @@
                             }
                         </select>
                         <select @bind="aiChatMode" class="ai-mode-dropdown">
-                            <option value="Ask">💬 Ask</option>
-                            <option value="Build">🔧 Build</option>
-                            <option value="Edit">✏️ Edit</option>
+                            <option value="Ask">ðŸ’¬ Ask</option>
+                            <option value="Build">ðŸ”§ Build</option>
+                            <option value="Edit">âœï¸ Edit</option>
                         </select>
                         <select @bind="aiTemperatureMode" class="ai-temp-dropdown" title="AI Temperature">
-                            <option value="Focused">🎯 Focused</option>
-                            <option value="Creative">🎨 Creative</option>
+                            <option value="Focused">ðŸŽ¯ Focused</option>
+                            <option value="Creative">ðŸŽ¨ Creative</option>
                         </select>
                     </div>
                     
                     <!-- Build Mode Warning -->
                     @if (aiChatMode == "Build" && canvasNodes.Any())
                     {
-                        <div class="ai-warning-banner">⚠️ Build mode may overwrite existing nodes</div>
+                        <div class="ai-warning-banner">âš ï¸ Build mode may overwrite existing nodes</div>
                     }
                     
                     <!-- Selected Context Nodes -->
@@ -201,8 +201,8 @@
                     {
                         <div class="ai-context-nodes">
                             <div class="context-header">
-                                <span class="context-title">📎 Selected Nodes</span>
-                                <button class="context-clear-btn" @onclick="ClearAiContext" title="Clear all">✕</button>
+                                <span class="context-title">ðŸ“Ž Selected Nodes</span>
+                                <button class="context-clear-btn" @onclick="ClearAiContext" title="Clear all">âœ•</button>
                             </div>
                             <div class="context-node-list">
                                 @foreach (var node in aiContextNodes)
@@ -210,11 +210,11 @@
                                     <div class="context-node-item">
                                         <span class="context-node-icon">@((MarkupString)GetNodeIconSvg(node))</span>
                                         <span class="context-node-name">@node.Name</span>
-                                        <button class="context-remove-btn" @onclick="@(() => RemoveFromAiContext(node))" title="Remove">✕</button>
+                                        <button class="context-remove-btn" @onclick="@(() => RemoveFromAiContext(node))" title="Remove">âœ•</button>
                                     </div>
                                 }
                             </div>
-                            <div class="context-hint">💡 Click nodes on canvas to add more</div>
+                            <div class="context-hint">ðŸ’¡ Click nodes on canvas to add more</div>
                         </div>
                     }
                     
@@ -272,13 +272,13 @@
             <div class="cost-panel-header" @onclick="ToggleCostPanel">
                 @if (isCostPanelCollapsed)
                 {
-                    <span class="panel-icon">💰</span>
+                    <span class="panel-icon">ðŸ’°</span>
                     <span class="panel-title-vertical">AI Expenses</span>
                 }
                 else
                 {
                     <span class="panel-title">AI Expenses</span>
-                    <button class="panel-toggle-btn">×</button>
+                    <button class="panel-toggle-btn">Ã—</button>
                 }
             </div>
 
@@ -305,8 +305,8 @@
                                 <span class="name">@aiNode.Name</span>
                             </div>
                             <div class="node-stats">
-                                <span class="badge badge-info" title="Input Tokens">↓ @FormatTokenCount(aiNode.InputTokens)</span>
-                                <span class="badge badge-warning" title="Output Tokens">↑ @FormatTokenCount(aiNode.OutputTokens)</span>
+                                <span class="badge badge-info" title="Input Tokens">â†“ @FormatTokenCount(aiNode.InputTokens)</span>
+                                <span class="badge badge-warning" title="Output Tokens">â†‘ @FormatTokenCount(aiNode.OutputTokens)</span>
                                 <span class="badge badge-primary" title="Cost">$@aiNode.Cost.ToString("F5")</span>
                             </div>
                         </div>
@@ -327,13 +327,13 @@
             <div class="minimap-header" @onclick="ToggleMinimap">
                 @if (isMinimapCollapsed)
                 {
-                    <span class="panel-icon">🗺️</span>
+                    <span class="panel-icon">ðŸ—ºï¸</span>
                     <span class="panel-title-vertical">Minimap</span>
                 }
                 else
                 {
                     <span class="panel-title">Minimap</span>
-                    <button class="panel-toggle-btn">×</button>
+                    <button class="panel-toggle-btn">Ã—</button>
                 }
             </div>
 
@@ -368,13 +368,13 @@
             <div class="custom-node-panel-header" @onclick="ToggleCustomNodePanel">
                 @if (isCustomNodePanelCollapsed)
                 {
-                    <span class="panel-icon">📚</span>
+                    <span class="panel-icon">ðŸ“š</span>
                     <span class="panel-title-vertical">Catalog</span>
                 }
                 else
                 {
-                    <span class="panel-title">📚 Catalog</span>
-                    <button class="panel-toggle-btn">×</button>
+                    <span class="panel-title">ðŸ“š Catalog</span>
+                    <button class="panel-toggle-btn">Ã—</button>
                 }
             </div>
 
@@ -386,10 +386,10 @@
                                @bind="customNodeSearchText" 
                                @bind:event="oninput"
                                @bind:after="OnSearchTextChanged"
-                               placeholder="🔍 Search nodes..." />
+                               placeholder="ðŸ” Search nodes..." />
                         @if (isSearchLoading)
                         {
-                            <span class="search-loading">⏳</span>
+                            <span class="search-loading">â³</span>
                         }
                     </div>
                     
@@ -419,7 +419,7 @@
                                 var isExpanded = IsCatalogCategoryExpanded(category.Id);
                                 <div class="custom-node-category @(isExpanded ? "expanded" : "")">
                                     <div class="custom-node-category-header" @onclick="() => ToggleCatalogCategory(category.Id)">
-                                        <span class="category-chevron">@(isExpanded ? "▼" : "▶")</span>
+                                        <span class="category-chevron">@(isExpanded ? "â–¼" : "â–¶")</span>
                                         <span class="category-icon">
                                             @if (!string.IsNullOrWhiteSpace(category.IconSvg))
                                             {
@@ -431,13 +431,13 @@
                                             }
                                             else
                                             {
-                                                <span>📁</span>
+                                                <span>ðŸ“</span>
                                             }
                                         </span>
                                         <span class="category-name">@category.Name</span>
                                         @if (loadingCategories.Contains(category.Id))
                                         {
-                                            <span class="category-count">⏳</span>
+                                            <span class="category-count">â³</span>
                                         }
                                     </div>
                                     @if (isExpanded)
@@ -460,7 +460,7 @@
                                                     }
                                                     else
                                                     {
-                                                        <span>🧩</span>
+                                                        <span>ðŸ§©</span>
                                                     }
                                                 </div>
                                                 <div class="custom-node-item-content">
@@ -767,7 +767,7 @@
                         <div class="node-header @(ExecutionManager.IsRunning(node.Id) ? "node-running" : "")">
                             @if (node.IsTrigger)
                             {
-                                <span class="trigger-indicator" title="Trigger Node">⚡</span>
+                                <span class="trigger-indicator" title="Trigger Node">âš¡</span>
                             }
                             @{
                                 var customNodeDef = NodeHelper.IsCustomNode(node.NodeType) 
@@ -818,7 +818,7 @@
                             <button class="view-cache" 
                                     @onclick="@(() => OpenCacheViewer(node.Id))"
                                     @onclick:stopPropagation
-                                    title="View Cached Data">📦</button>
+                                    title="View Cached Data">ðŸ“¦</button>
                         }
 
                         @if (node.NodeType == "StorageTable")
@@ -826,7 +826,7 @@
                             <button class="view-cache" 
                                     @onclick="@(() => OpenStorageTableViewer(node.Id))"
                                     @onclick:stopPropagation
-                                    title="View Table Data">📦</button>
+                                    title="View Table Data">ðŸ“¦</button>
                         }
 
                         @if (node.NodeType == "VectorDb")
@@ -834,7 +834,7 @@
                             <button class="view-cache" 
                                     @onclick="@(() => OpenVectorDbViewer(node.Id))"
                                     @onclick:stopPropagation
-                                    title="View Vector Data">📦</button>
+                                    title="View Vector Data">ðŸ“¦</button>
                         }
 
                         @if (node.NodeType == "AzureBlob")
@@ -842,7 +842,7 @@
                             <button class="view-cache" 
                                     @onclick="@(() => OpenBlobViewer(node.Id))"
                                     @onclick:stopPropagation
-                                    title="Browse Blob Storage">📦</button>
+                                    title="Browse Blob Storage">ðŸ“¦</button>
                         }
 
                         @if (node.NodeType == "S2GStorage")
@@ -850,13 +850,13 @@
                             <button class="view-cache" 
                                     @onclick="@(() => OpenS2GStorageViewer(node.Id))"
                                     @onclick:stopPropagation
-                                    title="Browse Files">📦</button>
+                                    title="Browse Files">ðŸ“¦</button>
                         }
 
                         <!-- Delete button -->
                         <button class="delete-node" 
                                 @onclick="@(() => DeleteNode(node.Id))"
-                                @onclick:stopPropagation>×</button>
+                                @onclick:stopPropagation>Ã—</button>
                         
                         @* Scheduler countdown timer - bottom of node *@
                         @if (node.NodeType == "Scheduler")
@@ -894,30 +894,30 @@
     <div class="node-toolbar @(isPaletteCollapsed ? "collapsed" : "")">
         <div class="toolbar-header">
             <div class="toolbar-search">
-                <input type="text" @bind="nodeSearchText" @bind:event="oninput" placeholder="🔍 Search nodes..." />
+                <input type="text" @bind="nodeSearchText" @bind:event="oninput" placeholder="ðŸ” Search nodes..." />
             </div>
             <div class="toolbar-categories">
                 <button class="category-tab @(selectedToolbarCategory == "HTTP" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "HTTP")">
-                    🌐 HTTP
+                    ðŸŒ HTTP
                 </button>
                 <button class="category-tab @(selectedToolbarCategory == "AI" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "AI")">
-                    🤖 AI
+                    ðŸ¤– AI
                 </button>
                 <button class="category-tab @(selectedToolbarCategory == "Database" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "Database")">
-                    🗄️ Database
+                    ðŸ—„ï¸ Database
                 </button>
                 <button class="category-tab @(selectedToolbarCategory == "DataProcessing" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "DataProcessing")">
-                    🔄 Processing
+                    ðŸ”„ Processing
                 </button>
                 <button class="category-tab @(selectedToolbarCategory == "Integration" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "Integration")">
-                    ☁️ Cloud
+                    â˜ï¸ Cloud
                 </button>
                 <button class="category-tab @(selectedToolbarCategory == "M365" ? "active" : "")" @onclick="@(() => selectedToolbarCategory = "M365")">
-                    Ⓜ️ M365
+                    â“‚ï¸ M365
                 </button>
             </div>
             <button class="toolbar-toggle" @onclick="TogglePalette" title="@(isPaletteCollapsed ? "Show Nodes" : "Hide Nodes")">
-                @(isPaletteCollapsed ? "▲" : "▼")
+                @(isPaletteCollapsed ? "â–²" : "â–¼")
             </button>
         </div>
         
@@ -929,21 +929,21 @@
                     @if (IsNodeVisible("Listener", "HttpListener"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("HttpListener"))">
-                            <div class="node-icon">🔊</div>
+                            <div class="node-icon">ðŸ”Š</div>
                             <span>Listener</span>
                         </div>
                     }
                     @if (IsNodeVisible("Request", "HttpRequest"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("HttpRequest"))">
-                            <div class="node-icon">🌐</div>
+                            <div class="node-icon">ðŸŒ</div>
                             <span>Request</span>
                         </div>
                     }
                     @if (IsNodeVisible("Response", "HttpResponse"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("HttpResponse"))">
-                            <div class="node-icon">📤</div>
+                            <div class="node-icon">ðŸ“¤</div>
                             <span>Response</span>
                         </div>
                     }
@@ -953,70 +953,70 @@
                     @if (IsNodeVisible("OpenAI", "OpenAI"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("OpenAI"))">
-                            <div class="node-icon">🤖</div>
+                            <div class="node-icon">ðŸ¤–</div>
                             <span>OpenAI</span>
                         </div>
                     }
                     @if (IsNodeVisible("DeepSeek", "DeepSeek"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("DeepSeek"))">
-                            <div class="node-icon">🧠</div>
+                            <div class="node-icon">ðŸ§ </div>
                             <span>DeepSeek</span>
                         </div>
                     }
                     @if (IsNodeVisible("Anthropic", "Anthropic"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Anthropic"))">
-                            <div class="node-icon">🅰️</div>
+                            <div class="node-icon">ðŸ…°ï¸</div>
                             <span>Anthropic</span>
                         </div>
                     }
                     @if (IsNodeVisible("Gemini", "Gemini"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Gemini"))">
-                            <div class="node-icon">✨</div>
+                            <div class="node-icon">âœ¨</div>
                             <span>Gemini</span>
                         </div>
                     }
                     @if (IsNodeVisible("Vector", "VectorDb"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("VectorDb"))">
-                            <div class="node-icon">🧬</div>
+                            <div class="node-icon">ðŸ§¬</div>
                             <span>Vector Store</span>
                         </div>
                     }
                     @if (IsNodeVisible("Vector", "VectorClient"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("VectorClient"))">
-                            <div class="node-icon">🔍</div>
+                            <div class="node-icon">ðŸ”</div>
                             <span>Vector Client</span>
                         </div>
                     }
                     @if (IsNodeVisible("Copilot", "CopilotAgent"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("CopilotAgent"))">
-                            <div class="node-icon">🐙</div>
+                            <div class="node-icon">ðŸ™</div>
                             <span>Copilot</span>
                         </div>
                     }
                     @if (IsNodeVisible("OpenClaw", "OpenClaw"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("OpenClaw"))">
-                            <div class="node-icon">🦾</div>
+                            <div class="node-icon">ðŸ¦¾</div>
                             <span>OpenClaw</span>
                         </div>
                     }
                     @if (IsNodeVisible("Local LLM", "LocalLlm"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("LocalLlm"))">
-                            <div class="node-icon">🖥️</div>
+                            <div class="node-icon">ðŸ–¥ï¸</div>
                             <span>Local LLM</span>
                         </div>
                     }
                     @if (IsNodeVisible("Local LLM Agent", "LocalLlmAgent"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("LocalLlmAgent"))">
-                            <div class="node-icon">🖥️</div>
+                            <div class="node-icon">ðŸ–¥ï¸</div>
                             <span>Local Agent</span>
                         </div>
                     }
@@ -1026,14 +1026,14 @@
                     @if (IsNodeVisible("SQL", "SqlServer"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("SqlServer"))">
-                            <div class="node-icon">🗄️</div>
+                            <div class="node-icon">ðŸ—„ï¸</div>
                             <span>SQL</span>
                         </div>
                     }
                     @if (IsNodeVisible("Mongo", "MongoDB"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("MongoDB"))">
-                            <div class="node-icon">🍃</div>
+                            <div class="node-icon">ðŸƒ</div>
                             <span>Mongo</span>
                         </div>
                     }
@@ -1043,56 +1043,56 @@
                     @if (IsNodeVisible("Queue", "Queue"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Queue"))">
-                            <div class="node-icon">📬</div>
+                            <div class="node-icon">ðŸ“¬</div>
                             <span>Queue</span>
                         </div>
                     }
                     @if (IsNodeVisible("Condition", "Condition"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Condition"))">
-                            <div class="node-icon">❓</div>
+                            <div class="node-icon">â“</div>
                             <span>Condition</span>
                         </div>
                     }
                     @if (IsNodeVisible("Cache", "Cache"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Cache"))">
-                            <div class="node-icon">💾</div>
+                            <div class="node-icon">ðŸ’¾</div>
                             <span>Cache</span>
                         </div>
                     }
                     @if (IsNodeVisible("Table", "StorageTable"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("StorageTable"))">
-                            <div class="node-icon">🗃️</div>
+                            <div class="node-icon">ðŸ—ƒï¸</div>
                             <span>Table</span>
                         </div>
                     }
                     @if (IsNodeVisible("Client", "StorageClient"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("StorageClient"))">
-                            <div class="node-icon">📊</div>
+                            <div class="node-icon">ðŸ“Š</div>
                             <span>Client</span>
                         </div>
                     }
                     @if (IsNodeVisible("Loop", "Loop"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Loop"))">
-                            <div class="node-icon">🔁</div>
+                            <div class="node-icon">ðŸ”</div>
                             <span>Loop</span>
                         </div>
                     }
                     @if (IsNodeVisible("Scheduler", "Scheduler"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Scheduler"))">
-                            <div class="node-icon">⏰</div>
+                            <div class="node-icon">â°</div>
                             <span>Scheduler</span>
                         </div>
                     }
                     @if (IsNodeVisible("Aggregator", "Aggregator"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("Aggregator"))">
-                            <div class="node-icon">📥</div>
+                            <div class="node-icon">ðŸ“¥</div>
                             <span>Aggregator</span>
                         </div>
                     }
@@ -1102,28 +1102,28 @@
                     @if (IsNodeVisible("Azure Table", "AzureStorage"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureStorage"))">
-                            <div class="node-icon">📋</div>
+                            <div class="node-icon">ðŸ“‹</div>
                             <span>Azure Table</span>
                         </div>
                     }
                     @if (IsNodeVisible("Azure Blob", "AzureBlob"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureBlob"))">
-                            <div class="node-icon">🗂️</div>
+                            <div class="node-icon">ðŸ—‚ï¸</div>
                             <span>Azure Blob</span>
                         </div>
                     }
                     @if (IsNodeVisible("Queue Send", "AzureQueueSend"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureQueueSend"))">
-                            <div class="node-icon">📨</div>
+                            <div class="node-icon">ðŸ“¨</div>
                             <span>Queue Send</span>
                         </div>
                     }
                     @if (IsNodeVisible("Queue Monitor", "AzureQueueMonitor"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("AzureQueueMonitor"))">
-                            <div class="node-icon">📧</div>
+                            <div class="node-icon">ðŸ“§</div>
                             <span>Queue Monitor</span>
                         </div>
                     }
@@ -1133,7 +1133,7 @@
                     @if (IsNodeVisible("OneDrive", "OneDriveTrigger"))
                     {
                         <div class="toolbar-node" draggable="true" @ondragstart="@(() => StartDragFromPalette("OneDriveTrigger"))">
-                            <div class="node-icon">📂</div>
+                            <div class="node-icon">ðŸ“‚</div>
                             <span>OneDrive File Monitor</span>
                         </div>
                     }
@@ -1183,7 +1183,7 @@
                         @if (modalCustomDef != null && !string.IsNullOrWhiteSpace(modalCustomDef.Description))
                         {
                             <div class="custom-node-description mb-4" style="background: rgba(0, 168, 168, 0.1); border: 1px solid rgba(0, 168, 168, 0.3); border-radius: 8px; padding: 12px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
-                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">📋 Description</div>
+                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">ðŸ“‹ Description</div>
                                 @modalCustomDef.Description
                             </div>
                         }
@@ -1194,7 +1194,7 @@
                             if (builtInInfo != null && !string.IsNullOrWhiteSpace(builtInInfo.Description))
                             {
                                 <div class="custom-node-description mb-4" style="background: rgba(0, 168, 168, 0.1); border: 1px solid rgba(0, 168, 168, 0.3); border-radius: 8px; padding: 12px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
-                                    <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">📋 Description</div>
+                                    <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">ðŸ“‹ Description</div>
                                     @builtInInfo.Description
                                 </div>
                             }
@@ -1530,7 +1530,7 @@
                                         
                                         @* Inputs Section *@
                                         <div class="custom-node-section">
-                                            <h6 class="section-header">📥 Inputs</h6>
+                                            <h6 class="section-header">ðŸ“¥ Inputs</h6>
                                             @foreach (var field in customDef.InputFields.OrderBy(f => f.DisplayOrder))
                                             {
                                                 <div class="form-group mb-3">
@@ -1588,7 +1588,7 @@
                                         @if (customDef.OutputParameters.Any())
                                         {
                                             <div class="custom-node-section">
-                                                <h6 class="section-header">📤 Outputs</h6>
+                                                <h6 class="section-header">ðŸ“¤ Outputs</h6>
                                                 <div class="placeholder-chips">
                                                     @foreach (var param in customDef.OutputParameters.OrderBy(p => p.DisplayOrder))
                                                     {
@@ -1604,7 +1604,7 @@
                                         @if (customDef.ConnectionTags.Any())
                                         {
                                             <div class="custom-node-section">
-                                                <h6 class="section-header">🏷️ Tags</h6>
+                                                <h6 class="section-header">ðŸ·ï¸ Tags</h6>
                                                 <div class="tag-chips">
                                                     @foreach (var tag in customDef.ConnectionTags.OrderBy(t => t.DisplayOrder))
                                                     {
@@ -1627,7 +1627,7 @@
                                 else
                                 {
                                     <div class="alert alert-warning">
-                                        Custom node definition not loaded for this session. The node is still functional — check the <strong>Activity Logs</strong> tab to trace execution. To load the editor, expand catalog categories to reload the definition cache. <em style="opacity: 0.7;">We're working on improving UI caching logic.</em>
+                                        Custom node definition not loaded for this session. The node is still functional â€” check the <strong>Activity Logs</strong> tab to trace execution. To load the editor, expand catalog categories to reload the definition cache. <em style="opacity: 0.7;">We're working on improving UI caching logic.</em>
                                     </div>
                                 }
                             }
@@ -1653,7 +1653,7 @@
                                     <span class="log-msg text-truncate">@log.Message</span>
                                     @if (!string.IsNullOrEmpty(log.Detail))
                                     {
-                                        <span class="log-detail-icon">🔍</span>
+                                        <span class="log-detail-icon">ðŸ”</span>
                                     }
                                 </div>
                             }
@@ -1669,23 +1669,23 @@
                     {
                         <button class="btn @(ExecutionManager.IsRunning(editingNode.Id) ? "btn-danger" : "btn-primary")" 
                                 @onclick="@(() => ExecuteNode(editingNode))">
-                            @(ExecutionManager.IsRunning(editingNode.Id) ? "■ Stop Node" : "▶ Run Node")
+                            @(ExecutionManager.IsRunning(editingNode.Id) ? "â–  Stop Node" : "â–¶ Run Node")
                         </button>
                     }
                     else
                     {
-                        <button class="btn btn-primary" @onclick="@(() => ExecuteNode(editingNode))">▶ Run Node</button>
+                        <button class="btn btn-primary" @onclick="@(() => ExecuteNode(editingNode))">â–¶ Run Node</button>
                     }
                     @if (editingNode.NodeType == "StorageTable")
                     {
                         <button class="btn btn-info" @onclick="@(() => OpenStorageTableViewer(editingNode))">
-                            📋 View Data
+                            ðŸ“‹ View Data
                         </button>
                     }
                     @if (editingNode.NodeType == "Remote")
                     {
                         <button class="btn btn-info" @onclick="@(() => OpenRemoteMachineMonitor(editingNode))">
-                            🖥️ Monitor
+                            ðŸ–¥ï¸ Monitor
                         </button>
                     }
                     <button class="btn btn-secondary" @onclick="ClosePropertyModal">Close</button>
@@ -1771,7 +1771,7 @@
         <div class="property-modal-overlay" style="z-index: 4000;" @onclick="@(() => showDeleteConfirmation = false)">
             <div class="property-modal" style="max-width: 500px;" @onclick:stopPropagation>
                 <div class="modal-header" style="border-bottom: 1px solid rgba(231, 76, 60, 0.3);">
-                    <h3 class="m-0" style="color: #e74c3c;">⚠️ Delete Workflow</h3>
+                    <h3 class="m-0" style="color: #e74c3c;">âš ï¸ Delete Workflow</h3>
                     <button class="modal-close" @onclick="@(() => showDeleteConfirmation = false)">&times;</button>
                 </div>
                 <div class="modal-body">
@@ -1780,16 +1780,16 @@
                     <div class="deletion-details">
                         <h5>This will permanently delete:</h5>
                         <ul>
-                            <li>📦 <strong>@deletionInfo.NodeCount</strong> node(s)</li>
-                            <li>🔗 <strong>@deletionInfo.ConnectionCount</strong> connection(s)</li>
-                            <li>📋 <strong>@deletionInfo.LogCount</strong> log entr@(deletionInfo.LogCount == 1 ? "y" : "ies")</li>
+                            <li>ðŸ“¦ <strong>@deletionInfo.NodeCount</strong> node(s)</li>
+                            <li>ðŸ”— <strong>@deletionInfo.ConnectionCount</strong> connection(s)</li>
+                            <li>ðŸ“‹ <strong>@deletionInfo.LogCount</strong> log entr@(deletionInfo.LogCount == 1 ? "y" : "ies")</li>
                             @if (deletionInfo.VectorDocCount > 0)
                             {
-                                <li>🧠 <strong>@deletionInfo.VectorDocCount</strong> vector document(s)</li>
+                                <li>ðŸ§  <strong>@deletionInfo.VectorDocCount</strong> vector document(s)</li>
                             }
                             @if (deletionInfo.StorageRecordCount > 0)
                             {
-                                <li>📊 <strong>@deletionInfo.StorageRecordCount</strong> storage record(s)</li>
+                                <li>ðŸ“Š <strong>@deletionInfo.StorageRecordCount</strong> storage record(s)</li>
                             }
                         </ul>
                     </div>
@@ -1806,7 +1806,7 @@
                         }
                         else
                         {
-                            <span>🗑️ Delete Workflow</span>
+                            <span>ðŸ—‘ï¸ Delete Workflow</span>
                         }
                     </button>
                 </div>
@@ -1820,7 +1820,7 @@
         <div class="property-modal-overlay" style="z-index: 4000;" @onclick="CancelDeleteNode">
             <div class="property-modal" style="max-width: 450px; height: auto; min-height: auto;" @onclick:stopPropagation>
                 <div class="modal-header" style="border-bottom: 1px solid rgba(231, 76, 60, 0.3);">
-                    <h3 class="m-0" style="color: #e74c3c;">⚠️ Delete Node</h3>
+                    <h3 class="m-0" style="color: #e74c3c;">âš ï¸ Delete Node</h3>
                     <button class="modal-close" @onclick="CancelDeleteNode">&times;</button>
                 </div>
                 <div class="modal-body" style="padding: 1.5rem;">
@@ -1835,14 +1835,14 @@
                     @if (totalConnections > 0)
                     {
                         <div class="alert alert-warning py-2 px-3" style="background: rgba(255, 193, 7, 0.15); border: 1px solid rgba(255, 193, 7, 0.3); color: var(--text-primary);">
-                            <small>🔗 This will also remove <strong>@totalConnections</strong> connection(s)</small>
+                            <small>ðŸ”— This will also remove <strong>@totalConnections</strong> connection(s)</small>
                         </div>
                     }
                 </div>
                 <div class="modal-footer d-flex justify-content-end gap-2 p-3" style="border-top: 1px solid var(--border-color);">
                     <button class="btn btn-secondary" @onclick="CancelDeleteNode">Cancel</button>
                     <button class="btn btn-danger" @onclick="ConfirmDeleteNode">
-                        🗑️ Delete Node
+                        ðŸ—‘ï¸ Delete Node
                     </button>
                 </div>
             </div>
@@ -1857,7 +1857,7 @@
         
         <div class="context-menu" style="left: @(contextMenuX)px; top: @(contextMenuY)px;">
             <div class="context-menu-item" @onclick="HandleContextConnect">
-                <span>🔗</span> Connect To...
+                <span>ðŸ”—</span> Connect To...
             </div>
             
             @if (incomingConnections.Any())
@@ -1870,7 +1870,7 @@
                     if (sourceNode != null)
                     {
                         <div class="context-menu-item" @onclick="@(() => DisconnectConnection(conn.SourceId, conn.TargetId))">
-                            <span>✂️</span> @sourceNode.Name
+                            <span>âœ‚ï¸</span> @sourceNode.Name
                         </div>
                     }
                 }
@@ -1886,7 +1886,7 @@
                     if (targetNode != null)
                     {
                         <div class="context-menu-item" @onclick="@(() => DisconnectConnection(conn.SourceId, conn.TargetId))">
-                            <span>✂️</span> @targetNode.Name
+                            <span>âœ‚ï¸</span> @targetNode.Name
                         </div>
                     }
                 }
@@ -1897,19 +1897,19 @@
             {
                 <div class="context-menu-separator"></div>
                 <div class="context-menu-item" @onclick="ToggleNodeTrigger">
-                    <span>⚡</span> @(contextMenuNode?.IsTrigger == true ? "Unmark as Trigger" : "Mark as Trigger")
+                    <span>âš¡</span> @(contextMenuNode?.IsTrigger == true ? "Unmark as Trigger" : "Mark as Trigger")
                 </div>
             }
             
             <div class="context-menu-separator"></div>
             <div class="context-menu-item delete" @onclick="HandleContextDelete">
-                <span>🗑️</span> Delete Node
+                <span>ðŸ—‘ï¸</span> Delete Node
             </div>
             
             <!-- Add Surface Field -->
             <div class="context-menu-separator"></div>
             <div class="context-menu-item" @onclick="ShowAddSurfaceFieldMenu">
-                <span>📊</span> Add Surface Field
+                <span>ðŸ“Š</span> Add Surface Field
             </div>
         </div>
         
@@ -1931,7 +1931,7 @@
                 {
                     <div class="context-menu-item" @onclick="@(() => AddSurfaceField(surfaceFieldSearchText))"
                          style="border-bottom: 1px solid var(--border-color);">
-                        <span>🏷️</span> Add as custom label: "@surfaceFieldSearchText"
+                        <span>ðŸ·ï¸</span> Add as custom label: "@surfaceFieldSearchText"
                     </div>
                 }
                 
@@ -1940,7 +1940,7 @@
                     @foreach (var placeholder in filteredPlaceholders)
                     {
                         <div class="context-menu-item" @onclick="@(() => AddSurfaceField(placeholder))">
-                            <span>📎</span> @placeholder
+                            <span>ðŸ“Ž</span> @placeholder
                         </div>
                     }
                 }
@@ -1966,11 +1966,11 @@
                        @bind:event="oninput" />
             </div>
             <div class="context-menu-item" @onclick="SaveSurfaceFieldEdit">
-                <span>💾</span> Save Changes
+                <span>ðŸ’¾</span> Save Changes
             </div>
             <div class="context-menu-separator"></div>
             <div class="context-menu-item delete" @onclick="RemoveSurfaceField">
-                <span>🗑️</span> Remove Field
+                <span>ðŸ—‘ï¸</span> Remove Field
             </div>
         </div>
     }
@@ -1989,25 +1989,25 @@
                        placeholder="Enter label or select below" />
             </div>
             <div class="context-menu-item" @onclick="SaveConnectionLabel">
-                <span>💾</span> Save Label
+                <span>ðŸ’¾</span> Save Label
             </div>
             <div class="context-menu-separator"></div>
             <div class="context-menu-section-header">Quick Labels</div>
             <div class="context-menu-item preset-label" @onclick="@(() => SetConnectionLabelPreset("no-wait"))" title="Fire-and-forget: branch executes independently without blocking">
-                <span>⚡</span> no-wait
+                <span>âš¡</span> no-wait
                 <small class="preset-description">Fire-and-forget execution</small>
             </div>
             <div class="context-menu-item preset-label" @onclick="@(() => SetConnectionLabelPreset("true"))" title="Condition branch: executes when condition is true">
-                <span>✅</span> true
+                <span>âœ…</span> true
                 <small class="preset-description">Condition: true branch</small>
             </div>
             <div class="context-menu-item preset-label" @onclick="@(() => SetConnectionLabelPreset("false"))" title="Condition branch: executes when condition is false">
-                <span>❌</span> false
+                <span>âŒ</span> false
                 <small class="preset-description">Condition: false branch</small>
             </div>
             <div class="context-menu-separator"></div>
             <div class="context-menu-item delete" @onclick="DeleteConnection">
-                <span>🗑️</span> Delete Connection
+                <span>ðŸ—‘ï¸</span> Delete Connection
             </div>
         </div>
         <div class="context-menu-backdrop" @onclick="CloseConnectionContextMenu"></div>
@@ -2020,7 +2020,7 @@
             <div class="modal-dialog modal-lg modal-dialog-centered">
                 <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
                     <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
-                        <h5 class="modal-title" style="color: var(--accent-color);">📦 Cache Viewer</h5>
+                        <h5 class="modal-title" style="color: var(--accent-color);">ðŸ“¦ Cache Viewer</h5>
                         <button type="button" class="btn-close btn-close-white" @onclick="@(() => showCacheViewer = false)"></button>
                     </div>
                     <div class="modal-body">
@@ -2042,7 +2042,7 @@
             <div class="modal-dialog modal-xl modal-dialog-centered">
                 <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
                     <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
-                        <h5 class="modal-title" style="color: var(--accent-color);">🗃️ Storage Table Data</h5>
+                        <h5 class="modal-title" style="color: var(--accent-color);">ðŸ—ƒï¸ Storage Table Data</h5>
                         <button type="button" class="btn-close btn-close-white" @onclick="@(() => showStorageTableViewer = false)"></button>
                     </div>
                     <div class="modal-body">
@@ -2064,7 +2064,7 @@
             <div class="modal-dialog modal-xl modal-dialog-centered">
                 <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
                     <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
-                        <h5 class="modal-title" style="color: var(--accent-color);">🖥️ Remote Machine Monitor</h5>
+                        <h5 class="modal-title" style="color: var(--accent-color);">ðŸ–¥ï¸ Remote Machine Monitor</h5>
                         <button type="button" class="btn-close btn-close-white" @onclick="@(() => showRemoteMachineMonitor = false)"></button>
                     </div>
                     <div class="modal-body">
@@ -2086,7 +2086,7 @@
             <div class="modal-dialog modal-xl modal-dialog-centered">
                 <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
                     <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
-                        <h5 class="modal-title" style="color: var(--accent-color);">🧬 Vector Database</h5>
+                        <h5 class="modal-title" style="color: var(--accent-color);">ðŸ§¬ Vector Database</h5>
                         <button type="button" class="btn-close btn-close-white" @onclick="@(() => showVectorDbViewer = false)"></button>
                     </div>
                     <div class="modal-body">
@@ -2108,7 +2108,7 @@
             <div class="modal-dialog modal-xl modal-dialog-centered">
                 <div class="modal-content" style="background: var(--background-medium); border: 1px solid var(--border-color);">
                     <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
-                        <h5 class="modal-title" style="color: var(--accent-color);">🗂️ Azure Blob Storage</h5>
+                        <h5 class="modal-title" style="color: var(--accent-color);">ðŸ—‚ï¸ Azure Blob Storage</h5>
                         <button type="button" class="btn-close btn-close-white" @onclick="@(() => showBlobViewer = false)"></button>
                     </div>
                     <div class="modal-body">
@@ -2140,7 +2140,7 @@
                             }
                             else
                             {
-                                <span>📁</span>
+                                <span>ðŸ“</span>
                             }
                             My Storage
                         </h5>

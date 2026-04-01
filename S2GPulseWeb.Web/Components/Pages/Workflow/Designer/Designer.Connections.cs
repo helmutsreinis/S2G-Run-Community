@@ -9,10 +9,21 @@ namespace S2GPulseWeb.Web.Components.Pages.Workflow.Designer;
 /// </summary>
 public partial class Designer
 {
-    private void HandleNodeMouseUp(MouseEventArgs e, CanvasNode node)
+    private async void HandleNodeMouseUp(MouseEventArgs e, CanvasNode node)
     {
+        var wasResizingActive = resizingNode != null;
+
         draggingNode = null;
+        resizingNode = null;
+        isPanning = false;
+
         if (isConnecting) EndConnection(node);
+
+        if (wasResizingActive && wasResizing)
+        {
+            await Task.Delay(50);
+            wasResizing = false;
+        }
     }
 
     private void StartConnectionFromHandle(MouseEventArgs e, CanvasNode node, ConnectionSide side)
